@@ -1,4 +1,4 @@
-# Nessun effetto: il segnale della chitarra passa così com'è.
-# Serve per controllare il livello d'ingresso: se distorce anche qui,
-# il gain della Scarlett è troppo alto (anello rosso attorno alla manopola).
+# No effects: the guitar signal passes through untouched.
+# Use it to check the input level: if it distorts even here,
+# the interface gain is too high (red ring around the knob on a Scarlett).
 name = "Dry"

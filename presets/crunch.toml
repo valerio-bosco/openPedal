@@ -1,18 +1,18 @@
-# Crunch rock: drive asimmetrico (tipo valvola) in una 4x12 chiusa.
+# Rock crunch: asymmetric (tube-like) drive into a closed-back 4x12.
 name = "Crunch"
-output_db = -8   # stesso volume percepito del clean
+output_db = -8   # same perceived loudness as the clean preset
 
 [[block]]
 type = "gate"
 threshold_db = -55
 
 [[block]]
-type = "filter"  # stringe i bassi prima del drive: distorsione meno "fangosa"
+type = "filter"  # tightens the lows before the drive: less "muddy" distortion
 kind = "highpass"
 freq = 120
 
 [[block]]
-type = "filter"  # spinta sui medi, alla Tube Screamer
+type = "filter"  # mid boost, Tube Screamer style
 kind = "peak"
 freq = 800
 q = 0.8
@@ -21,16 +21,16 @@ gain_db = 6
 [[block]]
 type = "drive"
 shape = "asym"
-gain_db = 12     # più alto = più distorsione
+gain_db = 12     # higher = more distortion
 level_db = -4
 bias = 0.15
 
 [[block]]
-type = "cab"     # 4x12 chiusa: bassi più "pugno", alti tagliati prima
+type = "cab"     # closed-back 4x12: punchier lows, earlier high cut
 low_hz = 105
 low_q = 1.5
 high_hz = 4800
-mid_db = -4      # medi leggermente scavati, classico rock
+mid_db = -4      # slightly scooped mids, classic rock
 presence_db = 3
 ripple_db = 3.5
 seed = 7

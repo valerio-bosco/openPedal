@@ -2,7 +2,7 @@
 name = "openpedal"
 version = "0.1.0"
 edition = "2021"
-description = "Pedaliera di effetti per chitarra in tempo reale, con effetti definiti da preset"
+description = "Real-time guitar effects with a node-graph editor for building and combining pedals"
 
 [dependencies]
 jack = "0.13"
@@ -26,6 +26,6 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
-# Anche in debug il DSP deve girare veloce, altrimenti il callback sfora il buffer.
+# The DSP must be fast in debug builds too, or the callback overruns the buffer.
 [profile.dev]
 opt-level = 2

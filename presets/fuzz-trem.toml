@@ -1,4 +1,4 @@
-# Esperimento: fuzz pesante con tremolo a onda quadra.
+# Experiment: heavy fuzz with a square-wave tremolo.
 name = "Fuzz + Tremolo"
 output_db = -4
 
@@ -13,7 +13,7 @@ gain_db = 36
 level_db = -10
 
 [[block]]
-type = "cab"     # cassa scura: il fuzz senza alti diventa "lanoso"
+type = "cab"     # dark cab: fuzz without highs turns "woolly"
 low_hz = 110
 low_q = 1.6
 high_hz = 3800

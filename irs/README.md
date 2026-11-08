@@ -1,16 +1,15 @@
-# IR di casse
+# Cab IRs
 
-Metti qui i file WAV con le risposte all'impulso (IR) di casse vere. Poi in un preset:
+Put WAV files with impulse responses (IRs) of real cabs here. Then, in a graph node or a pedal:
 
 ```toml
-[[block]]
+[[node]]
+id = "speaker"
 type = "cab"
-ir = "irs/nome-del-file.wav"   # percorso relativo alla cartella openPedal
-max_ms = 80                     # opzionale: taglia le IR troppo lunghe
-level_db = 0                    # opzionale
+params = { ir = "irs/file-name.wav", max_ms = 80, level_db = 0 }   # path relative to the openPedal folder
 ```
 
-Formati letti: WAV mono o stereo (si usa il canale sinistro), float a 32 bit o PCM a 16/24/32 bit,
-qualsiasi frequenza di campionamento (viene convertita). Il volume viene normalizzato da solo.
+Supported: mono or stereo WAV (the left channel is used), 32-bit float or 16/24/32-bit PCM,
+any sample rate (it is converted). The volume is normalized automatically.
 
-Ci sono molti pacchetti di IR gratuiti (cerca "free guitar cab IR"). Controlla la licenza di ognuno.
+There are many free IR packs (search for "free guitar cab IR"). Check each one's license.

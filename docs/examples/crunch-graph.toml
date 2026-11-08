@@ -1,5 +1,5 @@
-# Preset v2 di esempio: crunch con un riverbero in parallelo al segnale secco.
-name = "Crunch (grafo)"
+# Example v2 preset: crunch with a reverb in parallel with the dry signal.
+name = "Crunch (graph)"
 version = 2
 
 [[node]]

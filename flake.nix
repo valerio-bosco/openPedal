@@ -1,5 +1,5 @@
 {
-  description = "openPedal - effetti per chitarra in tempo reale";
+  description = "openPedal - real-time guitar effects";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -17,15 +17,15 @@
           rustfmt
           rust-analyzer
           pkg-config
-          qpwgraph # per vedere i collegamenti audio
-          nodejs # solo per sviluppare l'interfaccia (ui/); chi usa openPedal non ne ha bisogno
+          qpwgraph # to see the audio connections
+          nodejs # only needed to develop the UI (ui/); not needed to run openPedal
         ];
-        # libjack2 serve solo per compilare (header e jack.pc); a runtime vince
-        # la libjack di PipeWire grazie a LD_LIBRARY_PATH, come fa `pw-jack`.
+        # libjack2 is only needed to build (headers and jack.pc); at runtime
+        # PipeWire's libjack wins thanks to LD_LIBRARY_PATH, like `pw-jack` does.
         buildInputs = [ pkgs.libjack2 ];
 
-        # openPedal parla JACK: la libjack di PipeWire lo collega al grafo PipeWire.
-        # (Il buffer si sceglie in openpedal.toml, non qui.)
+        # openPedal speaks JACK: PipeWire's libjack connects it to the PipeWire graph.
+        # (The buffer size is set in openpedal.toml, not here.)
         LD_LIBRARY_PATH = "${pkgs.pipewire.jack}/lib";
       };
     };

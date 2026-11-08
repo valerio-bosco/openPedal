@@ -1,4 +1,4 @@
-# Pulito spaziale: chorus + delay lungo e scuro.
+# Spacious clean: chorus plus a long, dark delay.
 name = "Ambient"
 
 [[block]]
@@ -20,7 +20,7 @@ mix = 0.35
 damp_hz = 2500
 
 [[block]]
-type = "cab"     # cassa aperta e brillante: lascia respirare chorus e delay
+type = "cab"     # bright open-back cab: lets chorus and delay breathe
 low_hz = 85
 high_hz = 6500
 mid_db = -1

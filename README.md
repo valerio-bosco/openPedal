@@ -1,79 +1,86 @@
 # openPedal
 
-Effetti per chitarra in tempo reale, senza DAW: chitarra → scheda audio → openPedal → cuffie/casse.
-Gli effetti sono **preset in TOML** costruiti combinando blocchi base; il file si ricarica da solo ogni volta che lo salvi.
+Real-time guitar effects without a DAW: guitar → audio interface → openPedal → headphones/speakers.
+You build your sound as a **graph of pedals** in a node editor (or in TOML files), and you can create new composite pedals from existing ones.
 
-## Interfaccia a nodi
+## Quick start
 
 ```sh
-nix develop
-(cd ui && npm install && npm run build)   # solo la prima volta o dopo modifiche a ui/
-cargo run --release -- ui                 # apre il browser su http://127.0.0.1:7777
+nix develop                                # Rust, Node.js and PipeWire's libjack
+(cd ui && npm install && npm run build)    # first time only, or after changing ui/
+cargo run --release -- ui                  # opens http://127.0.0.1:7777
 ```
 
-- Trascina i pedali dalla palette, collegali con i cavi da **Chitarra** ad **Ampli**: suona ciò che arriva all'Ampli.
-- Le manopole agiscono dal vivo. Più cavi in un nodo si sommano: si possono fare catene parallele.
-- **Crea pedale**: seleziona più nodi e salvali come pedale composto (`pedals/<nome>.toml`), con le manopole che scegli. Doppio clic su un pedale composto per modificarlo.
-- Opzioni: `ui PRESET` (preset iniziale, default `presets/clean.toml`), `--lan` (raggiungibile dal telefono), `--port N`, `--no-browser`, `--no-audio` (solo editor), `--in`/`--out`/`--buffer` come sotto.
-- Se la scheda audio non è disponibile, l'interfaccia parte comunque in modalità solo editor.
-- Sviluppo dell'interfaccia: `cd ui && npm run dev` (con `openpedal ui --no-browser` acceso per l'audio, altrimenti usa dati di esempio).
+- Drag pedals from the palette and wire them from **Guitar** to **Amp (output)**: whatever reaches the Amp is what you hear.
+- Knobs act live. Several cables into one node are summed, so you can build parallel chains.
+- **Create pedal**: select several nodes and save them as a composite pedal (`pedals/<name>.toml`) with the knobs you choose. Double-click a composite pedal to edit it.
+- Undo/redo (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y), delete (Del, ×, right-click menu), **New** for an empty graph, **Tidy up** to lay pedals out along the signal path.
+- Options: `ui PRESET` (initial preset, default `presets/clean.toml`), `--lan` (reachable from your phone), `--port N`, `--no-browser`, `--no-audio` (editor only), `--in`/`--out`/`--buffer` (see below).
+- If no audio interface is available, the UI still starts in editor-only mode.
+- UI development: `cd ui && npm run dev` (with `openpedal ui --no-browser` running for audio; otherwise it uses sample data).
 
-## Avvio da riga di comando
+Before playing: **turn off "Direct Monitor"** on the interface, or you will also hear the dry signal.
+Plug the guitar into the instrument input (**INST** on); set the gain so `IN` peaks around -12 dB.
+
+## Command line
 
 ```sh
-nix develop                                  # Rust + libjack di PipeWire, buffer 64
-cargo run --release                          # preset di default: presets/clean.toml
-cargo run --release -- presets/crunch.toml
-cargo run --release -- ports                 # nomi delle porte di schede e casse
-cargo run --release -- check presets/*.toml  # controlla i preset senza audio
+cargo run --release                          # play presets/clean.toml, with a status line
+cargo run --release -- presets/crunch.toml   # the preset reloads every time you save the file
+cargo run --release -- ports                 # list the audio ports
+cargo run --release -- check presets/*.toml  # validate presets without audio
+cargo run --release -- catalog               # blocks and pedals as JSON
 ```
 
-Prima di suonare: **spegni "Direct Monitor"** sulla Scarlett, altrimenti senti anche il segnale pulito.
-Chitarra nel jack frontale con **INST** attivo; regola il gain finché `IN` arriva a circa -12 dB sulle note forti.
+The status line shows input/output levels, DSP load, the actual buffer size and xruns (audio dropouts: they must stay at 0).
 
-La riga di stato mostra i livelli di ingresso e uscita, il carico DSP, il buffer reale e gli xrun (i "buchi" audio: devono restare a 0).
+## Devices and latency
 
-## Dispositivi
+`openpedal.toml` picks input and output with regexes on port names (see `ports`); `--in REGEX` / `--out REGEX` override them.
 
-`openpedal.toml` sceglie ingresso e uscita con regex sui nomi delle porte (vedi `ports`). Da riga di comando: `--in REGEX` / `--out REGEX`.
+`buffer` is how many samples are processed per cycle: fewer samples means less latency, but if the interface can't keep up the input **crackles**. Without a config file the default is 256 (5.3 ms at 48 kHz). On a Scarlett Solo 3rd gen, 96 (2 ms) is the smallest clean value; 48 and 64 drop audio. `tools/buffer-test.sh` records with several buffer sizes to find yours; `--buffer N` overrides the config.
 
-`buffer` (default 256 = 5,3 ms per ciclo) è quanti campioni elabora ogni ciclo: meno campioni = meno latenza, ma se la scheda non ce la fa l'ingresso **crepita**. Con la Scarlett Solo a 64 l'ingresso perde continuamente pezzi di segnale. `tools/prova-buffer.sh` registra con vari buffer per trovare il minimo pulito. Da riga di comando: `--buffer N`.
-
-## Registrare e rielaborare
+## Recording and re-processing
 
 ```sh
-cargo run --release -- presets/clean.toml --record recordings/take.wav --seconds 20   # sinistra pulito, destra elaborato
+cargo run --release -- presets/clean.toml --record recordings/take.wav --seconds 20   # left dry, right processed
 cargo run --release -- render presets/crunch.toml recordings/take.wav recordings/take-crunch.wav
 ```
-`render` applica un preset al canale pulito di una registrazione: si possono provare i preset senza suonare.
 
-## Blocchi disponibili
+`render` runs a preset on the dry channel of a recording, so you can tweak presets without playing.
 
-| `type`    | Parametri (default)                                                     |
-|-----------|-------------------------------------------------------------------------|
-| `gain`    | `db` (0)                                                                |
-| `gate`    | `threshold_db` (-60), `attack_ms` (0.5), `hold_ms` (40), `release_ms` (80) |
-| `drive`   | `shape` = soft/hard/asym/fuzz/fold (soft), `gain_db` (12), `level_db` (-6), `bias` (0.2, solo asym) |
-| `filter`  | `kind` = lowpass/highpass/bandpass/notch/peak/lowshelf/highshelf, `freq` (1000), `q` (0.707), `gain_db` (0) |
-| `delay`   | `time_ms` (350), `feedback` (0.35), `mix` (0.3), `damp_hz` (5000)       |
-| `chorus`  | `rate_hz` (0.8), `base_ms` (12), `depth_ms` (3), `mix` (0.5)            |
-| `tremolo` | `rate_hz` (5), `depth` (0.5), `wave` = sine/triangle/square             |
-| `cab`     | simulazione di cassa. Da file: `ir` (percorso WAV), `max_ms` (80). Procedurale: `low_hz` (100), `low_q` (1.3), `high_hz` (5000), `mid_hz` (500), `mid_db` (-3), `presence_hz` (2500), `presence_db` (3), `ripple_db` (3), `seed` (1). Per entrambe: `level_db` (0) |
+## Blocks
 
-La cassa va di solito dopo il drive e prima di chorus e delay. Le IR da file vanno in `irs/` (vedi `irs/LEGGIMI.md`).
-Con la cassa procedurale ogni `seed` produce irregolarità diverse del cono, cioè una cassa diversa.
+| `type`       | Parameters (default)                                                    |
+|--------------|-------------------------------------------------------------------------|
+| `gain`       | `db` (0)                                                                |
+| `gate`       | `threshold_db` (-60), `attack_ms` (0.5), `hold_ms` (40), `release_ms` (80) |
+| `compressor` | `threshold_db` (-20), `ratio` (4), `attack_ms` (5), `release_ms` (120), `knee_db` (6), `makeup_db` (0), `mix` (1) |
+| `drive`      | `shape` = soft/hard/asym/fuzz/fold (soft), `gain_db` (12), `level_db` (-6), `bias` (0.2, asym only), `quality` = eco/alta (alta = 4x oversampling) |
+| `tonestack`  | `bass`, `mid`, `treble` (0..1, 0.5), `model` = fender/marshall/vox      |
+| `cab`        | from a file: `ir` (WAV path), `max_ms` (80). Procedural: `low_hz` (100), `low_q` (1.3), `high_hz` (5000), `mid_hz` (500), `mid_db` (-3), `presence_hz` (2500), `presence_db` (3), `ripple_db` (3), `seed` (1). Both: `level_db` (0) |
+| `filter`     | `kind` = lowpass/highpass/bandpass/notch/peak/lowshelf/highshelf, `freq` (1000), `q` (0.707), `gain_db` (0) |
+| `tremolo`    | `rate_hz` (5), `depth` (0.5), `wave` = sine/triangle/square             |
+| `chorus`     | `rate_hz` (0.8), `base_ms` (12), `depth_ms` (3), `mix` (0.5)            |
+| `delay`      | `time_ms` (350), `feedback` (0.35), `mix` (0.3), `damp_hz` (5000)       |
+| `reverb`     | `room` (0.5), `damp` (0.5), `mix` (0.25), `predelay_ms` (10), `width_hz` (8000) |
 
-Un preset è un elenco ordinato di `[[block]]`, più `name` e `output_db` (opzionali). Un parametro scritto male è un errore: il suono continua con il preset precedente.
+The cab usually goes after the drive and before modulation and time effects. IR files go in `irs/` (see `irs/README.md`). With the procedural cab, every `seed` gives different cone irregularities, i.e. a different speaker.
 
-## Aggiungere un blocco
+## Preset and pedal files
 
-1. Crea la struct dei parametri (`#[serde(default, deny_unknown_fields)]` + `Default`) e il blocco che implementa `dsp::Block`.
-2. Aggiungi la variante in `BlockSpec` (`src/dsp/mod.rs`).
+A preset (`presets/*.toml`) is a graph: `[[node]]` entries (`id`, `type`, `pos`, `params`) and `[[edge]]` entries (`from`, `to`), with exactly one `input` and one `output` node. See `docs/examples/crunch-graph.toml`. Older presets made of a linear list of `[[block]]` entries still work: they are converted to a graph on load.
 
-In `process` non si alloca memoria e non si fa I/O: gira nel thread realtime.
+A composite pedal (`pedals/<id>.toml`) is a sub-graph between the implicit nodes `pedal_in` and `pedal_out`, plus `[[knob]]` entries that map a 0..1 knob onto an inner parameter. It is used in a graph as `type = "pedal:<id>"`. See `pedals/cab-4x12.toml`.
 
-## Architettura
+A misspelled parameter is an error, and the sound keeps playing with the previous graph.
 
-- `src/engine.rs`: client JACK (servito da PipeWire), callback realtime, scambio lock-free delle catene, misuratori.
-- `src/dsp/`: blocchi e catena.
-- `src/main.rs`: riga di comando, ricaricamento dei preset, riga di stato.
+## Architecture
+
+- `src/dsp/`: the blocks and the catalog (`CATALOG` in `src/dsp/mod.rs`). Each block describes its parameters (`BlockDesc`), so the UI builds its knobs automatically.
+- `src/graph/`: graph model, loading, compilation (composite pedals expanded, topological order) and the real-time executor.
+- `src/engine.rs`: JACK client (served by PipeWire), real-time callback, lock-free swap of graphs with a 20 ms crossfade, meters.
+- `src/server/`: HTTP + WebSocket server for the UI, behind the `EngineHandle` trait; `src/live.rs` implements it on the real engine.
+- `ui/`: the node editor (React + React Flow), embedded in the binary at build time.
+
+`docs/PLAN.md` describes the contracts between these parts. See `CONTRIBUTING.md` before sending changes.
