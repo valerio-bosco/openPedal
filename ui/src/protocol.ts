@@ -99,6 +99,8 @@ export interface StateMsg {
   catalog: CatalogItem[];
   graph: GraphFile;
   presets: string[];
+  /** Contenuto dei pedali composti (id -> pedale), per aprirli e modificarli. */
+  pedals: Record<string, PedalFile>;
   audio: AudioInfo;
 }
 

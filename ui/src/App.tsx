@@ -118,6 +118,7 @@ function Editor() {
       setCatalogItems(m.catalog);
       setPresets(m.presets);
       setAudio(m.audio);
+      pedals.current = { ...pedals.current, ...m.pedals };
       const pend = pending.current;
       if (pend && m.catalog.some((c) => c.kind === pend.kind)) {
         pending.current = undefined;
@@ -331,7 +332,7 @@ function Editor() {
     if (!node.data.kind.startsWith(PEDAL_PREFIX) || editing) return;
     const id = node.data.kind.slice(PEDAL_PREFIX.length);
     const p = pedals.current[id];
-    if (!p) return toast("Il contenuto di questo pedale non è disponibile: si può modificare solo dopo averlo creato qui.");
+    if (!p) return toast("Il contenuto di questo pedale non è disponibile (file in pedals/ mancante o non valido).");
     const f = specsToFlow(p.node, p.edge);
     const xs = p.node.map((n) => n.pos[0]);
     const ys = p.node.map((n) => n.pos[1]);

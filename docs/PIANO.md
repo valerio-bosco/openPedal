@@ -375,7 +375,10 @@ Le memorie si allocano **solo** in `build`.
 5. Scheletro `ui/` (Vite + React + TS + xyflow) che compila; `nodejs` aggiunto al flake.
 6. Commit "fase 0", poi lancio di A1, B1, C1, D1, D2, D3 e D4 in parallelo, ciascuno nel suo worktree.
 
-## 9. Integrazione (I2, Opus)
+## 9. Integrazione (I2, Opus) — fatta l'8/11/2026
+
+Aggiunte durante l'integrazione: `src/live.rs` (EngineHandle del motore vero, con ricostruzione automatica per i parametri non modificabili dal vivo, come la cassa procedurale), `pedals` nel messaggio `state`, nodo indicato negli errori del grafo, filtro con glide dei parametri.
+
 Merge nell'ordine D1 → D2/D3/D4 → A1 → B1 → C1, risolvendo i conflitti sul catalogo; revisione delle regole realtime in ogni `process` / `set_param`; `render` sulle registrazioni in `recordings/` per verificare i livelli; prova dal vivo con la Scarlett insieme all'utente.
 
 ## 10. Fase 3 (dopo)

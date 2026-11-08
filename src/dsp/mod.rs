@@ -19,7 +19,7 @@ mod tonestack;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-pub use params::{BlockDesc, Category, ParamDesc, ParamKind, ParamValues, Value};
+pub use params::{BlockDesc, ParamKind, ParamValues, Value};
 
 /// Un'unità di elaborazione: lavora in-place su un blocco di campioni mono.
 pub trait Block: Send {
@@ -33,6 +33,7 @@ pub trait Block: Send {
     fn set_param(&mut self, _index: usize, _value: f32) {}
 
     /// Azzera lo stato interno (code di delay e riverbero, inviluppi...).
+    #[allow(dead_code)] // previsto per un futuro comando "silenzia tutto"; implementato dai blocchi
     fn reset(&mut self) {}
 }
 
@@ -103,12 +104,15 @@ fn default_name() -> String {
     "senza nome".into()
 }
 
-/// La catena pronta per il thread audio.
+/// La vecchia catena lineare: resta solo come riferimento nei test
+/// (i preset v1 devono suonare identici convertiti in grafo).
+#[cfg(test)]
 pub struct Chain {
     blocks: Vec<Box<dyn Block>>,
     out_gain: f32,
 }
 
+#[cfg(test)]
 impl Chain {
     /// Prepara la catena (fuori dal thread audio): può leggere file, quindi può fallire.
     pub fn build(preset: &Preset, sr: f32) -> Result<Chain> {

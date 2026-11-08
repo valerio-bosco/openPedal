@@ -71,6 +71,7 @@ export class MockServer {
       catalog: this.catalog,
       graph: this.graph,
       presets: this.presets,
+      pedals: this.pedals,
       audio: { ...base.audio, running: false },
     };
   }

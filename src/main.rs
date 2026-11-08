@@ -1,6 +1,7 @@
 mod dsp;
 mod engine;
 mod graph;
+mod live;
 mod server;
 mod wav;
 
@@ -137,23 +138,56 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     let mut port = 7777u16;
     let mut open_browser = true;
     let mut lan = false;
+    let mut audio = true;
+    let mut preset_path = PathBuf::from("presets/clean.toml");
+    let mut config = load_config()?;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--port" => port = args.next().context("--port vuole un numero")?.parse().context("--port vuole un numero")?,
             "--no-browser" => open_browser = false,
             "--lan" => lan = true,
-            _ => anyhow::bail!("opzione sconosciuta per ui: {arg}"),
+            "--no-audio" => audio = false,
+            "--in" => config.input = args.next().context("--in vuole una regex")?,
+            "--out" => config.output = args.next().context("--out vuole una regex")?,
+            "--buffer" => {
+                config.buffer = args.next().context("--buffer vuole un numero")?.parse().context("--buffer vuole un numero")?
+            }
+            a if a.starts_with("--") => anyhow::bail!("opzione sconosciuta per ui: {arg}"),
+            _ => preset_path = PathBuf::from(arg),
         }
     }
-    // Parte dal primo preset leggibile, altrimenti da un grafo vuoto.
     let presets_dir = PathBuf::from("presets");
-    let graph = server::list_presets(&presets_dir)
-        .into_iter()
-        .find_map(|name| graph::load::read_graph(&presets_dir.join(format!("{name}.toml"))).ok())
-        .unwrap_or_else(server::mock::default_graph);
-    let engine = std::sync::Arc::new(server::mock::MockEngine::new("pedals", graph));
-    server::run(engine, server::ServerOptions { port, open_browser, lan, presets_dir, pedals_dir: PathBuf::from("pedals") })
+    let pedals_dir = PathBuf::from("pedals");
+    let graph = graph::load::read_graph(&preset_path).unwrap_or_else(|e| {
+        eprintln!("{e:#}: parto da un grafo vuoto");
+        server::mock::default_graph()
+    });
+
+    let engine: std::sync::Arc<dyn server::EngineHandle> = if audio {
+        match start_live(&config, graph.clone(), &pedals_dir) {
+            Ok(live) => live,
+            Err(e) => {
+                eprintln!("audio non disponibile ({e:#}): solo editor, senza suono");
+                std::sync::Arc::new(server::mock::MockEngine::new(&pedals_dir, graph))
+            }
+        }
+    } else {
+        std::sync::Arc::new(server::mock::MockEngine::new(&pedals_dir, graph))
+    };
+    server::run(engine, server::ServerOptions { port, open_browser, lan, presets_dir, pedals_dir })
+}
+
+/// Avvia il motore audio vero con il grafo iniziale.
+fn start_live(config: &Config, graph: GraphFile, pedals_dir: &Path) -> Result<std::sync::Arc<live::LiveEngine>> {
+    std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
+    let client = engine::open_client("openPedal")?;
+    let sr = client.sample_rate() as f32;
+    let pedals = graph::load::read_pedals(pedals_dir)?;
+    let (plan, map) = graph::compile(&graph, &pedals, sr)?;
+    let engine = Engine::start(client, plan, &config.input, &config.output, None)?;
+    eprintln!("  {} Hz, preset \"{}\"", engine.sample_rate, graph.name);
+    Ok(live::LiveEngine::new(engine, map, graph, pedals, pedals_dir.to_path_buf()))
 }
 
 /// Il catalogo in JSON, come lo riceve l'interfaccia.
@@ -180,6 +214,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         catalog,
         graph: graph.clone(),
         presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-grafo".into()],
+        pedals: pedals.iter().cloned().collect(),
         audio: AudioInfo { sample_rate: 48000, buffer: 96, running: true },
     });
     write("state.json", serde_json::to_string_pretty(&state)?)?;

@@ -11,7 +11,6 @@ pub mod mock;
 pub mod protocol;
 
 pub use app::{run, ServerOptions};
-pub use files::list as list_presets;
 
 use anyhow::Result;
 

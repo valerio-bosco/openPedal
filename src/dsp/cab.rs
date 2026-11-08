@@ -162,7 +162,7 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
     let mut acc = [0.0f32; 8];
     let (ac, ar) = a.split_at(a.len() / 8 * 8);
     let (bc, br) = b.split_at(ac.len());
-    for (x, y) in ac.chunks_exact(8).zip(bc.chunks_exact(8)) {
+    for (x, y) in ac.as_chunks::<8>().0.iter().zip(bc.as_chunks::<8>().0) {
         for i in 0..8 {
             acc[i] += x[i] * y[i];
         }

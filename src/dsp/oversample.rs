@@ -144,6 +144,7 @@ impl Oversampler4 {
     }
 
     /// Latenza introdotta, in campioni alla frequenza base.
+    #[allow(dead_code)] // servirà per compensare la latenza tra rami paralleli del grafo
     pub fn latency() -> f32 {
         (TAPS1 - 1) as f32 / 2.0 + (TAPS2 - 1) as f32 / 4.0
     }

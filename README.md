@@ -3,7 +3,22 @@
 Effetti per chitarra in tempo reale, senza DAW: chitarra → scheda audio → openPedal → cuffie/casse.
 Gli effetti sono **preset in TOML** costruiti combinando blocchi base; il file si ricarica da solo ogni volta che lo salvi.
 
-## Avvio
+## Interfaccia a nodi
+
+```sh
+nix develop
+(cd ui && npm install && npm run build)   # solo la prima volta o dopo modifiche a ui/
+cargo run --release -- ui                 # apre il browser su http://127.0.0.1:7777
+```
+
+- Trascina i pedali dalla palette, collegali con i cavi da **Chitarra** ad **Ampli**: suona ciò che arriva all'Ampli.
+- Le manopole agiscono dal vivo. Più cavi in un nodo si sommano: si possono fare catene parallele.
+- **Crea pedale**: seleziona più nodi e salvali come pedale composto (`pedals/<nome>.toml`), con le manopole che scegli. Doppio clic su un pedale composto per modificarlo.
+- Opzioni: `ui PRESET` (preset iniziale, default `presets/clean.toml`), `--lan` (raggiungibile dal telefono), `--port N`, `--no-browser`, `--no-audio` (solo editor), `--in`/`--out`/`--buffer` come sotto.
+- Se la scheda audio non è disponibile, l'interfaccia parte comunque in modalità solo editor.
+- Sviluppo dell'interfaccia: `cd ui && npm run dev` (con `openpedal ui --no-browser` acceso per l'audio, altrimenti usa dati di esempio).
+
+## Avvio da riga di comando
 
 ```sh
 nix develop                                  # Rust + libjack di PipeWire, buffer 64

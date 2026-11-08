@@ -140,7 +140,9 @@ fn error(message: String, node: Option<String>) -> ServerMsg {
 }
 
 fn error_from(e: anyhow::Error) -> ServerMsg {
-    error(format!("{e:#}"), None)
+    // Se l'errore viene dal grafo e riguarda un nodo, l'interfaccia lo evidenzia.
+    let node = e.chain().find_map(|c| c.downcast_ref::<crate::graph::GraphError>()).and_then(|g| g.node.clone());
+    error(format!("{e:#}"), node)
 }
 
 pub fn state_msg(state: &AppState) -> ServerMsg {
@@ -148,6 +150,7 @@ pub fn state_msg(state: &AppState) -> ServerMsg {
         catalog: state.engine.catalog(),
         graph: state.engine.graph(),
         presets: files::list(&state.presets_dir),
+        pedals: crate::graph::load::read_pedals(&state.pedals_dir).unwrap_or_default().into_iter().collect(),
         audio: state.engine.audio(),
     })
 }

@@ -2,6 +2,8 @@
 //! Gli esempi JSON in ui/src/fixtures/ sono generati da questi tipi
 //! (`openpedal dev-fixtures ui/src/fixtures`).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::graph::model::{CatalogItem, GraphFile, PedalFile};
@@ -45,6 +47,8 @@ pub struct StateMsg {
     pub graph: GraphFile,
     /// Nomi dei preset disponibili (file in presets/ senza estensione).
     pub presets: Vec<String>,
+    /// Contenuto dei pedali composti (id -> pedale), per poterli aprire e modificare.
+    pub pedals: BTreeMap<String, PedalFile>,
     pub audio: AudioInfo,
 }
 

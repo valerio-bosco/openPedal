@@ -92,16 +92,52 @@ struct Coefs {
 /// Biquad (formule "Audio EQ Cookbook" di R. Bristow-Johnson),
 /// forma diretta II trasposta.
 pub struct Biquad {
-    params: FilterParams,
+    /// Parametri chiesti da set_param e parametri effettivi, che li raggiungono
+    /// gradualmente: uno sweep della manopola non deve fare click.
+    target: FilterParams,
+    current: FilterParams,
+    glide: f32,
     sr: f32,
     c: Coefs,
     z1: f32,
     z2: f32,
 }
 
+/// Ogni quanti campioni si ricalcolano i coefficienti durante uno sweep.
+const GLIDE_STEP: usize = 16;
+
 impl Biquad {
     pub fn new(p: &FilterParams, sr: f32) -> Self {
-        Self { params: p.clone(), sr, c: coefficients(p, sr), z1: 0.0, z2: 0.0 }
+        Self {
+            target: p.clone(),
+            current: p.clone(),
+            // circa 20 ms per arrivare a destinazione
+            glide: (-(GLIDE_STEP as f32) / (0.02 * sr)).exp(),
+            sr,
+            c: coefficients(p, sr),
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    /// Avvicina i parametri effettivi a quelli chiesti; true se sono cambiati.
+    fn glide(&mut self) -> bool {
+        let (t, c, k) = (&self.target, &mut self.current, self.glide);
+        if t.freq == c.freq && t.q == c.q && t.gain_db == c.gain_db {
+            return false;
+        }
+        let close = (t.freq / c.freq - 1.0).abs() < 1e-3 && (t.q - c.q).abs() < 1e-3 && (t.gain_db - c.gain_db).abs() < 1e-2;
+        if close {
+            c.freq = t.freq;
+            c.q = t.q;
+            c.gain_db = t.gain_db;
+        } else {
+            // la frequenza si muove in scala logaritmica, come la si sente
+            c.freq = (t.freq.ln() + (c.freq.ln() - t.freq.ln()) * k).exp();
+            c.q = t.q + (c.q - t.q) * k;
+            c.gain_db = t.gain_db + (c.gain_db - t.gain_db) * k;
+        }
+        true
     }
 }
 
@@ -155,26 +191,35 @@ fn coefficients(p: &FilterParams, sr: f32) -> Coefs {
 
 impl Block for Biquad {
     fn process(&mut self, buf: &mut [f32]) {
-        let c = self.c;
-        for s in buf {
-            let x = *s;
-            let y = c.b0 * x + self.z1;
-            self.z1 = c.b1 * x - c.a1 * y + self.z2;
-            self.z2 = c.b2 * x - c.a2 * y;
-            *s = y;
+        for chunk in buf.chunks_mut(GLIDE_STEP) {
+            if self.glide() {
+                self.c = coefficients(&self.current, self.sr);
+            }
+            let c = self.c;
+            for s in chunk {
+                let x = *s;
+                let y = c.b0 * x + self.z1;
+                self.z1 = c.b1 * x - c.a1 * y + self.z2;
+                self.z2 = c.b2 * x - c.a2 * y;
+                *s = y;
+            }
         }
     }
 
     fn set_param(&mut self, index: usize, value: f32) {
         match index {
-            KIND => self.params.kind = FilterKind::ALL[(value as usize).min(FilterKind::ALL.len() - 1)],
-            FREQ => self.params.freq = value,
-            Q => self.params.q = value,
-            GAIN_DB => self.params.gain_db = value,
-            _ => return,
+            // cambiare tipo è comunque un salto: lo si applica subito
+            KIND => {
+                let kind = FilterKind::ALL[(value as usize).min(FilterKind::ALL.len() - 1)];
+                self.target.kind = kind;
+                self.current.kind = kind;
+                self.c = coefficients(&self.current, self.sr);
+            }
+            FREQ => self.target.freq = value.max(1.0),
+            Q => self.target.q = value,
+            GAIN_DB => self.target.gain_db = value,
+            _ => {}
         }
-        // Solo i coefficienti cambiano: lo stato dei filtri (z1, z2) resta, così non ci sono salti.
-        self.c = coefficients(&self.params, self.sr);
     }
 }
 
@@ -205,5 +250,20 @@ mod tests {
         f.process(&mut buf);
         let after = peak(&buf[4800..]);
         assert!(after < 0.1, "con freq 200 il seno a 1 kHz deve attenuarsi: {after}");
+    }
+
+    #[test]
+    fn lo_sweep_della_frequenza_non_fa_salti() {
+        // Seno a 300 Hz in un passa-basso che scende di colpo da 8 kHz a 400 Hz:
+        // l'uscita deve cambiare gradualmente, senza discontinuità.
+        let mut f = Biquad::new(&FilterParams { freq: 8000.0, ..Default::default() }, SR);
+        let n = 9600;
+        let mut buf: Vec<f32> = (0..n).map(|i| (std::f32::consts::TAU * 300.0 * i as f32 / SR).sin() * 0.5).collect();
+        f.process(&mut buf[..4800]);
+        f.set_param(FREQ, 400.0);
+        f.process(&mut buf[4800..]);
+        let max_step = buf.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+        // la pendenza massima di un seno a 300 Hz di ampiezza 0,5 è circa 0,02 per campione
+        assert!(max_step < 0.03, "salto {max_step}");
     }
 }

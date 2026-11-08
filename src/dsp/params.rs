@@ -162,15 +162,6 @@ impl ParamValues {
         }
     }
 
-    /// Il valore come lo riceve `Block::set_param` (numero o indice di scelta).
-    pub fn as_f32(&self, desc: &ParamDesc) -> f32 {
-        match desc.kind {
-            ParamKind::Number { .. } => self.number(desc),
-            ParamKind::Choice { .. } => self.choice(desc) as f32,
-            ParamKind::File { .. } => 0.0,
-        }
-    }
-
     /// Controlla nomi e tipi: un refuso in un preset deve essere un errore chiaro.
     pub fn validate(&self, block: &BlockDesc) -> Result<()> {
         for (id, value) in &self.0 {

@@ -838,6 +838,58 @@
     "crunch",
     "crunch-grafo"
   ],
+  "pedals": {
+    "cassa-4x12": {
+      "name": "Cassa 4x12",
+      "category": "amp",
+      "description": "Cassa chiusa da rock: bassi con pugno, medi scavati.",
+      "node": [
+        {
+          "id": "c",
+          "type": "cab",
+          "pos": [
+            0.0,
+            0.0
+          ],
+          "params": {
+            "high_hz": 4800.0,
+            "low_hz": 105.0,
+            "low_q": 1.5,
+            "mid_db": -4.0,
+            "presence_db": 3.0,
+            "ripple_db": 3.5,
+            "seed": 7.0
+          }
+        }
+      ],
+      "edge": [
+        {
+          "from": "pedal_in",
+          "to": "c"
+        },
+        {
+          "from": "c",
+          "to": "pedal_out"
+        }
+      ],
+      "knob": [
+        {
+          "label": "Brillantezza",
+          "target": "c.high_hz",
+          "min": 3500.0,
+          "max": 7000.0,
+          "default": 0.4
+        },
+        {
+          "label": "Medi",
+          "target": "c.mid_db",
+          "min": -10.0,
+          "max": 6.0,
+          "default": 0.4
+        }
+      ]
+    }
+  },
   "audio": {
     "sample_rate": 48000,
     "buffer": 96,
