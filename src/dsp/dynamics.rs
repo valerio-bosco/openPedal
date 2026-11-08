@@ -35,7 +35,7 @@ impl Block for Gain {
     }
 }
 
-// ---- Gate (da migrare: D1) ---------------------------------------------------
+// ---- Gate ------------------------------------------------------------------
 
 pub const GATE_DESC: BlockDesc = BlockDesc {
     kind: "gate",
@@ -48,6 +48,12 @@ pub const GATE_DESC: BlockDesc = BlockDesc {
         ParamDesc::log("release_ms", "Rilascio", 5.0, 2000.0, 80.0, "ms"),
     ],
 };
+
+// Indici dei parametri in GATE_DESC.
+const GATE_THRESHOLD: usize = 0;
+const GATE_ATTACK: usize = 1;
+const GATE_HOLD: usize = 2;
+const GATE_RELEASE: usize = 3;
 
 pub fn build_gate(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     let p = GATE_DESC.params;
@@ -77,6 +83,7 @@ impl Default for GateParams {
 }
 
 pub struct Gate {
+    sr: f32,
     open_thr: f32,
     close_thr: f32,
     env: f32,
@@ -91,6 +98,7 @@ pub struct Gate {
 impl Gate {
     pub fn new(p: &GateParams, sr: f32) -> Self {
         Self {
+            sr,
             open_thr: db_to_lin(p.threshold_db),
             // Isteresi di 6 dB: evita che il gate "balbetti" attorno alla soglia.
             close_thr: db_to_lin(p.threshold_db - 6.0),
@@ -122,5 +130,47 @@ impl Block for Gate {
             self.gain = target + (self.gain - target) * coef;
             *s *= self.gain;
         }
+    }
+
+    fn set_param(&mut self, index: usize, value: f32) {
+        match index {
+            GATE_THRESHOLD => {
+                self.open_thr = db_to_lin(value);
+                self.close_thr = db_to_lin(value - 6.0);
+            }
+            GATE_ATTACK => self.attack = one_pole_coef(value, self.sr),
+            GATE_HOLD => self.hold_samples = (value * 0.001 * self.sr) as u32,
+            GATE_RELEASE => self.release = one_pole_coef(value, self.sr),
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine(freq: f32, amp: f32, n: usize) -> Vec<f32> {
+        (0..n).map(|i| amp * (std::f32::consts::TAU * freq * i as f32 / SR).sin()).collect()
+    }
+
+    fn peak(buf: &[f32]) -> f32 {
+        buf.iter().fold(0.0, |m, s| m.max(s.abs()))
+    }
+
+    #[test]
+    fn set_param_cambia_la_soglia_dal_vivo() {
+        // Un segnale a -40 dB passa con soglia -60, ma viene chiuso con soglia -30.
+        let mut g = Gate::new(&GateParams::default(), SR);
+        let mut buf = sine(220.0, 0.01, 9600);
+        g.process(&mut buf);
+        assert!(peak(&buf[4800..]) > 0.009);
+
+        g.set_param(GATE_THRESHOLD, -30.0);
+        let mut buf = sine(220.0, 0.01, 24000);
+        g.process(&mut buf);
+        assert!(peak(&buf[19200..]) < 0.001, "{}", peak(&buf[19200..]));
     }
 }

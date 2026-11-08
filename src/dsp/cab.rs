@@ -11,10 +11,9 @@ use anyhow::{ensure, Context, Result};
 use rustfft::num_complex::Complex32;
 use rustfft::FftPlanner;
 use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
-use super::{db_to_lin, Block};
+use super::{db_to_lin, Block, Smoothed};
 use crate::wav;
 
-// Da migrare (D1): i parametri procedurali richiedono una ricostruzione; set_param per level_db.
 pub const CAB_DESC: BlockDesc = BlockDesc {
     kind: "cab",
     label: "Cassa",
@@ -35,6 +34,10 @@ pub const CAB_DESC: BlockDesc = BlockDesc {
         ParamDesc::int("seed", "Seme", 0.0, 9999.0, 1.0),
     ],
 };
+
+// Indici dei parametri in CAB_DESC. Solo il livello cambia dal vivo: gli altri
+// modificano la risposta all'impulso, quindi servono una ricostruzione del blocco.
+const LEVEL: usize = 2;
 
 pub fn build_cab(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     let p = CAB_DESC.params;
@@ -107,6 +110,8 @@ const FFT_LEN: usize = 8192;
 
 pub struct Cab {
     ir: Vec<f32>,
+    /// Livello in uscita, smussato: è l'unico parametro che cambia dal vivo.
+    level: Smoothed,
     /// Storico dei campioni duplicato (2 x len): la finestra da moltiplicare
     /// per l'IR è sempre contigua, così il compilatore la vettorizza.
     history: Vec<f32>,
@@ -120,12 +125,13 @@ impl Cab {
             None => procedural_ir(p, sr),
         };
         normalize(&mut ir, sr);
-        let gain = db_to_lin(p.level_db);
-        for s in &mut ir {
-            *s *= gain;
-        }
         let len = ir.len();
-        Ok(Self { ir, history: vec![0.0; len * 2], pos: 0 })
+        Ok(Self {
+            ir,
+            level: Smoothed::new(db_to_lin(p.level_db), 15.0, sr),
+            history: vec![0.0; len * 2],
+            pos: 0,
+        })
     }
 }
 
@@ -137,7 +143,15 @@ impl Block for Cab {
             self.pos = if self.pos == 0 { len - 1 } else { self.pos - 1 };
             self.history[self.pos] = *s;
             self.history[self.pos + len] = *s;
-            *s = dot(&self.ir, &self.history[self.pos..self.pos + len]);
+            *s = dot(&self.ir, &self.history[self.pos..self.pos + len]) * self.level.next();
+        }
+    }
+
+    fn set_param(&mut self, index: usize, value: f32) {
+        // Gli altri indici (IR, lunghezza, procedurali, seme) sono ignorati: cambiano
+        // l'IR, che si ricalcola solo quando si ricostruisce il blocco.
+        if index == LEVEL {
+            self.level.target = db_to_lin(value);
         }
     }
 }
@@ -357,16 +371,34 @@ mod tests {
 
     #[test]
     fn la_convoluzione_e_un_fir_corretto() {
-        let mut cab = Cab { ir: vec![0.5, 0.25, 0.125], history: vec![0.0; 6], pos: 0 };
+        let mut cab = Cab { ir: vec![0.5, 0.25, 0.125], level: Smoothed::new(1.0, 15.0, SR), history: vec![0.0; 6], pos: 0 };
         let mut buf = vec![1.0, 0.0, 0.0, 0.0, 2.0];
         cab.process(&mut buf);
         assert_eq!(buf, vec![0.5, 0.25, 0.125, 0.0, 1.0]);
     }
 
     #[test]
+    fn set_param_cambia_il_livello_dal_vivo() {
+        let mut cab = Cab::new(&CabParams::default(), SR).unwrap();
+        let sine = |from: usize, n: usize| -> Vec<f32> {
+            (from..from + n).map(|i| 0.5 * (std::f32::consts::TAU * 1000.0 * i as f32 / SR).sin()).collect()
+        };
+        let mut buf = sine(0, 9600);
+        cab.process(&mut buf);
+        let before = buf[4800..].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+
+        // -20 dB: dopo il glide (15 ms) il picco è un decimo.
+        cab.set_param(LEVEL, -20.0);
+        let mut buf = sine(9600, 48000);
+        cab.process(&mut buf);
+        let after = buf[buf.len() - 4800..].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!((after / before - 0.1).abs() < 0.02, "rapporto {}", after / before);
+    }
+
+    #[test]
     fn abbastanza_veloce_per_il_tempo_reale() {
         // IR lunga 80 ms (caso peggiore da file): 1 s di audio deve costare molto meno di 1 s.
-        let mut cab = Cab { ir: vec![0.001; 3840], history: vec![0.0; 7680], pos: 0 };
+        let mut cab = Cab { ir: vec![0.001; 3840], level: Smoothed::new(1.0, 15.0, SR), history: vec![0.0; 7680], pos: 0 };
         let mut buf = vec![0.1f32; 48000];
         let t = std::time::Instant::now();
         for block in buf.chunks_mut(96) {
