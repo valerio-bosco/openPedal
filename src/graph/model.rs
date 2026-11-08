@@ -15,11 +15,11 @@ pub const PEDAL_PREFIX: &str = "pedal:";
 pub const PEDAL_IN: &str = "pedal_in";
 pub const PEDAL_OUT: &str = "pedal_out";
 
-pub const INPUT_DESC: BlockDesc = BlockDesc { kind: INPUT, label: "Chitarra", category: Category::Io, params: &[] };
+pub const INPUT_DESC: BlockDesc = BlockDesc { kind: INPUT, label: "Guitar", category: Category::Io, params: &[] };
 
 pub const OUTPUT_DESC: BlockDesc = BlockDesc {
     kind: OUTPUT,
-    label: "Ampli (uscita)",
+    label: "Amp (output)",
     category: Category::Io,
     params: &[ParamDesc::number("volume_db", "Volume", -60.0, 12.0, 0.0, "dB")],
 };

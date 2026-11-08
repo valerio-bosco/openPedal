@@ -17,7 +17,7 @@
   {
     "type": "set_graph",
     "graph": {
-      "name": "Crunch (grafo)",
+      "name": "Crunch (graph)",
       "version": 2,
       "node": [
         {
@@ -123,9 +123,9 @@
   },
   {
     "type": "save_preset",
-    "name": "mio-suono",
+    "name": "my-sound",
     "graph": {
-      "name": "Crunch (grafo)",
+      "name": "Crunch (graph)",
       "version": 2,
       "node": [
         {
@@ -281,10 +281,10 @@
   },
   {
     "type": "delete_preset",
-    "name": "vecchio-suono"
+    "name": "old-sound"
   },
   {
     "type": "delete_pedal",
-    "id": "vecchio-pedale"
+    "id": "old-pedal"
   }
 ]

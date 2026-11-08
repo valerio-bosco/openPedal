@@ -239,10 +239,10 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::SetParam { node: "dist".into(), param: "shape".into(), value: 3.0 },
         ClientMsg::SetGraph { graph: graph.clone() },
         ClientMsg::LoadPreset { name: "clean".into() },
-        ClientMsg::SavePreset { name: "mio-suono".into(), graph },
+        ClientMsg::SavePreset { name: "my-sound".into(), graph },
         ClientMsg::SavePedal { id: "cab-4x12".into(), pedal },
-        ClientMsg::DeletePreset { name: "vecchio-suono".into() },
-        ClientMsg::DeletePedal { id: "vecchio-pedale".into() },
+        ClientMsg::DeletePreset { name: "old-sound".into() },
+        ClientMsg::DeletePedal { id: "old-pedal".into() },
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
     println!("fixtures written to {}", dir.display());

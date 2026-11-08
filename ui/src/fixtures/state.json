@@ -3,14 +3,14 @@
   "catalog": [
     {
       "kind": "input",
-      "label": "Chitarra",
+      "label": "Guitar",
       "category": "io",
       "params": [],
       "composite": false
     },
     {
       "kind": "output",
-      "label": "Ampli (uscita)",
+      "label": "Amp (output)",
       "category": "io",
       "params": [
         {
@@ -53,7 +53,7 @@
       "params": [
         {
           "id": "threshold_db",
-          "label": "Soglia",
+          "label": "Threshold",
           "kind": "number",
           "min": -90.0,
           "max": 0.0,
@@ -64,7 +64,7 @@
         },
         {
           "id": "attack_ms",
-          "label": "Attacco",
+          "label": "Attack",
           "kind": "number",
           "min": 0.1,
           "max": 50.0,
@@ -75,7 +75,7 @@
         },
         {
           "id": "hold_ms",
-          "label": "Tenuta",
+          "label": "Hold",
           "kind": "number",
           "min": 1.0,
           "max": 500.0,
@@ -86,7 +86,7 @@
         },
         {
           "id": "release_ms",
-          "label": "Rilascio",
+          "label": "Release",
           "kind": "number",
           "min": 5.0,
           "max": 2000.0,
@@ -100,12 +100,12 @@
     },
     {
       "kind": "compressor",
-      "label": "Compressore",
+      "label": "Compressor",
       "category": "dynamics",
       "params": [
         {
           "id": "threshold_db",
-          "label": "Soglia",
+          "label": "Threshold",
           "kind": "number",
           "min": -60.0,
           "max": 0.0,
@@ -116,7 +116,7 @@
         },
         {
           "id": "ratio",
-          "label": "Rapporto",
+          "label": "Ratio",
           "kind": "number",
           "min": 1.0,
           "max": 20.0,
@@ -127,7 +127,7 @@
         },
         {
           "id": "attack_ms",
-          "label": "Attacco",
+          "label": "Attack",
           "kind": "number",
           "min": 0.1,
           "max": 100.0,
@@ -138,7 +138,7 @@
         },
         {
           "id": "release_ms",
-          "label": "Rilascio",
+          "label": "Release",
           "kind": "number",
           "min": 10.0,
           "max": 1000.0,
@@ -149,7 +149,7 @@
         },
         {
           "id": "knee_db",
-          "label": "Ginocchio",
+          "label": "Knee",
           "kind": "number",
           "min": 0.0,
           "max": 12.0,
@@ -160,7 +160,7 @@
         },
         {
           "id": "makeup_db",
-          "label": "Guadagno",
+          "label": "Gain",
           "kind": "number",
           "min": 0.0,
           "max": 24.0,
@@ -190,7 +190,7 @@
       "params": [
         {
           "id": "shape",
-          "label": "Curva",
+          "label": "Shape",
           "kind": "choice",
           "options": [
             "soft",
@@ -214,7 +214,7 @@
         },
         {
           "id": "level_db",
-          "label": "Livello",
+          "label": "Level",
           "kind": "number",
           "min": -40.0,
           "max": 12.0,
@@ -225,7 +225,7 @@
         },
         {
           "id": "bias",
-          "label": "Asimmetria",
+          "label": "Bias",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -236,7 +236,7 @@
         },
         {
           "id": "quality",
-          "label": "Qualità",
+          "label": "Quality",
           "kind": "choice",
           "options": [
             "eco",
@@ -254,7 +254,7 @@
       "params": [
         {
           "id": "bass",
-          "label": "Bassi",
+          "label": "Bass",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -265,7 +265,7 @@
         },
         {
           "id": "mid",
-          "label": "Medi",
+          "label": "Mid",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -276,7 +276,7 @@
         },
         {
           "id": "treble",
-          "label": "Alti",
+          "label": "Treble",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -287,7 +287,7 @@
         },
         {
           "id": "model",
-          "label": "Modello",
+          "label": "Model",
           "kind": "choice",
           "options": [
             "fender",
@@ -301,12 +301,12 @@
     },
     {
       "kind": "cab",
-      "label": "Cassa",
+      "label": "Cab",
       "category": "amp",
       "params": [
         {
           "id": "ir",
-          "label": "IR (file WAV)",
+          "label": "IR (WAV file)",
           "kind": "file",
           "extensions": [
             "wav"
@@ -314,7 +314,7 @@
         },
         {
           "id": "max_ms",
-          "label": "Lunghezza max IR",
+          "label": "Max IR length",
           "kind": "number",
           "min": 5.0,
           "max": 500.0,
@@ -325,7 +325,7 @@
         },
         {
           "id": "level_db",
-          "label": "Livello",
+          "label": "Level",
           "kind": "number",
           "min": -24.0,
           "max": 24.0,
@@ -336,7 +336,7 @@
         },
         {
           "id": "low_hz",
-          "label": "Risonanza",
+          "label": "Resonance",
           "kind": "number",
           "min": 40.0,
           "max": 250.0,
@@ -347,7 +347,7 @@
         },
         {
           "id": "low_q",
-          "label": "Q risonanza",
+          "label": "Resonance Q",
           "kind": "number",
           "min": 0.5,
           "max": 3.0,
@@ -358,7 +358,7 @@
         },
         {
           "id": "high_hz",
-          "label": "Taglio alti",
+          "label": "High cut",
           "kind": "number",
           "min": 1500.0,
           "max": 12000.0,
@@ -369,7 +369,7 @@
         },
         {
           "id": "mid_hz",
-          "label": "Medi",
+          "label": "Mid",
           "kind": "number",
           "min": 150.0,
           "max": 2000.0,
@@ -380,7 +380,7 @@
         },
         {
           "id": "mid_db",
-          "label": "Guadagno medi",
+          "label": "Mid gain",
           "kind": "number",
           "min": -12.0,
           "max": 12.0,
@@ -391,7 +391,7 @@
         },
         {
           "id": "presence_hz",
-          "label": "Presenza",
+          "label": "Presence",
           "kind": "number",
           "min": 1000.0,
           "max": 6000.0,
@@ -402,7 +402,7 @@
         },
         {
           "id": "presence_db",
-          "label": "Guadagno presenza",
+          "label": "Presence gain",
           "kind": "number",
           "min": -12.0,
           "max": 12.0,
@@ -413,7 +413,7 @@
         },
         {
           "id": "ripple_db",
-          "label": "Irregolarità",
+          "label": "Ripple",
           "kind": "number",
           "min": 0.0,
           "max": 12.0,
@@ -424,7 +424,7 @@
         },
         {
           "id": "seed",
-          "label": "Seme",
+          "label": "Seed",
           "kind": "number",
           "min": 0.0,
           "max": 9999.0,
@@ -438,12 +438,12 @@
     },
     {
       "kind": "filter",
-      "label": "Filtro / EQ",
+      "label": "Filter / EQ",
       "category": "filter",
       "params": [
         {
           "id": "kind",
-          "label": "Tipo",
+          "label": "Type",
           "kind": "choice",
           "options": [
             "lowpass",
@@ -458,7 +458,7 @@
         },
         {
           "id": "freq",
-          "label": "Frequenza",
+          "label": "Frequency",
           "kind": "number",
           "min": 20.0,
           "max": 20000.0,
@@ -480,7 +480,7 @@
         },
         {
           "id": "gain_db",
-          "label": "Guadagno",
+          "label": "Gain",
           "kind": "number",
           "min": -24.0,
           "max": 24.0,
@@ -499,7 +499,7 @@
       "params": [
         {
           "id": "rate_hz",
-          "label": "Velocità",
+          "label": "Rate",
           "kind": "number",
           "min": 0.1,
           "max": 20.0,
@@ -510,7 +510,7 @@
         },
         {
           "id": "depth",
-          "label": "Profondità",
+          "label": "Depth",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -521,7 +521,7 @@
         },
         {
           "id": "wave",
-          "label": "Onda",
+          "label": "Wave",
           "kind": "choice",
           "options": [
             "sine",
@@ -540,7 +540,7 @@
       "params": [
         {
           "id": "rate_hz",
-          "label": "Velocità",
+          "label": "Rate",
           "kind": "number",
           "min": 0.05,
           "max": 10.0,
@@ -551,7 +551,7 @@
         },
         {
           "id": "base_ms",
-          "label": "Ritardo",
+          "label": "Delay",
           "kind": "number",
           "min": 1.0,
           "max": 30.0,
@@ -562,7 +562,7 @@
         },
         {
           "id": "depth_ms",
-          "label": "Profondità",
+          "label": "Depth",
           "kind": "number",
           "min": 0.0,
           "max": 15.0,
@@ -592,7 +592,7 @@
       "params": [
         {
           "id": "time_ms",
-          "label": "Tempo",
+          "label": "Time",
           "kind": "number",
           "min": 10.0,
           "max": 2000.0,
@@ -603,7 +603,7 @@
         },
         {
           "id": "feedback",
-          "label": "Ripetizioni",
+          "label": "Feedback",
           "kind": "number",
           "min": 0.0,
           "max": 0.98,
@@ -625,7 +625,7 @@
         },
         {
           "id": "damp_hz",
-          "label": "Tono eco",
+          "label": "Echo tone",
           "kind": "number",
           "min": 200.0,
           "max": 20000.0,
@@ -639,12 +639,12 @@
     },
     {
       "kind": "reverb",
-      "label": "Riverbero",
+      "label": "Reverb",
       "category": "time",
       "params": [
         {
           "id": "room",
-          "label": "Stanza",
+          "label": "Room",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -655,7 +655,7 @@
         },
         {
           "id": "damp",
-          "label": "Smorzamento",
+          "label": "Damping",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -688,7 +688,7 @@
         },
         {
           "id": "width_hz",
-          "label": "Tono",
+          "label": "Tone",
           "kind": "number",
           "min": 2000.0,
           "max": 12000.0,
@@ -733,7 +733,7 @@
     }
   ],
   "graph": {
-    "name": "Crunch (grafo)",
+    "name": "Crunch (graph)",
     "version": 2,
     "node": [
       {

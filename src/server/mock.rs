@@ -27,7 +27,7 @@ pub struct MockEngine {
 pub fn default_graph() -> GraphFile {
     let node = |id: &str, kind: &str, x: f32| NodeSpec { id: id.into(), kind: kind.into(), pos: [x, 0.0], params: Default::default() };
     GraphFile {
-        name: "Nuovo".into(),
+        name: "new".into(),
         version: 2,
         nodes: vec![node("in", INPUT, 0.0), node("out", OUTPUT, 220.0)],
         edges: vec![EdgeSpec { from: "in".into(), to: "out".into() }],
