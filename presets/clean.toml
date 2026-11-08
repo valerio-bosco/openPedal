@@ -1,0 +1,24 @@
+# Pulito vero: nessuna saturazione, una cassa 2x12 aperta e brillante.
+name = "Clean"
+output_db = 2
+
+[[block]]
+type = "gate"          # soglia bassa: toglie solo il fruscio a corde ferme
+threshold_db = -70
+release_ms = 150
+
+[[block]]
+type = "filter"        # via i bassissimi che rimbombano
+kind = "highpass"
+freq = 70
+
+[[block]]
+type = "cab"           # cassa procedurale: prova a cambiare seed o high_hz
+low_hz = 90
+low_q = 1.1
+high_hz = 6000         # più alto = più brillante
+mid_db = -2
+presence_hz = 2800
+presence_db = 2
+ripple_db = 2
+seed = 3

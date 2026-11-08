@@ -1,0 +1,28 @@
+# Pulito spaziale: chorus + delay lungo e scuro.
+name = "Ambient"
+
+[[block]]
+type = "gate"
+threshold_db = -65
+
+[[block]]
+type = "chorus"
+rate_hz = 0.6
+base_ms = 14
+depth_ms = 4
+mix = 0.45
+
+[[block]]
+type = "delay"
+time_ms = 480
+feedback = 0.55
+mix = 0.35
+damp_hz = 2500
+
+[[block]]
+type = "cab"     # cassa aperta e brillante: lascia respirare chorus e delay
+low_hz = 85
+high_hz = 6500
+mid_db = -1
+presence_db = 2
+seed = 3

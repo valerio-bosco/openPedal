@@ -1,0 +1,36 @@
+# Crunch rock: drive asimmetrico (tipo valvola) in una 4x12 chiusa.
+name = "Crunch"
+output_db = -8   # stesso volume percepito del clean
+
+[[block]]
+type = "gate"
+threshold_db = -55
+
+[[block]]
+type = "filter"  # stringe i bassi prima del drive: distorsione meno "fangosa"
+kind = "highpass"
+freq = 120
+
+[[block]]
+type = "filter"  # spinta sui medi, alla Tube Screamer
+kind = "peak"
+freq = 800
+q = 0.8
+gain_db = 6
+
+[[block]]
+type = "drive"
+shape = "asym"
+gain_db = 12     # più alto = più distorsione
+level_db = -4
+bias = 0.15
+
+[[block]]
+type = "cab"     # 4x12 chiusa: bassi più "pugno", alti tagliati prima
+low_hz = 105
+low_q = 1.5
+high_hz = 4800
+mid_db = -4      # medi leggermente scavati, classico rock
+presence_db = 3
+ripple_db = 3.5
+seed = 7

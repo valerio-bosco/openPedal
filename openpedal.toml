@@ -1,0 +1,13 @@
+# Dove arriva la chitarra e dove esce il suono.
+# Sono regex sui nomi delle porte: `openpedal ports` le elenca tutte.
+input = "Scarlett.*capture_AUX1"   # ingresso 2 della Scarlett Solo (jack INST); AUX0 è l'XLR
+output = "Scarlett.*playback"      # cuffie / monitor della Scarlett
+
+# Casse USB (latenza maggiore):
+# output = "Pebble.*playback"
+
+# Campioni per ciclo (a 48 kHz: 96 = 2 ms, 128 = 2,7 ms, 256 = 5,3 ms).
+# Misurato con tools/prova-buffer.sh l'8/11/2026 sulla Scarlett Solo:
+#   48 e 64 -> l'ingresso perde pezzi (migliaia di click); da 96 in su -> pulito.
+# Se senti crepitii con il PC sotto carico, sali a 128.
+buffer = 96

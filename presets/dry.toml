@@ -1,0 +1,4 @@
+# Nessun effetto: il segnale della chitarra passa così com'è.
+# Serve per controllare il livello d'ingresso: se distorce anche qui,
+# il gain della Scarlett è troppo alto (anello rosso attorno alla manopola).
+name = "Dry"

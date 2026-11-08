@@ -1,0 +1,28 @@
+# Esperimento: fuzz pesante con tremolo a onda quadra.
+name = "Fuzz + Tremolo"
+output_db = -4
+
+[[block]]
+type = "gate"
+threshold_db = -50
+
+[[block]]
+type = "drive"
+shape = "fuzz"
+gain_db = 36
+level_db = -10
+
+[[block]]
+type = "cab"     # cassa scura: il fuzz senza alti diventa "lanoso"
+low_hz = 110
+low_q = 1.6
+high_hz = 3800
+mid_db = 2
+ripple_db = 4
+seed = 11
+
+[[block]]
+type = "tremolo"
+rate_hz = 6
+depth = 0.8
+wave = "square"
