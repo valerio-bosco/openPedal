@@ -39,8 +39,9 @@ struct RootView: View {
     @State private var liveHeight: CGFloat?
 
     private var tint: Color {
-        guard let n = store.selected else { return Color(hex: 0xff8a3d) }
-        return enamel(for: n.type, category: store.item(for: n)?.category)
+        // Structure only: turning a knob must not redraw the whole screen.
+        guard let type = store.selectedType else { return Color(hex: 0xff8a3d) }
+        return enamel(for: type, category: store.item(kind: type)?.category)
     }
 
     /// Toolbar row (8 top + 52) and the inspector's outer padding (8 + 8): fixed chrome around the board.
@@ -51,7 +52,10 @@ struct RootView: View {
         GeometryReader { geo in
             let showInspector = store.hasPedals
             let ih = showInspector ? (liveHeight ?? (expanded ? InspectorDetent.expanded : InspectorDetent.compact)) : 0
-            let boardHeight = max(0, geo.size.height - Self.toolbarBand - (showInspector ? ih + Self.inspectorPadding : 0))
+            // The pedals scale to the detent, not to every point of a grabber drag (which would re-lay out
+            // the whole board on each touch event).
+            let detentHeight = showInspector ? (expanded ? InspectorDetent.expanded : InspectorDetent.compact) : 0
+            let boardHeight = max(0, geo.size.height - Self.toolbarBand - (showInspector ? detentHeight + Self.inspectorPadding : 0))
             ZStack {
                 Ambient(tint: tint)
                 VStack(spacing: 0) {

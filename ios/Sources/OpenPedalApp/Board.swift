@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Pedal size unit range: one "em" of the pedal layout, in points. Pedals are 9.4 x 15.75 em.
 let pedalUnitRange: ClosedRange<CGFloat> = 9...16
@@ -11,6 +12,44 @@ func pedalUnit(forBoardHeight h: CGFloat) -> CGFloat {
 private struct DragInfo: Equatable {
     var id: String
     var dx: CGFloat
+}
+
+/// Long-press then drag, as a UIKit recognizer: unlike a SwiftUI LongPress+Drag inside a ScrollView,
+/// it lets the board scroll when the finger moves before the press is recognised, and it does not
+/// fight the system context-menu preview.
+struct LongPressDrag: UIGestureRecognizerRepresentable {
+    var onBegan: () -> Void
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat) -> Void
+    var onCancelled: () -> Void
+
+    final class Coordinator { var startX: CGFloat = 0 }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let g = UILongPressGestureRecognizer()
+        g.minimumPressDuration = 0.3
+        g.allowableMovement = 10
+        return g
+    }
+
+    func handleUIGestureRecognizerAction(_ r: UILongPressGestureRecognizer, context: Context) {
+        let x = context.converter.location(in: .global).x
+        switch r.state {
+        case .began:
+            context.coordinator.startX = x
+            onBegan()
+        case .changed:
+            onChanged(x - context.coordinator.startX)
+        case .ended:
+            onEnded(x - context.coordinator.startX)
+        case .cancelled, .failed:
+            onCancelled()
+        default:
+            break
+        }
+    }
 }
 
 /// Horizontal pedalboard between the toolbar and the inspector: input jack, pedals in signal order,
@@ -27,11 +66,11 @@ struct BoardView: View, Animatable {
         set { pf = newValue }
     }
 
-    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.35, dampingFraction: 0.8)))
-    private var drag: DragInfo?
+    @State private var drag: DragInfo?
 
     private var spacing: CGFloat { pf * 1.25 }
     private var step: CGFloat { pf * 9.4 + spacing }
+    private static let settle = Animation.spring(response: 0.35, dampingFraction: 0.82)
 
     var body: some View {
         GeometryReader { geo in
@@ -66,8 +105,8 @@ struct BoardView: View, Animatable {
                         Group {
                             if node.type == "input" || node.type == "output" {
                                 JackView(store: store, node: node)
-                            } else {
-                                pedal(node, pedalIDs: pedalIDs, target: target)
+                            } else if let model = store.models[node.id] {
+                                pedal(model, pedalIDs: pedalIDs, target: target)
                             }
                         }
                         .id(node.id)
@@ -81,7 +120,6 @@ struct BoardView: View, Animatable {
                         .accessibilityLabel("Add pedal")
                     }
                 }
-                .coordinateSpace(.named("lane"))
                 .frame(minWidth: max(0, width - 80), minHeight: height)
                 .background(alignment: .center) { Wire() }
             }
@@ -90,7 +128,7 @@ struct BoardView: View, Animatable {
             .scrollDisabled(drag != nil)
             .sensoryFeedback(.selection, trigger: target)
             .onChange(of: store.selectedID) { _, id in
-                if let id { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) } }
+                if let id, drag == nil { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) } }
             }
             .task(id: expanded) {
                 // Let the inspector finish its spring before centring the selection again.
@@ -121,29 +159,40 @@ struct BoardView: View, Animatable {
         return 0
     }
 
-    private func reorder(_ id: String) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("lane")))
-            .updating($drag) { value, state, _ in
-                if case .second(true, let d) = value { state = DragInfo(id: id, dx: d?.translation.width ?? 0) }
-            }
-            .onEnded { value in
-                guard case .second(true, let d?) = value else { return }
+    private func reorder(_ id: String) -> LongPressDrag {
+        LongPressDrag(
+            onBegan: {
+                store.selectedID = id
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { drag = DragInfo(id: id, dx: 0) }
+            },
+            onChanged: { dx in drag?.dx = dx },
+            onEnded: { dx in
                 let ids = store.chain.nodes.filter { $0.type != "input" && $0.type != "output" }.map(\.id)
-                guard let from = ids.firstIndex(of: id) else { return }
-                let to = slot(from: from, dx: d.translation.width, count: ids.count)
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { store.moveTo(id, slot: to) }
-            }
+                guard let from = ids.firstIndex(of: id) else { drag = nil; return }
+                let to = slot(from: from, dx: dx, count: ids.count)
+                withAnimation(Self.settle) {
+                    store.moveTo(id, slot: to)
+                    drag = nil
+                }
+            },
+            onCancelled: { withAnimation(Self.settle) { drag = nil } }
+        )
     }
 
-    private func pedal(_ node: NodeSpec, pedalIDs: [String], target: Int?) -> some View {
-        let lifted = drag?.id == node.id
-        let dx = offsetX(node.id, pedalIDs, target)
-        return PedalView(store: store, node: node, u: pf, lifted: lifted)
+    @ViewBuilder
+    private func pedal(_ model: NodeModel, pedalIDs: [String], target: Int?) -> some View {
+        let lifted = drag?.id == model.id
+        let dx = offsetX(model.id, pedalIDs, target)
+        let view = PedalView(store: store, model: model, u: pf, lifted: lifted)
+            .equatable()
             .offset(x: dx)
             .animation(lifted ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: dx)
             .zIndex(lifted ? 1 : 0)
-            .simultaneousGesture(reorder(node.id), including: store.canEditChain ? .all : .subviews)
+        if store.canEditChain {
+            view.gesture(reorder(model.id))
+        } else {
+            view
+        }
     }
 }
 
@@ -227,62 +276,77 @@ func shortLabel(_ label: String) -> String {
 
 /// A pedal. Every dimension is a multiple of `u` (1 em), so all pedals share one layout and the board
 /// can scale them without a transform. Selection never changes the size: it lifts the pedal and draws
-/// a ring outside the body.
-struct PedalView: View {
+/// a ring outside the body. It observes only its own `NodeModel`, and is Equatable so a board redraw
+/// (drag, selection of another pedal) skips pedals whose inputs did not change.
+struct PedalView: View, Equatable {
     let store: Store
-    let node: NodeSpec
+    let model: NodeModel
     let u: CGFloat
     var lifted = false
 
+    nonisolated static func == (a: PedalView, b: PedalView) -> Bool {
+        a.model === b.model && a.u == b.u && a.lifted == b.lifted
+    }
+
     var body: some View {
-        let item = store.item(for: node)
-        let color = enamel(for: node.type, category: item?.category)
-        let isSel = store.selectedID == node.id
+        let node = model.spec
+        let item = store.item(kind: model.type)
+        let color = enamel(for: model.type, category: item?.category)
+        let isSel = store.selectedID == model.id
         let numbers = Array((item?.params ?? []).filter { $0.kind == .number }.prefix(4))
         let on = !node.bypass
         let shape = RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
 
         ZStack(alignment: .top) {
-            Text((item?.label ?? node.type).uppercased())
-                .font(.system(size: 0.82 * u, weight: .heavy, design: .rounded))
-                .tracking(0.1 * u)
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .foregroundStyle(.black.opacity(0.62))
-                .frame(width: 8.2 * u, height: 1.1 * u)
-                .padding(.top, 0.85 * u)
+            // Static face: flattened into one layer (title, knobs, LED) so scrolling moves a bitmap.
+            ZStack(alignment: .top) {
+                Text((item?.label ?? model.type).uppercased())
+                    .font(.system(size: 0.82 * u, weight: .heavy, design: .rounded))
+                    .tracking(0.1 * u)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .foregroundStyle(.black.opacity(0.62))
+                    .frame(width: 8.2 * u, height: 1.1 * u)
+                    .padding(.top, 0.85 * u)
 
-            knobZone(numbers)
-                .frame(width: 8.4 * u, height: 6.4 * u)
-                .padding(.top, 2.6 * u)
+                knobZone(numbers, node)
+                    .frame(width: 8.4 * u, height: 6.4 * u)
+                    .padding(.top, 2.6 * u)
 
-            Circle()
-                .fill(on ? Color(hex: 0xff3b30) : Color(hex: 0x4a0d0d))
-                .frame(width: 0.62 * u, height: 0.62 * u)
-                .shadow(color: on ? Color(hex: 0xff3b30) : .clear, radius: 0.55 * u)
-                .overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 0.5))
-                .padding(.top, 9.55 * u)
+                // LED: a radial glow instead of a blurred shadow.
+                Circle()
+                    .fill(RadialGradient(colors: [Color(hex: 0xff3b30).opacity(on ? 0.55 : 0), .clear], center: .center, startRadius: 0, endRadius: 1.0 * u))
+                    .frame(width: 2.0 * u, height: 2.0 * u)
+                    .padding(.top, 9.55 * u - 0.69 * u)
+                Circle()
+                    .fill(on ? Color(hex: 0xff3b30) : Color(hex: 0x4a0d0d))
+                    .overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 0.5))
+                    .frame(width: 0.62 * u, height: 0.62 * u)
+                    .padding(.top, 9.55 * u)
+            }
+            .frame(width: 9.4 * u, height: 15.75 * u, alignment: .top)
+            .drawingGroup()
 
-            Button { store.setBypass(node.id, on) } label: { Footswitch(u: u) }
+            Button { store.setBypass(model.id, on) } label: { Footswitch(u: u) }
                 .buttonStyle(.plain)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 1.25 * u - 8)
-                .accessibilityLabel(on ? "Bypass \(item?.label ?? node.type)" : "Enable \(item?.label ?? node.type)")
+                .accessibilityLabel(on ? "Bypass \(item?.label ?? model.type)" : "Enable \(item?.label ?? model.type)")
         }
         .frame(width: 9.4 * u, height: 15.75 * u)
         .background {
             shape
                 .fill(LinearGradient(colors: [color.opacity(0.95), color.mix(with: .black, by: 0.35)], startPoint: .top, endPoint: .bottom))
                 .overlay(shape.stroke(LinearGradient(colors: [.white.opacity(0.55), .black.opacity(0.3)], startPoint: .top, endPoint: .bottom), lineWidth: 1.2))
-                .shadow(color: lifted ? .black.opacity(0.6) : (isSel ? color.opacity(0.6) : .black.opacity(0.5)),
-                        radius: lifted ? 1.8 * u : (isSel ? 1.6 * u : 0.8 * u), y: lifted ? 1.4 * u : 0.6 * u)
                 .saturation(on ? 1 : 0.35)
                 .brightness(on ? 0 : -0.12)
+                // The only blurred shadow of the pedal.
+                .shadow(color: .black.opacity(lifted ? 0.6 : 0.5), radius: lifted ? 1.8 * u : 0.8 * u, y: lifted ? 1.4 * u : 0.6 * u)
         }
         // Selection ring: drawn outside the body, never part of the layout.
         .background {
             RoundedRectangle(cornerRadius: 1.65 * u, style: .continuous)
                 .stroke(.white.opacity(0.9), lineWidth: 2.5)
-                .shadow(color: color.opacity(0.7), radius: 1.2 * u)
+                .background(RoundedRectangle(cornerRadius: 1.65 * u, style: .continuous).fill(color.opacity(0.25)).blur(radius: 0.9 * u))
                 .padding(-0.42 * u)
                 .opacity(isSel && !lifted ? 1 : 0)
         }
@@ -292,28 +356,23 @@ struct PedalView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: lifted)
         .animation(.easeOut(duration: 0.2), value: on)
         .contentShape(shape)
-        .onTapGesture { store.selectedID = node.id }
-        .contextMenu {
-            if store.canEditChain {
-                Button("Move left", systemImage: "arrow.left") { store.movePedal(node.id, by: -1) }
-                Button("Move right", systemImage: "arrow.right") { store.movePedal(node.id, by: 1) }
-                Button("Remove", systemImage: "trash", role: .destructive) { store.removePedal(node.id) }
-            }
-        }
+        .onTapGesture { store.selectedID = model.id }
         .sensoryFeedback(.impact(weight: .medium), trigger: node.bypass)
         .sensoryFeedback(.impact(weight: .medium), trigger: lifted) { _, now in now }
         .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Move left") { store.movePedal(model.id, by: -1) }
+        .accessibilityAction(named: "Move right") { store.movePedal(model.id, by: 1) }
     }
 
-    /// Fixed-size knob area; 1 knob is bigger and centred, 2 a centred row, 3 two over one, 4 a 2x2 grid.
+/// Fixed-size knob area; 1 knob is bigger and centred, 2 a centred row, 3 two over one, 4 a 2x2 grid.
     @ViewBuilder
-    private func knobZone(_ ps: [ParamDesc]) -> some View {
+    private func knobZone(_ ps: [ParamDesc], _ node: NodeSpec) -> some View {
         let big = ps.count == 1
         VStack(spacing: 0.45 * u) {
             ForEach(Array(stride(from: 0, to: ps.count, by: 2)), id: \.self) { row in
                 HStack(spacing: 0) {
                     ForEach(Array(ps.dropFirst(row).prefix(2))) { p in
-                        miniKnob(p, big: big).frame(maxWidth: .infinity)
+                        miniKnob(p, node, big: big).frame(maxWidth: .infinity)
                     }
                 }
                 .frame(width: ps.count - row == 1 && ps.count > 1 ? 4.2 * u : nil)
@@ -322,7 +381,7 @@ struct PedalView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private func miniKnob(_ p: ParamDesc, big: Bool) -> some View {
+    private func miniKnob(_ p: ParamDesc, _ node: NodeSpec, big: Bool) -> some View {
         VStack(spacing: 0.2 * u) {
             MiniKnob(n: normalized(store.numberValue(node, p), p), size: (big ? 3.2 : 2.25) * u)
             Text(shortLabel(p.label).uppercased())
@@ -355,7 +414,7 @@ struct MiniKnob: View {
                     .frame(width: size, height: size, alignment: .top)
                     .rotationEffect(.degrees(-135 + 270 * n))
             }
-            .shadow(color: .black.opacity(0.5), radius: size * 0.08, y: size * 0.06)
+            .background(Circle().fill(.black.opacity(0.35)).offset(y: size * 0.07))
     }
 }
 
@@ -367,7 +426,7 @@ private struct Footswitch: View {
             .frame(width: 3.9 * u, height: 3.9 * u)
             .overlay(Circle().fill(Color(white: 0.85)).frame(width: 1.7 * u, height: 1.7 * u))
             .overlay(Circle().stroke(.black.opacity(0.3), lineWidth: 1))
-            .shadow(color: .black.opacity(0.5), radius: 4, y: 3)
+            .background(Circle().fill(.black.opacity(0.4)).offset(y: 3).padding(-1))
             // Generous touch target around the metal disc.
             .padding(8)
             .contentShape(Circle())

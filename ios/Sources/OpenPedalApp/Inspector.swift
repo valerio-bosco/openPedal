@@ -22,8 +22,8 @@ struct InspectorView: View {
     var body: some View {
         VStack(spacing: 0) {
             grabber
-            if let node = store.selected {
-                content(node)
+            if let model = store.selectedModel {
+                content(model)
             } else {
                 Text("Select a pedal")
                     .foregroundStyle(.secondary)
@@ -63,63 +63,24 @@ struct InspectorView: View {
     // MARK: header and body
 
     @ViewBuilder
-    private func content(_ node: NodeSpec) -> some View {
-        let item = store.item(for: node)
-        let accent = enamel(for: node.type, category: item?.category)
+    private func content(_ model: NodeModel) -> some View {
+        // Reads only structure (type, catalog): value changes redraw the cells, not this panel.
+        let item = store.item(kind: model.type)
+        let accent = enamel(for: model.type, category: item?.category)
         let params = item?.params ?? []
         VStack(spacing: 0) {
-            header(node, item, accent, count: params.count)
+            InspectorHeader(store: store, model: model, item: item, accent: accent, count: params.count, expanded: $expanded)
             if params.isEmpty {
                 Text("No controls").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if expanded {
-                expandedBody(node, params, accent)
+                expandedBody(model, params, accent)
             } else {
-                compactBody(node, params, accent)
+                compactBody(model, params, accent)
             }
         }
     }
 
-    private func header(_ node: NodeSpec, _ item: CatalogItem?, _ accent: Color, count: Int) -> some View {
-        let canBypass = node.type != "input" && node.type != "output"
-        return HStack(spacing: 12) {
-            Circle().fill(accent).frame(width: 12, height: 12).shadow(color: accent, radius: 5)
-            Text(item?.label ?? node.type)
-                .font(.system(size: 22, weight: .bold, design: .rounded)).lineLimit(1)
-            Text(kindLine(node, item)).font(.callout).foregroundStyle(.tertiary).lineLimit(1)
-            if !store.canEditChain {
-                Label("Parallel routing: edit on the desktop", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if count > 0 {
-                Button { store.resetParams(node) } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise").font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.glass)
-                Button {
-                    withAnimation(Self.snap) { expanded.toggle() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(expanded ? "Less" : "All controls · \(count)").font(.subheadline.weight(.semibold))
-                        Image(systemName: "chevron.up").font(.caption.weight(.bold))
-                            .rotationEffect(.degrees(expanded ? 180 : 0))
-                    }
-                }
-                .buttonStyle(.glass)
-            }
-            if canBypass {
-                Text("Active").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 6)
-                Toggle("Active", isOn: Binding(get: { !node.bypass }, set: { store.setBypass(node.id, !$0) }))
-                    .labelsHidden()
-                    .tint(.green)
-            }
-        }
-        .frame(height: 44)
-        .padding(.leading, 24).padding(.trailing, 16)
-        .padding(.bottom, 6)
-    }
-
-    private func compactBody(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
+    private func compactBody(_ node: NodeModel, _ params: [ParamDesc], _ accent: Color) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 cells(node, params.filter { $0.kind == .choice }, accent)
@@ -137,7 +98,7 @@ struct InspectorView: View {
         .padding(.bottom, 14)
     }
 
-    private func expandedBody(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
+    private func expandedBody(_ node: NodeModel, _ params: [ParamDesc], _ accent: Color) -> some View {
         let modes = params.filter { $0.kind == .choice }
         let controls = params.filter { $0.kind != .choice }
         return ScrollView(.vertical, showsIndicators: false) {
@@ -169,59 +130,139 @@ struct InspectorView: View {
     }
 
     @ViewBuilder
-    private func cells(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
-        ForEach(params) { p in
-            switch p.kind {
-            case .number:
-                KnobView(
-                    label: p.label,
-                    accent: accent,
-                    n: normalized(store.numberValue(node, p), p),
-                    valueText: formatValue(store.numberValue(node, p), p),
-                    detent: detent(store.numberValue(node, p), p),
-                    onBegin: { store.beginEdit() },
-                    onChange: { store.setNumber(node, p, value(forNormalized: $0, p)) },
-                    onReset: { store.setDefault(node, p) }
-                )
-            case .choice:
-                ControlCell(width: CGFloat(max(p.options.count, 2)) * 76 + 16, value: "", name: p.label) {
-                    Picker(p.label, selection: Binding(
-                        get: { store.choiceIndex(node, p) },
-                        set: { store.setChoice(node, p, index: $0) })
-                    ) {
-                        ForEach(Array(p.options.enumerated()), id: \.offset) { i, o in Text(o.capitalized).tag(i) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: CGFloat(max(p.options.count, 2)) * 76)
-                }
-            case .file:
-                ControlCell(value: fileName(node, p), name: p.label) {
-                    VStack(spacing: 4) {
-                        Image(systemName: "doc.waveform").font(.title2)
-                        Text("Desktop only").font(.caption2)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .accessibilityHint("Edit on the desktop")
+    private func cells(_ model: NodeModel, _ params: [ParamDesc], _ accent: Color) -> some View {
+        ForEach(params) { p in ParamCell(store: store, model: model, p: p, accent: accent) }
+    }
+}
+
+func knobDetent(_ v: Double, _ p: ParamDesc) -> Int {
+    p.step > 0 ? Int(((v - p.min) / p.step).rounded()) : Int((normalized(v, p) * 24).rounded())
+}
+
+/// Header row: swatch, name, kind, Reset, All controls, chain actions, Active toggle.
+/// Separate view so only it observes the bypass flag.
+private struct InspectorHeader: View {
+    let store: Store
+    let model: NodeModel
+    let item: CatalogItem?
+    let accent: Color
+    let count: Int
+    @Binding var expanded: Bool
+
+    private static let snap = Animation.spring(response: 0.4, dampingFraction: 0.85)
+
+    var body: some View {
+        let isPedal = model.type != "input" && model.type != "output"
+        HStack(spacing: 12) {
+            Circle().fill(accent).frame(width: 12, height: 12).shadow(color: accent, radius: 5)
+            Text(item?.label ?? model.type)
+                .font(.system(size: 22, weight: .bold, design: .rounded)).lineLimit(1)
+            Text(kindLine).font(.callout).foregroundStyle(.tertiary).lineLimit(1)
+            if !store.canEditChain {
+                Label("Parallel routing: edit on the desktop", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
+            Spacer(minLength: 8)
+            if count > 0 {
+                Button { store.resetParams(model.id) } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.glass)
+                Button {
+                    withAnimation(Self.snap) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(expanded ? "Less" : "All controls · \(count)").font(.subheadline.weight(.semibold))
+                        Image(systemName: "chevron.up").font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(expanded ? 180 : 0))
+                    }
+                }
+                .buttonStyle(.glass)
+            }
+            if isPedal && store.canEditChain {
+                Menu {
+                    Button("Move left", systemImage: "arrow.left") { store.movePedal(model.id, by: -1) }
+                    Button("Move right", systemImage: "arrow.right") { store.movePedal(model.id, by: 1) }
+                    Divider()
+                    Button("Remove", systemImage: "trash", role: .destructive) { store.removePedal(model.id) }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Pedal actions")
+            }
+            if isPedal {
+                Text("Active").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 6)
+                Toggle("Active", isOn: Binding(get: { !model.spec.bypass }, set: { store.setBypass(model.id, !$0) }))
+                    .labelsHidden()
+                    .tint(.green)
+            }
+        }
+        .frame(height: 44)
+        .padding(.leading, 24).padding(.trailing, 16)
+        .padding(.bottom, 6)
+    }
+
+    private var kindLine: String {
+        var parts = [item?.category.capitalized ?? "Node"]
+        if item?.composite == true { parts.append("composite") }
+        parts.append(model.id)
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// One control of the selected node; observes only that node's values. The knob inside is
+/// Equatable, so the other knobs of the pedal skip their body while one is turned.
+private struct ParamCell: View {
+    let store: Store
+    let model: NodeModel
+    let p: ParamDesc
+    let accent: Color
+
+    var body: some View {
+        let node = model.spec
+        switch p.kind {
+        case .number:
+            let v = store.numberValue(node, p)
+            KnobView(
+                label: p.label,
+                accent: accent,
+                n: normalized(v, p),
+                valueText: formatValue(v, p),
+                detent: knobDetent(v, p),
+                onBegin: { store.beginEdit() },
+                onChange: { store.setNumber(model.id, p, value(forNormalized: $0, p)) },
+                onReset: { store.setDefault(model.id, p) }
+            )
+            .equatable()
+        case .choice:
+            ControlCell(width: CGFloat(max(p.options.count, 2)) * 76 + 16, value: "", name: p.label) {
+                Picker(p.label, selection: Binding(
+                    get: { store.choiceIndex(model.spec, p) },
+                    set: { store.setChoice(model.id, p, index: $0) })
+                ) {
+                    ForEach(Array(p.options.enumerated()), id: \.offset) { i, o in Text(o.capitalized).tag(i) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: CGFloat(max(p.options.count, 2)) * 76)
+            }
+        case .file:
+            ControlCell(value: fileName(node), name: p.label) {
+                VStack(spacing: 4) {
+                    Image(systemName: "doc.waveform").font(.title2)
+                    Text("Desktop only").font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .accessibilityHint("Edit on the desktop")
         }
     }
 
-    private func kindLine(_ node: NodeSpec, _ item: CatalogItem?) -> String {
-        var parts = [item?.category.capitalized ?? "Node"]
-        if item?.composite == true { parts.append("composite") }
-        parts.append(node.id)
-        return parts.joined(separator: " · ")
-    }
-
-    private func fileName(_ node: NodeSpec, _ p: ParamDesc) -> String {
+    private func fileName(_ node: NodeSpec) -> String {
         if case .string(let s) = node.params[p.id], !s.isEmpty { return (s as NSString).lastPathComponent }
         return "built-in"
-    }
-
-    private func detent(_ v: Double, _ p: ParamDesc) -> Int {
-        p.step > 0 ? Int(((v - p.min) / p.step).rounded()) : Int((normalized(v, p) * 24).rounded())
     }
 }
 
@@ -295,7 +336,7 @@ func value(forNormalized n: Double, _ p: ParamDesc) -> Double {
 }
 
 /// Knob: drag up/right to turn up, down/left to turn down; double tap resets.
-struct KnobView: View {
+struct KnobView: View, Equatable {
     let label: String
     let accent: Color
     let n: Double
@@ -306,6 +347,12 @@ struct KnobView: View {
     let onReset: () -> Void
 
     @State private var startN: Double?
+
+    /// Closures are ignored: they only forward to the store with the node id, which never changes.
+    nonisolated static func == (a: KnobView, b: KnobView) -> Bool {
+        a.label == b.label && a.accent == b.accent && a.n == b.n && a.valueText == b.valueText && a.detent == b.detent
+    }
+
     private static let size: CGFloat = 80
     /// Points of drag for the whole range.
     private static let travel: Double = 220

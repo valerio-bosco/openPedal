@@ -10,10 +10,22 @@ final class MeterModel {
     var xruns: Int = 0
 }
 
+/// One node's live values. Views of a pedal observe only its own model, so turning a knob redraws
+/// that pedal and that control, not the whole board.
+@MainActor @Observable
+final class NodeModel: Identifiable {
+    let id: String
+    let type: String
+    var spec: NodeSpec
+    init(_ spec: NodeSpec) { id = spec.id; type = spec.type; self.spec = spec }
+}
+
 @MainActor @Observable
 final class Store {
     private(set) var connected = false
     private(set) var catalog: [CatalogItem] = []
+    private(set) var catalogByKind: [String: CatalogItem] = [:]
+    /// Structure (order, edges, name). Node values live in `models` and are folded back by `snapshot()`.
     private(set) var graph = GraphFile(name: "", version: 2, node: [], edge: [])
     private(set) var presets: [String] = []
     private(set) var audio: AudioInfo?
@@ -23,6 +35,7 @@ final class Store {
     private(set) var undoStack: [GraphFile] = []
     private(set) var redoStack: [GraphFile] = []
     private(set) var chain = Chain(nodes: [], linear: true)
+    private(set) var models: [String: NodeModel] = [:]
     var selectedID: String?
     var banner: String?
 
@@ -55,8 +68,21 @@ final class Store {
 
     // MARK: lookups
 
-    func item(for node: NodeSpec) -> CatalogItem? { catalog.first { $0.kind == node.type } }
-    var selected: NodeSpec? { graph.node.first { $0.id == selectedID } }
+    func item(for node: NodeSpec) -> CatalogItem? { catalogByKind[node.type] }
+    func item(kind: String) -> CatalogItem? { catalogByKind[kind] }
+    var selectedModel: NodeModel? { selectedID.flatMap { models[$0] } }
+    /// Type of the selected node, from the structure only (does not observe its values).
+    var selectedType: String? { chain.nodes.first { $0.id == selectedID }?.type }
+
+    /// The graph with the current node values, for saving, undo and structural edits.
+    func snapshot() -> GraphFile {
+        var g = graph
+        g.node = g.node.map { models[$0.id]?.spec ?? $0 }
+        return g
+    }
+
+    /// Chain order with the current node values.
+    private func currentOrder() -> [NodeSpec] { chain.nodes.map { models[$0.id]?.spec ?? $0 } }
 
     func numberValue(_ node: NodeSpec, _ p: ParamDesc) -> Double {
         switch node.params[p.id] {
@@ -83,23 +109,40 @@ final class Store {
         case .error(let e):
             showBanner(e.node.map { "\($0): \(e.message)" } ?? e.message)
         case .state(let s):
-            catalog = s.catalog
-            presets = s.presets
-            audio = s.audio
-            serverProtocol = s.protocolVersion
-            if !gotState || expectLoad || s.graph.name != graph.name {
-                dirty = false
-                undoStack = []; redoStack = []
+            if catalog != s.catalog {
+                catalog = s.catalog
+                catalogByKind = Dictionary(s.catalog.map { ($0.kind, $0) }, uniquingKeysWith: { a, _ in a })
             }
-            gotState = true
+            if presets != s.presets { presets = s.presets }
+            if audio != s.audio { audio = s.audio }
+            if serverProtocol != s.protocolVersion { serverProtocol = s.protocolVersion }
+            if !gotState || expectLoad || s.graph.name != graph.name {
+                if dirty { dirty = false }
+                if !undoStack.isEmpty { undoStack = [] }
+                if !redoStack.isEmpty { redoStack = [] }
+            }
+            if !gotState { gotState = true }
             expectLoad = false
             applyGraph(s.graph)
         }
     }
 
+    /// Structure changes only: values are pushed into the existing models when they differ, so a
+    /// server echo of what is already on screen invalidates nothing.
     private func applyGraph(_ g: GraphFile) {
-        graph = g
-        chain = Chain.derive(g)
+        var next: [String: NodeModel] = [:]
+        for n in g.node {
+            if let m = models[n.id], m.type == n.type {
+                if m.spec != n { m.spec = n }
+                next[n.id] = m
+            } else {
+                next[n.id] = NodeModel(n)
+            }
+        }
+        if Set(next.keys) != Set(models.keys) || next.contains(where: { models[$0.key] !== $0.value }) { models = next }
+        let structure = Chain.derive(g)
+        if graph != g { graph = g }
+        if chain.nodes.map(\.id) != structure.nodes.map(\.id) || chain.linear != structure.linear { chain = structure }
         if let id = selectedID, !g.node.contains(where: { $0.id == id }) { selectedID = nil }
         if selectedID == nil {
             selectedID = chain.nodes.first { $0.type != "input" && $0.type != "output" }?.id
@@ -122,21 +165,21 @@ final class Store {
         pushUndo()
     }
 
-    func setNumber(_ node: NodeSpec, _ p: ParamDesc, _ value: Double) {
-        update(node.id) { $0.params[p.id] = .number(value) }
-        queue(.setParam(node: node.id, param: p.id, value: value), key: node.id + "." + p.id)
+    func setNumber(_ id: String, _ p: ParamDesc, _ value: Double) {
+        update(id) { $0.params[p.id] = .number(value) }
+        queue(.setParam(node: id, param: p.id, value: value), key: id + "." + p.id)
     }
 
-    func setChoice(_ node: NodeSpec, _ p: ParamDesc, index: Int) {
+    func setChoice(_ id: String, _ p: ParamDesc, index: Int) {
         guard p.options.indices.contains(index) else { return }
         pushUndo()
-        update(node.id) { $0.params[p.id] = .string(p.options[index]) }
-        queue(.setParam(node: node.id, param: p.id, value: Double(index)), key: node.id + "." + p.id)
+        update(id) { $0.params[p.id] = .string(p.options[index]) }
+        queue(.setParam(node: id, param: p.id, value: Double(index)), key: id + "." + p.id)
     }
 
-    func setDefault(_ node: NodeSpec, _ p: ParamDesc) {
+    func setDefault(_ id: String, _ p: ParamDesc) {
         pushUndo()
-        setNumber(node, p, p.def)
+        setNumber(id, p, p.def)
     }
 
     func setBypass(_ id: String, _ bypass: Bool) {
@@ -145,12 +188,16 @@ final class Store {
         client.send(.setBypass(node: id, bypass: bypass))
     }
 
+    /// Value change: touches only that node's model (no chain derivation, no board redraw).
     private func update(_ id: String, _ change: (inout NodeSpec) -> Void) {
-        guard let i = graph.node.firstIndex(where: { $0.id == id }) else { return }
-        change(&graph.node[i])
-        chain = Chain.derive(graph)
-        dirty = true
+        guard let m = models[id] else { return }
+        var spec = m.spec
+        change(&spec)
+        if spec != m.spec { m.spec = spec }
+        markDirty()
     }
+
+    private func markDirty() { if !dirty { dirty = true } }
 
     /// set_param at most every 30 ms per parameter, always ending with the last value.
     private func queue(_ msg: ClientMsg, key: String) {
@@ -174,34 +221,34 @@ final class Store {
     // MARK: structure (chain only)
 
     private func pushUndo() {
-        undoStack.append(graph)
+        undoStack.append(snapshot())
         if undoStack.count > 100 { undoStack.removeFirst() }
-        redoStack = []
-        dirty = true
+        if !redoStack.isEmpty { redoStack = [] }
+        markDirty()
     }
 
     private func commit(_ g: GraphFile) {
         flush()
         applyGraph(g)
-        dirty = true
+        markDirty()
         client.send(.setGraph(g))
     }
 
     func undo() {
         guard let prev = undoStack.popLast() else { return }
-        redoStack.append(graph)
+        redoStack.append(snapshot())
         commit(prev)
     }
 
     func redo() {
         guard let next = redoStack.popLast() else { return }
-        undoStack.append(graph)
+        undoStack.append(snapshot())
         commit(next)
     }
 
     func addPedal(_ item: CatalogItem) {
         guard chain.linear else { return }
-        var order = chain.nodes
+        var order = currentOrder()
         let at: Int
         if let id = selectedID, let i = order.firstIndex(where: { $0.id == id }), order[i].type != "output" {
             at = i + 1
@@ -215,14 +262,14 @@ final class Store {
         order.insert(NodeSpec(id: id, type: item.kind), at: min(at, max(order.count - 1, 0)))
         pushUndo()
         selectedID = id
-        commit(Chain.rewrite(graph, order: order))
+        commit(Chain.rewrite(snapshot(), order: order))
     }
 
     func removePedal(_ id: String) {
         guard chain.linear, let n = graph.node.first(where: { $0.id == id }),
               n.type != "input", n.type != "output" else { return }
         pushUndo()
-        commit(Chain.rewrite(graph, order: chain.nodes.filter { $0.id != id }))
+        commit(Chain.rewrite(snapshot(), order: currentOrder().filter { $0.id != id }))
     }
 
     func movePedal(_ id: String, by delta: Int) {
@@ -233,7 +280,7 @@ final class Store {
     /// Moves a pedal to `slot` (0 = first pedal after the input). Input stays first, output last.
     func moveTo(_ id: String, slot: Int) {
         guard chain.linear else { return }
-        var order = chain.nodes
+        var order = currentOrder()
         guard let i = order.firstIndex(where: { $0.id == id }), i >= 1, i <= order.count - 2 else { return }
         let j = min(max(slot, 0), order.count - 3) + 1
         guard j != i else { return }
@@ -241,22 +288,22 @@ final class Store {
         let node = order.remove(at: i)
         order.insert(node, at: j)
         selectedID = id
-        commit(Chain.rewrite(graph, order: order))
+        commit(Chain.rewrite(snapshot(), order: order))
     }
 
     /// Every parameter of a node back to its default, as one undo step.
-    func resetParams(_ node: NodeSpec) {
-        guard let item = item(for: node) else { return }
+    func resetParams(_ id: String) {
+        guard let node = models[id]?.spec, let item = item(for: node) else { return }
         pushUndo()
         for p in item.params {
             switch p.kind {
             case .number:
-                setNumber(node, p, p.def)
+                setNumber(id, p, p.def)
             case .choice:
                 let idx = Int(p.def)
                 guard p.options.indices.contains(idx) else { continue }
-                update(node.id) { $0.params[p.id] = .string(p.options[idx]) }
-                queue(.setParam(node: node.id, param: p.id, value: Double(idx)), key: node.id + "." + p.id)
+                update(id) { $0.params[p.id] = .string(p.options[idx]) }
+                queue(.setParam(node: id, param: p.id, value: Double(idx)), key: id + "." + p.id)
             case .file:
                 break
             }
@@ -286,10 +333,12 @@ final class Store {
     func saveAs(_ rawName: String) {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        var g = snapshot()
+        g.name = name
         graph.name = name
-        client.send(.savePreset(name: name, graph: graph))
+        client.send(.savePreset(name: name, graph: g))
         if !presets.contains(name) { presets.append(name); presets.sort() }
-        dirty = false
+        if dirty { dirty = false }
     }
 
     func newPreset() {
