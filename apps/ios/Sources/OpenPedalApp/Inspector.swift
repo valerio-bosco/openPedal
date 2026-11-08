@@ -72,7 +72,7 @@ struct InspectorView: View {
     private func content(_ model: NodeModel) -> some View {
         // Reads only structure (type, catalog): value changes redraw the cells, not this panel.
         let item = store.item(kind: model.type)
-        let accent = enamel(for: model.type, category: item?.category)
+        let accent = enamel(for: model.type, category: item?.category.rawValue)
         let params = item?.params ?? []
         VStack(spacing: 0) {
             InspectorHeader(store: store, model: model, item: item, accent: accent, count: params.count, expanded: $expanded)
@@ -89,8 +89,8 @@ struct InspectorView: View {
     private func compactBody(_ node: NodeModel, _ params: [ParamDesc], _ accent: Color) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                cells(node, params.filter { $0.kind == .choice }, accent)
-                cells(node, params.filter { $0.kind != .choice }, accent)
+                cells(node, params.filter { $0.tag == .choice }, accent)
+                cells(node, params.filter { $0.tag != .choice }, accent)
             }
             .padding(.leading, 20).padding(.trailing, 60)
             .frame(maxHeight: .infinity, alignment: .top)
@@ -105,8 +105,8 @@ struct InspectorView: View {
     }
 
     private func expandedBody(_ node: NodeModel, _ params: [ParamDesc], _ accent: Color) -> some View {
-        let modes = params.filter { $0.kind == .choice }
-        let controls = params.filter { $0.kind != .choice }
+        let modes = params.filter { $0.tag == .choice }
+        let controls = params.filter { $0.tag != .choice }
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
                 if !modes.isEmpty {
@@ -201,7 +201,7 @@ private struct InspectorHeader: View {
             }
             if isPedal {
                 Text("Active").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 6)
-                Toggle("Active", isOn: Binding(get: { !model.spec.bypass }, set: { store.setBypass(model.id, !$0) }))
+                Toggle("Active", isOn: Binding(get: { !model.spec.isBypassed }, set: { store.setBypass(model.id, !$0) }))
                     .labelsHidden()
                     .tint(.green)
             }
@@ -212,7 +212,7 @@ private struct InspectorHeader: View {
     }
 
     private var kindLine: String {
-        var parts = [item?.category.capitalized ?? "Node"]
+        var parts = [item?.category.rawValue.capitalized ?? "Node"]
         if item?.composite == true { parts.append("composite") }
         parts.append(model.id)
         return parts.joined(separator: " · ")
@@ -229,7 +229,7 @@ private struct ParamCell: View {
 
     var body: some View {
         let node = model.spec
-        switch p.kind {
+        switch p.tag {
         case .number:
             let v = store.numberValue(node, p)
             KnobView(

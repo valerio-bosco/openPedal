@@ -8,6 +8,7 @@ description = "openPedal DSP blocks, parameters and WAV loading"
 anyhow.workspace = true
 rustfft.workspace = true
 serde.workspace = true
+schemars.workspace = true
 toml.workspace = true
 
 [features]

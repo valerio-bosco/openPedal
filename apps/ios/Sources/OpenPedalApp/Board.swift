@@ -316,10 +316,10 @@ struct PedalView: View, Equatable {
     var body: some View {
         let node = model.spec
         let item = store.item(kind: model.type)
-        let color = enamel(for: model.type, category: item?.category)
+        let color = enamel(for: model.type, category: item?.category.rawValue)
         let isSel = store.selectedID == model.id
-        let numbers = Array((item?.params ?? []).filter { $0.kind == .number }.prefix(4))
-        let on = !node.bypass
+        let numbers = Array((item?.params ?? []).filter { $0.tag == .number }.prefix(4))
+        let on = !node.isBypassed
         let shape = RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
 
         ZStack(alignment: .top) {
@@ -382,7 +382,7 @@ struct PedalView: View, Equatable {
         .animation(.easeOut(duration: 0.2), value: on)
         .contentShape(shape)
         .onTapGesture { store.selectedID = model.id }
-        .sensoryFeedback(.impact(weight: .medium), trigger: node.bypass)
+        .sensoryFeedback(.impact(weight: .medium), trigger: node.isBypassed)
         .sensoryFeedback(.impact(weight: .medium), trigger: lifted) { _, now in now }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Move left") { store.movePedal(model.id, by: -1) }

@@ -8,6 +8,7 @@ description = "openPedal graph model, loader, compiler and executor"
 openpedal-dsp.workspace = true
 anyhow.workspace = true
 serde.workspace = true
+schemars.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 

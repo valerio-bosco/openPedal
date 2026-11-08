@@ -7,3 +7,8 @@ description = "openPedal WebSocket protocol messages"
 [dependencies]
 openpedal-graph.workspace = true
 serde.workspace = true
+schemars.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true

@@ -41,7 +41,7 @@ struct RootView: View {
     private var tint: Color {
         // Structure only: turning a knob must not redraw the whole screen.
         guard let type = store.selectedType else { return Color(hex: 0xff8a3d) }
-        return enamel(for: type, category: store.item(kind: type)?.category)
+        return enamel(for: type, category: store.item(kind: type)?.category.rawValue)
     }
 
     /// Toolbar row (8 top + 52) and the inspector's outer padding (8 + 8): fixed chrome around the board.

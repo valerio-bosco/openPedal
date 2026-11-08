@@ -12,7 +12,7 @@ import {
   type NodeSpec,
   type ParamDesc,
   type ParamValue,
-} from "./protocol";
+} from "./generated/protocol";
 
 export interface PedalData extends Record<string, unknown> {
   kind: string;

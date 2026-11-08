@@ -24,7 +24,7 @@ pub const OUTPUT_DESC: BlockDesc = BlockDesc {
     params: &[ParamDesc::number("volume_db", "Volume", -60.0, 12.0, 0.0, "dB")],
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeSpec {
     /// Unique identifier in the graph (letters, digits, `_`, `-`).
@@ -47,7 +47,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EdgeSpec {
     pub from: String,
@@ -55,7 +55,7 @@ pub struct EdgeSpec {
 }
 
 /// A v2 preset: a graph of connected nodes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GraphFile {
     pub name: String,
@@ -72,7 +72,7 @@ fn version_2() -> u32 {
 }
 
 /// Knob exposed by a composite pedal: a 0..1 value mapped onto an internal parameter.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KnobSpec {
     pub label: String,
@@ -91,7 +91,7 @@ fn half() -> f32 {
 }
 
 /// A composite pedal (file `pedals/<id>.toml`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PedalFile {
     pub name: String,
@@ -112,7 +112,7 @@ fn utility() -> String {
 }
 
 /// A catalog entry as the interface sees it (base blocks, input/output and pedals).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct CatalogItem {
     pub kind: String,
     pub label: String,

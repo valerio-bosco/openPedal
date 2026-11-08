@@ -9,10 +9,10 @@ struct AddPedalSheet: View {
 
     private static let order = ["dynamics", "drive", "amp", "filter", "modulation", "time", "utility"]
 
-    private func section(of item: CatalogItem) -> String { item.composite ? "custom" : item.category }
+    private func section(of item: CatalogItem) -> String { item.composite ? "custom" : item.category.rawValue }
 
     private var groups: [(String, [CatalogItem])] {
-        let items = store.catalog.filter { $0.category != "io" && $0.kind != "input" && $0.kind != "output" }
+        let items = store.catalog.filter { $0.category != .io && $0.kind != "input" && $0.kind != "output" }
         let present = Set(items.map { section(of: $0) })
         let known = Self.order.filter { present.contains($0) }
         let rest = present.subtracting(Self.order).subtracting(["custom"]).sorted()
@@ -26,7 +26,7 @@ struct AddPedalSheet: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return groups.flatMap { $0.1 }.filter {
             $0.label.lowercased().contains(q) || $0.kind.lowercased().contains(q)
-                || $0.category.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
+                || $0.category.rawValue.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
         }
     }
 
@@ -127,7 +127,7 @@ struct AboutSheet: View {
                     row("App supports", "v\(supportedProtocolVersion)")
                     if let a = store.audio {
                         row("Audio", a.running ? "running" : "stopped")
-                        row("Sample rate", String(format: "%.0f Hz", a.sampleRate))
+                        row("Sample rate", String(format: "%.0f Hz", Double(a.sampleRate)))
                         row("Buffer", "\(a.buffer) frames")
                     }
                     row("Server", store.connected ? "connected" : "disconnected")
