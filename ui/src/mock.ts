@@ -2,7 +2,7 @@
 // using the fixtures. It also serves as automatic fallback when `/ws` does not respond.
 import stateFixture from "./fixtures/state.json";
 import clientFixture from "./fixtures/client-messages.json";
-import type { CatalogItem, ClientMsg, GraphFile, PedalFile, ServerMsg, StateMsg } from "./protocol";
+import { PROTOCOL_VERSION, type CatalogItem, type ClientMsg, type GraphFile, type PedalFile, type ServerMsg, type StateMsg } from "./protocol";
 
 const base = stateFixture as unknown as StateMsg;
 
@@ -68,6 +68,7 @@ export class MockServer {
   private state(): StateMsg {
     return {
       type: "state",
+      protocol: PROTOCOL_VERSION,
       catalog: this.catalog,
       graph: this.graph,
       presets: this.presets,
@@ -128,6 +129,16 @@ export class MockServer {
         this.emit(this.state());
         break;
       case "set_param":
+        break;
+      case "set_bypass":
+        this.graph = {
+          ...this.graph,
+          node: this.graph.node.map((n) => {
+            if (n.id !== msg.node) return n;
+            const { bypass: _old, ...rest } = n;
+            return msg.bypass ? { ...rest, bypass: true } : rest;
+          }),
+        };
         break;
     }
   }

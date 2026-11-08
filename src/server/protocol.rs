@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::model::{CatalogItem, GraphFile, PedalFile};
 
+/// Version of the WebSocket contract (docs/PLAN.md §5.4), sent in `state`.
+/// Bumped on any breaking change; additive optional fields do not bump it.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 /// From the client (interface) to the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -17,6 +21,8 @@ pub enum ClientMsg {
     /// Live change of a parameter, without rebuilding the graph.
     /// For choices, `value` is the option index.
     SetParam { node: String, param: String, value: f32 },
+    /// Live bypass of a node (click-free, no graph rebuild). Not allowed on `input`/`output`.
+    SetBypass { node: String, bypass: bool },
     /// New graph (structure changed): recompiled and swapped in with a fade.
     SetGraph { graph: GraphFile },
     LoadPreset { name: String },
@@ -45,6 +51,8 @@ pub enum ServerMsg {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StateMsg {
+    /// `PROTOCOL_VERSION` of this server.
+    pub protocol: u32,
     pub catalog: Vec<CatalogItem>,
     pub graph: GraphFile,
     /// Names of the available presets (files in presets/ without extension).

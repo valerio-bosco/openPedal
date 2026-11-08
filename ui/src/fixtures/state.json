@@ -1,5 +1,6 @@
 {
   "type": "state",
+  "protocol": 1,
   "catalog": [
     {
       "kind": "input",

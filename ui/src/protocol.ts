@@ -51,6 +51,8 @@ export interface NodeSpec {
   type: string;
   pos: [number, number];
   params: Record<string, ParamValue>;
+  /** Passes the input through unchanged. Omitted when false; not allowed on input/output. */
+  bypass?: boolean;
 }
 
 export interface EdgeSpec {
@@ -94,8 +96,13 @@ export interface AudioInfo {
   running: boolean;
 }
 
+/** Version of this contract; the server sends its own in `state.protocol`. */
+export const PROTOCOL_VERSION = 1;
+
 export interface StateMsg {
   type: "state";
+  /** Protocol version of the server. */
+  protocol: number;
   catalog: CatalogItem[];
   graph: GraphFile;
   presets: string[];
@@ -125,6 +132,8 @@ export type ClientMsg =
   | { type: "hello" }
   /** For choices, `value` is the index of the option. */
   | { type: "set_param"; node: string; param: string; value: number }
+  /** Live, click-free bypass of a node. Not allowed on input/output (the server replies with `error`). */
+  | { type: "set_bypass"; node: string; bypass: boolean }
   | { type: "set_graph"; graph: GraphFile }
   | { type: "load_preset"; name: string }
   | { type: "save_preset"; name: string; graph: GraphFile }

@@ -58,6 +58,7 @@ enum Msg {
     Plan(Box<Plan>),
     #[allow(dead_code)] // sent by `Engine::set_param`, which the integration (I2) will use
     Param(ParamChange),
+    Bypass { step: usize, bypass: bool },
 }
 
 struct Fade {
@@ -96,6 +97,7 @@ impl Runner {
                     self.fade = Some(Fade { old, pos: 0 });
                 }
                 Ok(Msg::Param(c)) => self.plan.set_param(c.step, c.param, c.value),
+                Ok(Msg::Bypass { step, bypass }) => self.plan.set_bypass(step, bypass),
                 Err(_) => break,
             }
         }
@@ -222,6 +224,11 @@ impl Engine {
     #[allow(dead_code)] // the integration (I2) will use it
     pub fn set_param(&mut self, change: ParamChange) -> Result<()> {
         self.to_audio.push(Msg::Param(change)).map_err(|_| anyhow::anyhow!("queue towards the audio thread is full"))
+    }
+
+    /// Bypasses a node of the most recent plan (step from `NodeMap::resolve_bypass`), with a short crossfade.
+    pub fn set_bypass(&mut self, step: usize, bypass: bool) -> Result<()> {
+        self.to_audio.push(Msg::Bypass { step, bypass }).map_err(|_| anyhow::anyhow!("queue towards the audio thread is full"))
     }
 
     /// Frees the retired plans returned by the audio thread. Must be called regularly.

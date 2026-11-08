@@ -9,7 +9,7 @@ use std::fmt;
 
 use anyhow::{bail, Context, Result};
 
-use super::exec::{Op, OutGain, Plan, Step};
+use super::exec::{Bypass, Op, OutGain, Plan, Step};
 use super::model::*;
 use crate::dsp::{self, db_to_lin, BlockDesc, Entry, ParamKind, ParamValues, Smoothed, Value};
 
@@ -60,7 +60,8 @@ impl Binding {
 enum Slot {
     /// Node that corresponds to a single block (including `input` and `output`).
     Block { flat: usize, desc: &'static BlockDesc },
-    Pedal { knobs: BTreeMap<String, Binding> },
+    /// `exit` is the flat index of the pedal's output junction (where its bypass lives).
+    Pedal { knobs: BTreeMap<String, Binding>, exit: usize },
 }
 
 /// Translates (node id, parameter id) into indices for `Plan::set_param`.
@@ -93,7 +94,7 @@ impl NodeMap {
                 }
                 (*flat, index, pd.clamp(value))
             }
-            Slot::Pedal { knobs } => {
+            Slot::Pedal { knobs, .. } => {
                 let Some(b) = knobs.get(param) else {
                     let valid: Vec<_> = knobs.keys().map(String::as_str).collect();
                     let msg = format!("pedal '{node}' has no knob '{param}' (knobs: {})", valid.join(", "));
@@ -103,6 +104,24 @@ impl NodeMap {
             }
         };
         Ok(self.flat_to_step[flat].map(|step| ParamChange { step, param: index, value }))
+    }
+}
+
+impl NodeMap {
+    /// Plan step to bypass for `node`. `Ok(None)`: the node is not in the plan (not wired
+    /// between guitar and output). Error: unknown node, or `input`/`output`.
+    pub fn resolve_bypass(&self, node: &str) -> Result<Option<usize>> {
+        let Some(slot) = self.slots.get(node) else {
+            return Err(err(Some(node), format!("node '{node}' does not exist")));
+        };
+        let flat = match slot {
+            Slot::Block { desc, .. } if desc.kind == INPUT || desc.kind == OUTPUT => {
+                return Err(err(Some(node), format!("node '{node}' ({}) cannot be bypassed", desc.kind)));
+            }
+            Slot::Block { flat, .. } => *flat,
+            Slot::Pedal { exit, .. } => *exit,
+        };
+        Ok(self.flat_to_step[flat])
     }
 }
 
@@ -120,6 +139,9 @@ struct FlatNode {
     path: String,
     kind: FlatKind,
     params: ParamValues,
+    bypass: bool,
+    /// For a pedal's output junction: its input junction, the dry signal when bypassed.
+    dry: Option<usize>,
 }
 
 /// How a level is wired to its nodes: cables enter at `entry` and leave from `exit`.
@@ -137,7 +159,7 @@ struct Expander<'a> {
 
 impl Expander<'_> {
     fn push(&mut self, path: String, kind: FlatKind, params: ParamValues) -> usize {
-        self.nodes.push(FlatNode { path, kind, params });
+        self.nodes.push(FlatNode { path, kind, params, bypass: false, dry: None });
         self.nodes.len() - 1
     }
 
@@ -214,7 +236,11 @@ impl Expander<'_> {
 
     fn leaf(&mut self, path: String, kind: FlatKind, desc: &'static BlockDesc, spec: &NodeSpec) -> Result<Expanded> {
         spec.params.validate(desc).map_err(|e| err(Some(&spec.id), format!("{e:#}")))?;
+        if spec.bypass && matches!(kind, FlatKind::Input | FlatKind::Output) {
+            return Err(err(Some(&spec.id), format!("node '{}' ({}) cannot be bypassed", spec.id, desc.kind)));
+        }
         let i = self.push(path, kind, spec.params.clone());
+        self.nodes[i].bypass = spec.bypass;
         Ok(Expanded { entry: i, exit: i, knobs: BTreeMap::new() })
     }
 
@@ -260,6 +286,8 @@ impl Expander<'_> {
         let map = self.body(&inner, &pedal.edges, path, Some(top), stack, Some((pin, pout)));
         stack.pop();
         let map = map.with_context(|| format!("pedal '{id}'"))?;
+        self.nodes[pout].bypass = spec.bypass;
+        self.nodes[pout].dry = Some(pin);
 
         let mut knobs = BTreeMap::new();
         for k in &pedal.knobs {
@@ -366,8 +394,14 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
             }
         };
         let inputs = pred[i].iter().filter(|&&p| keep(p)).map(|&p| flat_to_step[p].expect("ordine topologico")).collect();
+        let bypass = match &node.kind {
+            FlatKind::Block(_) => Some(Bypass::new(node.bypass, None, sr)),
+            // A pedal's output junction: the dry signal is its input junction, if that comes earlier.
+            FlatKind::Pass => node.dry.and_then(|d| flat_to_step[d]).map(|d| Bypass::new(node.bypass, Some(d), sr)),
+            _ => None,
+        };
         flat_to_step[i] = Some(steps.len());
-        steps.push(Step { op, inputs });
+        steps.push(Step { op, inputs, bypass });
     }
     debug_assert!(matches!(steps.last().map(|s| &s.op), Some(Op::Output(_))));
 
@@ -378,7 +412,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
             FlatKind::Input => Slot::Block { flat: exp.entry, desc: &INPUT_DESC },
             FlatKind::Output => Slot::Block { flat: exp.entry, desc: &OUTPUT_DESC },
             FlatKind::Block(entry) => Slot::Block { flat: exp.entry, desc: entry.desc },
-            FlatKind::Pass => Slot::Pedal { knobs: exp.knobs.clone() },
+            FlatKind::Pass => Slot::Pedal { knobs: exp.knobs.clone(), exit: exp.exit },
         };
         slots.insert(spec.id.clone(), slot);
     }
@@ -768,5 +802,106 @@ to = "out"
             assert!(buf.iter().all(|s| s.is_finite()), "{}", path.display());
             assert!(buf.iter().any(|s| s.abs() > 1e-4), "{} is silent", path.display());
         }
+    }
+
+    // ---------- bypass ----------
+
+    fn gain_graph(extra: &str) -> String {
+        format!(
+            r#"
+name = "p"
+[[node]]
+id = "in"
+type = "input"
+[[node]]
+id = "g"
+type = "gain"
+params = {{ db = -12 }}
+{extra}
+[[node]]
+id = "out"
+type = "output"
+[[edge]]
+from = "in"
+to = "g"
+[[edge]]
+from = "g"
+to = "out"
+"#
+        )
+    }
+
+    fn sine(n: usize) -> Vec<f32> {
+        (0..n).map(|i| 0.4 * (std::f32::consts::TAU * 220.0 * i as f32 / SR).sin()).collect()
+    }
+
+    #[test]
+    fn bypassed_node_passes_its_input_through() {
+        let input = signal(4800);
+        let (mut normal, _) = build(&gain_graph(""), &[]).unwrap();
+        let (mut bypassed, _) = build(&gain_graph("bypass = true"), &[]).unwrap();
+        let processed = run(&mut normal, &input);
+        assert!(peak(&processed) < 0.6 * peak(&input), "the gain must lower the level");
+        let out = run(&mut bypassed, &input);
+        assert!(out.iter().zip(&input).all(|(a, b)| a.to_bits() == b.to_bits()), "bypassed node must be transparent");
+    }
+
+    #[test]
+    fn bypassed_pedal_passes_its_input_through() {
+        let p = pedal("name = \"P\"\n[[node]]\nid = \"g\"\ntype = \"gain\"\nparams = { db = -12 }\n[[edge]]\nfrom = \"pedal_in\"\nto = \"g\"\n[[edge]]\nfrom = \"g\"\nto = \"pedal_out\"\n");
+        let pedals = vec![("p".to_string(), p)];
+        let graph = |extra: &str| gain_graph(extra).replace("type = \"gain\"\nparams = { db = -12 }", "type = \"pedal:p\"");
+        let input = signal(4800);
+        let (mut normal, _) = build(&graph(""), &pedals).unwrap();
+        assert!(peak(&run(&mut normal, &input)) < 0.6 * peak(&input));
+        let (mut bypassed, _) = build(&graph("bypass = true"), &pedals).unwrap();
+        let out = run(&mut bypassed, &input);
+        assert!(out.iter().zip(&input).all(|(a, b)| a.to_bits() == b.to_bits()));
+        // live toggle
+        let (mut plan, map) = build(&graph(""), &pedals).unwrap();
+        plan.set_bypass(map.resolve_bypass("g").unwrap().unwrap(), true);
+        run(&mut plan, &input);
+        let out = run(&mut plan, &input);
+        assert!(out.iter().zip(&input).all(|(a, b)| a.to_bits() == b.to_bits()));
+    }
+
+    #[test]
+    fn live_bypass_crossfades_without_clicks() {
+        let input = sine(48000);
+        let (mut plan, map) = build(&gain_graph(""), &[]).unwrap();
+        let step = map.resolve_bypass("g").unwrap().unwrap();
+        let mut out = Vec::new();
+        for (k, block) in input.chunks(64).enumerate() {
+            // toggle at 0.2 s (on) and 0.6 s (off), in the middle of the signal
+            if k * 64 == 9600 {
+                plan.set_bypass(step, true);
+            }
+            if k * 64 == 28800 {
+                plan.set_bypass(step, false);
+            }
+            let mut b = block.to_vec();
+            plan.process(&mut b);
+            out.extend(b);
+        }
+        let jump = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        // The sine alone moves at most ~0.0115 per sample; an abrupt switch would jump ~0.3.
+        assert!(jump < 0.02, "max sample-to-sample jump {jump}");
+        // Settled: processed before, dry in the middle, processed again at the end.
+        assert!((peak(&out[4800..9600]) - 0.1).abs() < 0.01);
+        assert!((peak(&out[20000..28000]) - 0.4).abs() < 0.01);
+        assert!((peak(&out[40000..]) - 0.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn input_and_output_cannot_be_bypassed() {
+        let (_, map) = build(&gain_graph(""), &[]).unwrap();
+        for node in ["in", "out"] {
+            let e = map.resolve_bypass(node).unwrap_err();
+            assert!(format!("{e:#}").contains("cannot be bypassed"), "{e:#}");
+        }
+        assert!(map.resolve_bypass("nope").is_err());
+        let g = gain_graph("").replace("id = \"out\"\ntype = \"output\"", "id = \"out\"\ntype = \"output\"\nbypass = true");
+        let e = build(&g, &[]).err().expect("bypass on output must fail");
+        assert_eq!(e.downcast_ref::<GraphError>().unwrap().node.as_deref(), Some("out"));
     }
 }

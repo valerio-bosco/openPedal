@@ -37,6 +37,14 @@ pub struct NodeSpec {
     pub pos: [f32; 2],
     #[serde(default)]
     pub params: ParamValues,
+    /// A bypassed node passes its (summed) input through unchanged. Not allowed on
+    /// `input`/`output`. Omitted from files and JSON when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bypass: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,4 +169,35 @@ pub fn catalog_items(pedals: &[(String, PedalFile)]) -> Vec<CatalogItem> {
     items.extend(crate::dsp::catalog().iter().map(|e| CatalogItem::from_desc(e.desc)));
     items.extend(pedals.iter().map(|(id, p)| CatalogItem::from_pedal(id, p)));
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WITHOUT: &str = "name = \"t\"\nversion = 2\n\n[[node]]\nid = \"a\"\ntype = \"gain\"\npos = [1.0, 2.0]\n";
+
+    #[test]
+    fn bypass_defaults_to_false_and_is_omitted_when_false() {
+        let g: GraphFile = toml::from_str(WITHOUT).unwrap();
+        assert!(!g.nodes[0].bypass);
+        let text = toml::to_string(&g).unwrap();
+        assert!(!text.contains("bypass"), "{text}");
+        let json = serde_json::to_value(&g).unwrap();
+        assert!(json["node"][0].get("bypass").is_none());
+        assert_eq!(toml::from_str::<GraphFile>(&text).unwrap(), g);
+    }
+
+    #[test]
+    fn bypass_round_trips_through_toml_and_json() {
+        let text = format!("{WITHOUT}bypass = true\n");
+        let g: GraphFile = toml::from_str(&text).unwrap();
+        assert!(g.nodes[0].bypass);
+        let back = toml::to_string(&g).unwrap();
+        assert!(back.contains("bypass = true"), "{back}");
+        assert_eq!(toml::from_str::<GraphFile>(&back).unwrap(), g);
+        let json = serde_json::to_value(&g).unwrap();
+        assert_eq!(json["node"][0]["bypass"], true);
+        assert_eq!(serde_json::from_value::<GraphFile>(json).unwrap(), g);
+    }
 }

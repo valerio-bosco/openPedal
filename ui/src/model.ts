@@ -17,6 +17,7 @@ import {
 export interface PedalData extends Record<string, unknown> {
   kind: string;
   params: Record<string, ParamValue>;
+  bypass?: boolean;
   error?: string;
 }
 export type PNode = Node<PedalData, "pedal">;
@@ -64,7 +65,7 @@ export function specToNode(n: NodeSpec): PNode {
     type: "pedal",
     position: { x: n.pos[0] * X_SCALE, y: n.pos[1] },
     deletable: !isFixed(n.type),
-    data: { kind: n.type, params: { ...n.params } },
+    data: { kind: n.type, params: { ...n.params }, ...(n.bypass ? { bypass: true } : {}) },
   };
 }
 
@@ -83,6 +84,7 @@ export function flowToSpecs(nodes: PNode[], edges: Edge[]) {
       type: n.data.kind,
       pos: [Math.round(n.position.x / X_SCALE), Math.round(n.position.y)] as [number, number],
       params: { ...n.data.params },
+      ...(n.data.bypass ? { bypass: true } : {}),
     }));
   const edge: EdgeSpec[] = edges.map((e) => ({ from: e.source, to: e.target }));
   return { node, edge };

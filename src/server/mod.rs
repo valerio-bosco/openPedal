@@ -32,6 +32,9 @@ pub trait EngineHandle: Send + Sync + 'static {
     fn set_graph(&self, graph: GraphFile) -> Result<()>;
     /// Live change of a parameter (also updates the graph returned by `graph`).
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()>;
+    /// Live bypass of a node (also updates the graph returned by `graph`).
+    /// Error for `input`/`output` and for unknown nodes.
+    fn set_bypass(&self, node: &str, bypass: bool) -> Result<()>;
     /// To be called after writing or deleting files in pedals/.
     fn reload_pedals(&self) -> Result<()>;
 }

@@ -183,6 +183,7 @@ Client → server:
 |---|---|---|
 | `hello` | – | the server replies with `state` |
 | `set_param` | `node`, `param`, `value` | live change, no graph rebuild |
+| `set_bypass` | `node`, `bypass` | live, click-free (~10 ms crossfade) bypass of a node, no graph rebuild; `error` for `input`/`output`; also stored in the graph (`bypass` on the node) |
 | `set_graph` | `graph` | new graph: compiled and swapped in with a crossfade |
 | `load_preset` / `save_preset` | `name` (+ `graph` when saving) | replies with `state` |
 | `delete_preset` | `name` | deletes `presets/<name>.toml`; the playing graph is unchanged; replies with `state` |
@@ -192,7 +193,7 @@ Server → client:
 
 | `type` | Fields |
 |---|---|
-| `state` | `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running) |
+| `state` | `protocol` (`PROTOCOL_VERSION`, currently 1), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running) |
 | `meters` | `in_db`, `out_db`, `dsp` (0..1), `xruns`, about 20 times per second |
 | `error` | `message` (shown to the user), `node` (optional: the node the error is about) |
 

@@ -33,7 +33,7 @@ pub fn parse_graph(text: &str) -> Result<GraphFile> {
 /// Converts a v1 preset into an `input -> blocks -> output` graph.
 /// `output_db` becomes the output volume; nodes are placed 220 px apart.
 pub fn graph_from_preset(preset: &Preset) -> GraphFile {
-    let mut nodes = vec![NodeSpec { id: "in".into(), kind: INPUT.into(), pos: [0.0, 0.0], params: ParamValues::default() }];
+    let mut nodes = vec![NodeSpec { id: "in".into(), kind: INPUT.into(), pos: [0.0, 0.0], params: ParamValues::default(), bypass: false }];
     let mut counters: HashMap<&str, usize> = HashMap::new();
     for (i, b) in preset.blocks.iter().enumerate() {
         let n = counters.entry(b.kind.as_str()).or_insert(0);
@@ -45,6 +45,7 @@ pub fn graph_from_preset(preset: &Preset) -> GraphFile {
             kind: b.kind.clone(),
             pos: [220.0 * (i + 1) as f32, 0.0],
             params: b.params.clone(),
+            bypass: false,
         });
     }
     let mut out_params = ParamValues::default();
@@ -56,6 +57,7 @@ pub fn graph_from_preset(preset: &Preset) -> GraphFile {
         kind: OUTPUT.into(),
         pos: [220.0 * (preset.blocks.len() + 1) as f32, 0.0],
         params: out_params,
+        bypass: false,
     });
     let edges = nodes.windows(2).map(|w| EdgeSpec { from: w[0].id.clone(), to: w[1].id.clone() }).collect();
     GraphFile { name: preset.name.clone(), version: 2, nodes, edges }
