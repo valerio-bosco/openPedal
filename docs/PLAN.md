@@ -272,7 +272,7 @@ Analog octaver. `OCTAVE_DESC` already exists: `dry`, `down`, `up` (0..1 mix leve
 - **Tracking signal:** the input through a 2nd-order low-pass at `track_hz` (reuse the RBJ formulas: you may copy the lowpass coefficient code from `filter.rs` into a small private struct).
 - **Octave down (Boss OC-style divider):** a flip-flop `ff` (±1) toggles on every *rising* zero crossing of the tracking signal, with hysteresis (a crossing counts only after the signal went below `-h`, then above `+h`, with `h` = 2% of a slow envelope of the tracking signal). Octave-down voice = `ff * tracking_signal` (keeps the note's envelope).
 - **Octave up (Octavia-style):** `|tracking_signal|` minus its DC (a one-pole high-pass at ~20 Hz).
-- Both voices through a one-pole... no: a 2nd-order low-pass at `tone_hz`. Output = `dry*x + down*voice_down + up*voice_up`.
+- Both voices go through a 2nd-order low-pass at `tone_hz`. Output = `dry*x + down*voice_down + up*voice_up`.
 - `set_param` live (smoothed mixes with `Smoothed`, filters recomputed without allocating).
 
 Tests: a 220 Hz sine with `dry=0, down=1, up=0`: the magnitude at 110 Hz (single-bin DFT) is larger than at 220 Hz; with `dry=0, down=0, up=1`: 440 Hz dominates over 220 Hz; `dry=1, down=0, up=0`: output equals input; finite output on noise.
