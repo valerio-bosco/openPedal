@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Category, KnobSpec } from "../protocol";
 import { CATEGORY_LABEL, CATEGORY_ORDER, formatNumber, type NumberDesc } from "../model";
 
-/** Parametro numerico di un nodo interno che si può esporre come manopola. */
+/** Numeric parameter of an internal node that can be exposed as a knob. */
 export interface Candidate {
   nodeId: string;
   nodeLabel: string;
@@ -23,7 +23,7 @@ interface Row {
   label: string;
   min: string;
   max: string;
-  /** Posizione iniziale 0..1. */
+  /** Initial position 0..1. */
   def: number;
 }
 
@@ -32,7 +32,7 @@ interface Props {
   submitLabel: string;
   initial: { name: string; category: Category; description: string };
   candidates: Candidate[];
-  /** Manopole già esistenti (modifica di un pedale). */
+  /** Knobs that already exist (editing a pedal). */
   knobs: KnobSpec[];
   onSubmit: (f: PedalForm) => void;
   onCancel: () => void;
@@ -61,17 +61,17 @@ export function PedalDialog({ title, submitLabel, initial, candidates, knobs, on
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
 
   const submit = () => {
-    if (!name.trim()) return setError("Dai un nome al pedale.");
+    if (!name.trim()) return setError("Give the pedal a name.");
     const on = rows.filter((r) => r.on);
     const labels = on.map((r) => r.label.trim());
-    if (labels.some((l) => !l)) return setError("Ogni manopola esposta ha bisogno di un nome.");
-    if (new Set(labels).size !== labels.length) return setError("I nomi delle manopole devono essere diversi tra loro.");
+    if (labels.some((l) => !l)) return setError("Every exposed knob needs a name.");
+    if (new Set(labels).size !== labels.length) return setError("Knob names must be different from each other.");
     const out: KnobSpec[] = [];
     for (const r of on) {
       const min = parseFloat(r.min.replace(",", "."));
       const max = parseFloat(r.max.replace(",", "."));
       if (!Number.isFinite(min) || !Number.isFinite(max) || min === max)
-        return setError(`Intervallo non valido per «${r.label}».`);
+        return setError(`Invalid range for «${r.label}».`);
       out.push({ label: r.label.trim(), target: `${r.c.nodeId}.${r.c.desc.id}`, min, max, default: r.def });
     }
     onSubmit({ name: name.trim(), category, description: description.trim(), knobs: out });
@@ -83,11 +83,11 @@ export function PedalDialog({ title, submitLabel, initial, candidates, knobs, on
         <h2>{title}</h2>
         <div className="form-row">
           <label>
-            Nome
+            Name
             <input type="text" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label style={{ flex: "0 0 180px" }}>
-            Categoria
+            Category
             <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
               {CATEGORY_ORDER.filter((c) => c !== "io").map((c) => (
                 <option key={c} value={c}>
@@ -99,22 +99,22 @@ export function PedalDialog({ title, submitLabel, initial, candidates, knobs, on
         </div>
         <div className="form-row">
           <label>
-            Descrizione (facoltativa)
+            Description (optional)
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
         </div>
-        <p className="hint">Scegli quali parametri esporre come manopole del nuovo pedale (da 0 a 1 sull'intervallo indicato).</p>
+        <p className="hint">Choose which parameters to expose as knobs of the new pedal (from 0 to 1 over the given range).</p>
         {rows.length === 0 ? (
-          <p className="hint">Nessun parametro numerico disponibile nei nodi scelti.</p>
+          <p className="hint">No numeric parameters available in the chosen nodes.</p>
         ) : (
           <table className="knob-table">
             <thead>
               <tr>
                 <th></th>
-                <th>Parametro</th>
-                <th>Nome manopola</th>
-                <th>Minimo</th>
-                <th>Massimo</th>
+                <th>Parameter</th>
+                <th>Knob name</th>
+                <th>Minimum</th>
+                <th>Maximum</th>
               </tr>
             </thead>
             <tbody>
@@ -143,7 +143,7 @@ export function PedalDialog({ title, submitLabel, initial, candidates, knobs, on
         )}
         {error && <div className="err">{error}</div>}
         <div className="modal-actions">
-          <button onClick={onCancel}>Annulla</button>
+          <button onClick={onCancel}>Cancel</button>
           <button className="primary" onClick={submit}>
             {submitLabel}
           </button>

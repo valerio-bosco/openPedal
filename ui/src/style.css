@@ -83,7 +83,7 @@ input:not([type]) {
   color: var(--dim);
 }
 
-/* barra in alto */
+/* top bar */
 .topbar {
   display: flex;
   align-items: center;
@@ -269,7 +269,7 @@ input:not([type]) {
   color: var(--dim);
 }
 
-/* nodo pedale */
+/* pedal node */
 .led {
   width: 9px;
   height: 9px;
@@ -363,7 +363,7 @@ input:not([type]) {
   max-width: 220px;
 }
 
-/* manopola */
+/* knob */
 .knob {
   display: flex;
   flex-direction: column;
@@ -413,7 +413,7 @@ input:not([type]) {
   text-align: center;
 }
 
-/* cavi e controlli di React Flow */
+/* cables and React Flow controls */
 .react-flow {
   --xy-edge-stroke: #c9ccd6;
   --xy-edge-stroke-width: 2.5;
@@ -439,7 +439,7 @@ input:not([type]) {
   padding: 4px;
 }
 
-/* notifiche */
+/* notifications */
 .toasts {
   position: fixed;
   right: 16px;
@@ -458,7 +458,7 @@ input:not([type]) {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
-/* finestre */
+/* dialogs */
 .modal-bg {
   position: fixed;
   inset: 0;
@@ -535,7 +535,7 @@ input:not([type]) {
   margin: 0 0 10px;
 }
 
-/* --- modifica: elimina, menu, annulla --- */
+/* --- editing: delete, menu, undo --- */
 .btn-group {
   display: inline-flex;
   gap: 4px;

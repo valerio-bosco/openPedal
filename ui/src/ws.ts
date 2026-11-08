@@ -1,13 +1,13 @@
-// Connessione al motore: WebSocket `/ws` con riconnessione. Se il server non risponde
-// all'avvio, ripiega sul server finto (mock) e continua a riprovare in sottofondo.
+// Connection to the engine: WebSocket `/ws` with reconnection. If the server does not respond
+// at startup, it falls back to the fake server (mock) and keeps retrying in the background.
 import { MockServer } from "./mock";
 import type { ClientMsg, ServerMsg } from "./protocol";
 
 export type Status = "connecting" | "online" | "mock" | "offline";
 
-/** Attesa prima di ripiegare sul mock se il server non risponde. */
+/** Wait before falling back to the mock if the server does not respond. */
 const FALLBACK_MS = 1200;
-/** Intervallo minimo tra due `set_param` della stessa manopola (circa 60 al secondo). */
+/** Minimum interval between two `set_param` messages for the same knob (about 60 per second). */
 const PARAM_INTERVAL_MS = 16;
 
 interface Pending {
@@ -80,7 +80,7 @@ export class Connection {
       try {
         this.onMsg(JSON.parse(String(ev.data)) as ServerMsg);
       } catch {
-        /* messaggio non valido: lo ignoro */
+        /* invalid message: ignored */
       }
     };
     ws.onclose = () => {
@@ -111,7 +111,7 @@ export class Connection {
     else this.mock?.handle(msg);
   }
 
-  /** `set_param` limitato a circa 60 messaggi al secondo per manopola; l'ultimo valore arriva sempre. */
+  /** `set_param` limited to about 60 messages per second per knob; the last value always gets through. */
   sendParam(node: string, param: string, value: number) {
     const key = `${node}\u0000${param}`;
     const p = this.params.get(key) ?? { last: 0 };

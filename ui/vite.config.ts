@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// In sviluppo (`npm run dev`) il WebSocket viene girato a `openpedal ui` sulla porta 7777.
-// Se openpedal non gira, l'interfaccia usa le fixture (modalità mock).
+// In development (`npm run dev`) the WebSocket is forwarded to `openpedal ui` on port 7777.
+// If openpedal is not running, the interface uses the fixtures (mock mode).
 export default defineConfig({
   plugins: [react()],
   server: {

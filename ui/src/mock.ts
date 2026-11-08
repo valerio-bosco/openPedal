@@ -1,12 +1,12 @@
-// Server finto in memoria per `npm run dev` senza openPedal: parla il protocollo §5.4
-// usando le fixture. Serve anche da ripiego automatico quando `/ws` non risponde.
+// In-memory fake server for `npm run dev` without openPedal: speaks the §5.4 protocol
+// using the fixtures. It also serves as automatic fallback when `/ws` does not respond.
 import stateFixture from "./fixtures/state.json";
 import clientFixture from "./fixtures/client-messages.json";
 import type { CatalogItem, ClientMsg, GraphFile, PedalFile, ServerMsg, StateMsg } from "./protocol";
 
 const base = stateFixture as unknown as StateMsg;
 
-/** Pedali di esempio (contenuto), ricavati dalla fixture dei messaggi del client. */
+/** Example pedals (content), taken from the client messages fixture. */
 export function fixturePedals(): Record<string, PedalFile> {
   const out: Record<string, PedalFile> = {};
   for (const m of clientFixture as unknown as ClientMsg[]) {
@@ -15,7 +15,7 @@ export function fixturePedals(): Record<string, PedalFile> {
   return out;
 }
 
-/** Voce di catalogo di un pedale composto: una manopola 0..1 per ogni `knob`. */
+/** Catalog entry for a composite pedal: one 0..1 knob per `knob`. */
 export function pedalCatalogItem(id: string, p: PedalFile): CatalogItem {
   return {
     kind: `pedal:${id}`,
@@ -76,7 +76,7 @@ export class MockServer {
     };
   }
 
-  /** Risposta asincrona, come un vero server. */
+  /** Asynchronous reply, like a real server. */
   handle(msg: ClientMsg) {
     window.setTimeout(() => this.handleNow(msg), 0);
   }

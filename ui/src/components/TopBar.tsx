@@ -3,10 +3,10 @@ import type { AudioInfo, MetersMsg } from "../protocol";
 import type { Status } from "../ws";
 
 const STATUS_TEXT: Record<Status, string> = {
-  connecting: "Connessione…",
-  online: "Connesso",
-  mock: "Demo (senza server)",
-  offline: "Disconnesso, riconnessione…",
+  connecting: "Connecting…",
+  online: "Connected",
+  mock: "Demo (no server)",
+  offline: "Disconnected, reconnecting…",
 };
 
 function Meter({ label, db }: { label: string; db: number }) {
@@ -60,14 +60,14 @@ export function TopBar({ status, presets, graphName, audio, meters, disabledPres
         </select>
       </label>
       <button onClick={onSave} disabled={disabledPresets}>
-        Salva preset
+        Save preset
       </button>
       <button
         className="icon danger-hover"
         onClick={onDelete}
         disabled={disabledPresets || !presets.includes(graphName)}
-        title={presets.includes(graphName) ? `Elimina il preset «${graphName}»` : "Il grafo attuale non è un preset salvato"}
-        aria-label="Elimina preset"
+        title={presets.includes(graphName) ? `Delete preset «${graphName}»` : "The current graph is not a saved preset"}
+        aria-label="Delete preset"
       >
         🗑
       </button>
@@ -76,7 +76,7 @@ export function TopBar({ status, presets, graphName, audio, meters, disabledPres
       <div className="meters">
         <Meter label="IN" db={meters?.in_db ?? -90} />
         <Meter label="OUT" db={meters?.out_db ?? -90} />
-        <div className="dsp" title="Carico del thread audio">
+        <div className="dsp" title="Audio thread load">
           DSP {Math.round((meters?.dsp ?? 0) * 100)}%
           {(meters?.xruns ?? 0) > 0 && <span className="xruns"> · {meters?.xruns} xrun</span>}
         </div>
@@ -84,7 +84,7 @@ export function TopBar({ status, presets, graphName, audio, meters, disabledPres
       <div className={`status status-${status}`} title={audio ? `${audio.sample_rate} Hz, buffer ${audio.buffer}` : ""}>
         <span className="dot" />
         {STATUS_TEXT[status]}
-        {audio && !audio.running && status !== "mock" && " · audio spento"}
+        {audio && !audio.running && status !== "mock" && " · audio off"}
       </div>
     </header>
   );

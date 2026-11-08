@@ -33,14 +33,14 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
       <div className="pedal-head">
         <span className="led" />
         <span className="pedal-title">{item?.label ?? data.kind}</span>
-        {item?.composite && <span className="pedal-badge" title="Pedale composto: doppio clic per modificarlo">composto</span>}
+        {item?.composite && <span className="pedal-badge" title="Composite pedal: double-click to edit it">composite</span>}
         {!special && (
-          <button className="nodrag pedal-remove" title="Elimina pedale (Canc)" onClick={() => removeNode(id)}>
+          <button className="nodrag pedal-remove" title="Delete pedal (Del)" onClick={() => removeNode(id)}>
             ×
           </button>
         )}
       </div>
-      {!item && <div className="pedal-unknown">Tipo sconosciuto: {data.kind}</div>}
+      {!item && <div className="pedal-unknown">Unknown type: {data.kind}</div>}
       {params.length > 0 && (
         <div className="pedal-params" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
           {params.map((p) => {

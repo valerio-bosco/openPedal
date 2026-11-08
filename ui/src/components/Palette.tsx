@@ -30,11 +30,11 @@ export function Palette({ catalog, onAdd, onDeletePedal }: Props) {
       <input
         className="palette-search"
         type="search"
-        placeholder="Cerca un pedale…"
+        placeholder="Search pedals…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <div className="palette-hint">Trascina nel canvas, oppure fai doppio clic.</div>
+      <div className="palette-hint">Drag onto the canvas, or double-click.</div>
       <div className="palette-list">
         {groups.map(([cat, items]) => {
           const open = query !== "" || !closed.has(cat);
@@ -75,7 +75,7 @@ export function Palette({ catalog, onAdd, onDeletePedal }: Props) {
                     {it.composite && (
                       <button
                         className="palette-del"
-                        title="Elimina questo pedale"
+                        title="Delete this pedal"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDeletePedal(it);
@@ -89,7 +89,7 @@ export function Palette({ catalog, onAdd, onDeletePedal }: Props) {
             </section>
           );
         })}
-        {groups.length === 0 && <div className="palette-empty">Nessun pedale trovato.</div>}
+        {groups.length === 0 && <div className="palette-empty">No pedals found.</div>}
       </div>
     </aside>
   );

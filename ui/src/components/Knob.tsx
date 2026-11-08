@@ -10,7 +10,7 @@ interface Props {
 
 const SIZE = 46;
 const R = 18;
-const START = 135; // gradi: l'arco va da 135° a 405° (270° di corsa)
+const START = 135; // degrees: the arc goes from 135° to 405° (270° of travel)
 
 function polar(deg: number) {
   const a = (deg * Math.PI) / 180;
@@ -22,7 +22,7 @@ function arc(from: number, to: number) {
   return `M ${x1} ${y1} A ${R} ${R} 0 ${to - from > 180 ? 1 : 0} 1 ${x2} ${y2}`;
 }
 
-/** Manopola circolare: trascinamento verticale (Maiusc = fine), doppio clic per scrivere il valore. */
+/** Circular knob: vertical drag (Shift = fine), double-click to type the value. */
 export function Knob({ desc, value, color, onChange }: Props) {
   const drag = useRef<{ y: number; t: number } | null>(null);
   const [editing, setEditing] = useState(false);

@@ -15,7 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** Menu del tasto destro: si chiude con un clic fuori, Esc o dopo una scelta. */
+/** Right-click menu: closes on an outside click, on Esc, or after a choice. */
 export function ContextMenu({ x, y, items, onClose }: Props) {
   useEffect(() => {
     const close = () => onClose();
@@ -30,7 +30,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     };
   }, [onClose]);
 
-  // resta dentro la finestra anche vicino ai bordi
+  // stays inside the window even near the edges
   const left = Math.min(x, window.innerWidth - 220);
   const top = Math.min(y, window.innerHeight - items.length * 34 - 16);
 

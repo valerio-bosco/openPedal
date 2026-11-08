@@ -1,12 +1,12 @@
-// Tipi del protocollo tra interfaccia e openPedal (contratto: docs/PLAN.md §5.4).
-// Rispecchiano src/server/protocol.rs e src/graph/model.rs. Gli esempi reali stanno
-// in ./fixtures/*.json, generati con `openpedal dev-fixtures ui/src/fixtures`.
+// Protocol types between the interface and openPedal (contract: docs/PLAN.md §5.4).
+// They mirror src/server/protocol.rs and src/graph/model.rs. Real examples are in
+// in ./fixtures/*.json, generated with `openpedal dev-fixtures ui/src/fixtures`.
 
 export const INPUT = "input";
 export const OUTPUT = "output";
-/** Un nodo di tipo `pedal:<id>` usa il pedale composto pedals/<id>.toml. */
+/** A node of type `pedal:<id>` uses the composite pedal pedals/<id>.toml. */
 export const PEDAL_PREFIX = "pedal:";
-/** Nodi impliciti dentro un pedale composto (non compaiono in `node`). */
+/** Implicit nodes inside a composite pedal (they do not appear in `node`). */
 export const PEDAL_IN = "pedal_in";
 export const PEDAL_OUT = "pedal_out";
 
@@ -19,30 +19,30 @@ export type ParamDesc = { id: string; label: string } & (
       max: number;
       default: number;
       unit: string;
-      /** La manopola si muove in scala logaritmica. */
+      /** The knob moves on a logarithmic scale. */
       log: boolean;
-      /** > 0: valori a scatti (1 = interi). */
+      /** > 0: stepped values (1 = integers). */
       step: number;
     }
   | { kind: "choice"; options: string[]; default: number }
-  /** Percorso di un file: cambiarlo richiede `set_graph`, non `set_param`. */
+  /** File path: changing it requires `set_graph`, not `set_param`. */
   | { kind: "file"; extensions: string[] }
 );
 
 export interface CatalogItem {
-  /** Il `type` dei nodi: "drive", "input", "pedal:cab-4x12"... */
+  /** The `type` of the nodes: "drive", "input", "pedal:cab-4x12"... */
   kind: string;
   label: string;
   category: Category;
   params: ParamDesc[];
-  /** Pedale composto: modificabile e cancellabile. I suoi parametri sono manopole 0..1. */
+  /** Composite pedal: editable and deletable. Its parameters are 0..1 knobs. */
   composite: boolean;
   description?: string;
 }
 
 /**
- * Nel grafo i valori sono numeri, oppure stringhe per le scelte (nome dell'opzione,
- * es. "asym") e per i file. Un parametro assente vale il suo default.
+ * In the graph, values are numbers, or strings for choices (the option name,
+ * e.g. "asym") and for files. A missing parameter takes its default.
  */
 export type ParamValue = number | string;
 
@@ -58,7 +58,7 @@ export interface EdgeSpec {
   to: string;
 }
 
-/** Preset v2. Le chiavi sono al singolare (`node`, `edge`) come nei file TOML. */
+/** Preset v2. The keys are singular (`node`, `edge`), as in the TOML files. */
 export interface GraphFile {
   name: string;
   version: number;
@@ -70,10 +70,10 @@ export interface KnobSpec {
   label: string;
   /** "<id nodo interno>.<id parametro>" */
   target: string;
-  /** Valori del parametro interno con la manopola a 0 e a 1. */
+  /** Internal parameter values with the knob at 0 and at 1. */
   min: number;
   max: number;
-  /** Posizione iniziale, 0..1. */
+  /** Initial position, 0..1. */
   default: number;
 }
 
@@ -82,7 +82,7 @@ export interface PedalFile {
   category: string;
   description: string;
   node: NodeSpec[];
-  /** Usano anche i nodi impliciti PEDAL_IN e PEDAL_OUT. */
+  /** They also use the implicit PEDAL_IN and PEDAL_OUT nodes. */
   edge: EdgeSpec[];
   knob: KnobSpec[];
 }
@@ -90,7 +90,7 @@ export interface PedalFile {
 export interface AudioInfo {
   sample_rate: number;
   buffer: number;
-  /** false = nessuna scheda audio (modalità solo editor). */
+  /** false = no audio device (editor-only mode). */
   running: boolean;
 }
 
@@ -99,7 +99,7 @@ export interface StateMsg {
   catalog: CatalogItem[];
   graph: GraphFile;
   presets: string[];
-  /** Contenuto dei pedali composti (id -> pedale), per aprirli e modificarli. */
+  /** Content of the composite pedals (id -> pedal), to open and edit them. */
   pedals: Record<string, PedalFile>;
   audio: AudioInfo;
 }
@@ -108,7 +108,7 @@ export interface MetersMsg {
   type: "meters";
   in_db: number;
   out_db: number;
-  /** Carico del thread audio, 0..1. */
+  /** Audio thread load, 0..1. */
   dsp: number;
   xruns: number;
 }
@@ -123,12 +123,12 @@ export type ServerMsg = StateMsg | MetersMsg | ErrorMsg;
 
 export type ClientMsg =
   | { type: "hello" }
-  /** Per le scelte `value` è l'indice dell'opzione. */
+  /** For choices, `value` is the index of the option. */
   | { type: "set_param"; node: string; param: string; value: number }
   | { type: "set_graph"; graph: GraphFile }
   | { type: "load_preset"; name: string }
   | { type: "save_preset"; name: string; graph: GraphFile }
-  /** Cancella presets/<name>.toml; il grafo che sta suonando non cambia. */
+  /** Deletes presets/<name>.toml; the graph currently playing does not change. */
   | { type: "delete_preset"; name: string }
   | { type: "save_pedal"; id: string; pedal: PedalFile }
   | { type: "delete_pedal"; id: string };

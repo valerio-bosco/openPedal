@@ -1,4 +1,4 @@
-// Conversioni tra il grafo del protocollo e i nodi/cavi di React Flow, più funzioni di utilità.
+// Conversions between the protocol graph and React Flow nodes/cables, plus utility functions.
 import type { Edge, Node } from "@xyflow/react";
 import {
   INPUT,
@@ -23,21 +23,21 @@ export type PNode = Node<PedalData, "pedal">;
 
 export type NumberDesc = Extract<ParamDesc, { kind: "number" }>;
 
-/** Voci sintetiche per i nodi impliciti dentro un pedale composto. */
+/** Synthetic entries for the implicit nodes inside a composite pedal. */
 export const IMPLICIT_ITEMS: CatalogItem[] = [
-  { kind: PEDAL_IN, label: "Ingresso pedale", category: "io", params: [], composite: false },
-  { kind: PEDAL_OUT, label: "Uscita pedale", category: "io", params: [], composite: false },
+  { kind: PEDAL_IN, label: "Pedal input", category: "io", params: [], composite: false },
+  { kind: PEDAL_OUT, label: "Pedal output", category: "io", params: [], composite: false },
 ];
 
 export const CATEGORY_LABEL: Record<Category, string> = {
-  io: "Ingresso / uscita",
-  dynamics: "Dinamica",
-  drive: "Distorsori",
-  filter: "Filtri",
-  modulation: "Modulazione",
-  time: "Tempo",
-  amp: "Ampli e casse",
-  utility: "Utilità",
+  io: "Input / output",
+  dynamics: "Dynamics",
+  drive: "Distortion",
+  filter: "Filters",
+  modulation: "Modulation",
+  time: "Time",
+  amp: "Amps & cabs",
+  utility: "Utility",
 };
 export const CATEGORY_ORDER: Category[] = ["dynamics", "drive", "amp", "filter", "modulation", "time", "utility", "io"];
 export const CATEGORY_COLOR: Record<Category, string> = {
@@ -53,7 +53,7 @@ export const CATEGORY_COLOR: Record<Category, string> = {
 
 export const isFixed = (kind: string) => kind === INPUT || kind === OUTPUT || kind === PEDAL_IN || kind === PEDAL_OUT;
 
-/** Le posizioni dei file sono compatte (~220 px): sullo schermo i nodi sono più larghi, quindi si dilata l'asse x. */
+/** Positions in files are compact (~220 px): on screen the nodes are wider, so the x axis is stretched. */
 export const X_SCALE = 1.5;
 
 export const edgeId = (from: string, to: string) => `${from}->${to}`;
@@ -92,7 +92,7 @@ export function flowToGraph(name: string, nodes: PNode[], edges: Edge[]): GraphF
   return { name, version: 2, ...flowToSpecs(nodes, edges) };
 }
 
-/** Vero se aggiungere source -> target creerebbe un ciclo (o un cavo su sé stesso). */
+/** True if adding source -> target would create a cycle (or a cable to itself). */
 export function wouldCycle(edges: { source: string; target: string }[], source: string, target: string): boolean {
   if (source === target) return true;
   const next = new Map<string, string[]>();
@@ -109,7 +109,7 @@ export function wouldCycle(edges: { source: string; target: string }[], source: 
   return false;
 }
 
-/** Firma della struttura del grafo: cambia solo quando serve un `set_graph` (non per le posizioni). */
+/** Signature of the graph structure: changes only when a `set_graph` is needed (not for positions). */
 export function structureKey(nodes: PNode[], edges: Edge[], catalog: Map<string, CatalogItem>): string {
   const ns = nodes.map((n) => {
     const item = catalog.get(n.data.kind);
@@ -123,7 +123,7 @@ export function structureKey(nodes: PNode[], edges: Edge[], catalog: Map<string,
   return JSON.stringify([ns.sort(), es.sort()]);
 }
 
-// --- valori dei parametri ---
+// --- parameter values ---
 
 export function paramValue(desc: ParamDesc, v: ParamValue | undefined): number {
   if (desc.kind === "number") return typeof v === "number" ? v : desc.default;

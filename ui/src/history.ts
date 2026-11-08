@@ -1,19 +1,19 @@
-// Cronologia per annulla / ripeti: istantanee del grafo (nodi, posizioni, parametri, cavi).
-// Una modifica continua (giro di manopola, trascinamento) diventa un solo passo perché
-// l'istantanea si registra solo quando il grafo resta fermo per un attimo (vedi App.tsx).
+// History for undo / redo: snapshots of the graph (nodes, positions, parameters, cables).
+// A continuous edit (turning a knob, dragging) becomes a single step because
+// the snapshot is recorded only when the graph stays still for a moment (see App.tsx).
 import type { Edge } from "@xyflow/react";
 import type { PNode } from "./model";
 
 export interface Snapshot {
   nodes: PNode[];
   edges: Edge[];
-  /** Nome del grafo (es. "nuovo" dopo il pulsante Nuovo): torna con l'annulla. */
+  /** Graph name (e.g. "new" after the New button): restored by undo. */
   name?: string;
 }
 
 const LIMIT = 100;
 
-/** Ciò che conta per la cronologia: non la selezione, non gli errori mostrati. */
+/** What matters for history: not the selection, not the errors shown. */
 function contentKey(s: Snapshot): string {
   return JSON.stringify([
     s.nodes.map((n) => [n.id, n.data.kind, Math.round(n.position.x), Math.round(n.position.y), n.data.params]),
@@ -35,21 +35,21 @@ export class History {
   private current?: Snapshot;
   private key = "";
 
-  /** Nuovo punto di partenza (preset caricato, ingresso in un pedale): niente da annullare. */
+  /** New starting point (preset loaded, entering a pedal): nothing to undo. */
   reset(s: Snapshot) {
     this.past = [];
     this.future = [];
-    // senza nome (es. dopo il riordino automatico) resta quello che c'era
+    // without a name (e.g. after automatic tidying) the previous one is kept
     this.current = clean({ ...s, name: s.name ?? this.current?.name });
     this.key = contentKey(s);
   }
 
-  /** true se `s` è lo stato già registrato. */
+  /** true if `s` is the state already recorded. */
   same(s: Snapshot): boolean {
     return contentKey(s) === this.key;
   }
 
-  /** Registra `s` se è cambiato rispetto all'ultima istantanea; true se ha registrato. */
+  /** Records `s` if it changed since the last snapshot; true if it recorded. */
   record(s: Snapshot): boolean {
     const k = contentKey(s);
     if (k === this.key) return false;

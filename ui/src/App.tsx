@@ -57,7 +57,7 @@ import { PedalDialog, type Candidate, type PedalForm } from "./components/PedalD
 
 const nodeTypes = { pedal: PedalNodeMemo };
 
-/** Stato di "dentro il pedale": il grafo principale resta in `parent`. */
+/** Editing state for "inside the pedal": the main graph stays in `parent`. */
 interface Editing {
   id: string;
   name: string;
@@ -65,7 +65,7 @@ interface Editing {
   description: string;
   knobs: KnobSpec[];
   parent: { nodes: PNode[]; edges: Edge[] };
-  /** Cronologia del grafo principale, ripresa all'uscita dal pedale. */
+  /** History of the main graph, restored when leaving the pedal. */
   parentHistory: History;
 }
 
@@ -90,7 +90,7 @@ function Editor() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<Menu>(null);
   const history = useRef(new History());
-  /** Cambia quando cambia la cronologia: aggiorna i pulsanti Annulla / Ripeti. */
+  /** Changes when the history changes: refreshes the Undo / Redo buttons. */
   const [, setHistoryVersion] = useState(0);
   const bumpHistory = useCallback(() => setHistoryVersion((v) => v + 1), []);
   const tidyIfOverlappingRef = useRef<() => void>(() => {});
@@ -106,7 +106,7 @@ function Editor() {
   const editingRef = useRef(editing);
   editingRef.current = editing;
   const pedals = useRef<Record<string, PedalFile>>({});
-  /** Dopo `save_pedal`: azione da eseguire quando arriva lo `state` con il pedale nel catalogo. */
+  /** After `save_pedal`: action to run when the `state` with the pedal in the catalog arrives. */
   const pending = useRef<{ kind: string; run: () => void }>(undefined);
 
   const catalog = useMemo(
@@ -120,7 +120,7 @@ function Editor() {
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
   }, []);
 
-  // --- messaggi dal server ---
+  // --- messages from the server ---
   const onMsg = useCallback(
     (m: ServerMsg) => {
       if (m.type === "meters") return setMeters(m);
@@ -139,7 +139,7 @@ function Editor() {
         pend.run();
         return;
       }
-      // dentro un pedale il grafo principale resta quello che ho in `parent`
+      // inside a pedal the main graph stays the one held in `parent`
       if (editingRef.current) return;
       setGraphName(m.graph.name);
       const f = specsToFlow(m.graph.node, m.graph.edge);
@@ -147,7 +147,7 @@ function Editor() {
       lastKey.current = structureKey(f.nodes, f.edges, cat);
       setNodes(f.nodes);
       setEdges(f.edges);
-      // un preset caricato è un nuovo inizio; lo stesso grafo (es. dopo un salvataggio) no
+      // a loaded preset is a new starting point; the same graph (e.g. after a save) is not
       if (!history.current.same(f)) {
         history.current.reset({ ...f, name: m.graph.name });
         bumpHistory();
@@ -164,12 +164,12 @@ function Editor() {
     return () => c.stop();
   }, [onMsg]);
 
-  // in modalità demo i contenuti dei pedali d'esempio vengono dalle fixture
+  // in demo mode the example pedal contents come from the fixtures
   useEffect(() => {
     if (status === "mock") pedals.current = { ...fixturePedals(), ...pedals.current };
   }, [status]);
 
-  // --- struttura cambiata: nuovo grafo al motore ---
+  // --- structure changed: new graph to the engine ---
   useEffect(() => {
     if (catalogItems.length === 0 || editing) return;
     const key = structureKey(nodes, edges, catalog);
@@ -182,12 +182,12 @@ function Editor() {
     return () => window.clearTimeout(h);
   }, [nodes, edges, catalog, catalogItems.length, graphName, setNodes, editing]);
 
-  // --- riordina: colonne nell'ordine del segnale, con le misure vere dei pedali ---
+  // --- tidy up: columns in signal order, using the pedals' real measurements ---
   const tidy = useCallback(() => {
     const ns = flow.getNodes();
     const es = edgesRef.current;
     const depth = new Map(ns.map((n) => [n.id, 0]));
-    // il grafo è senza cicli: basta propagare la profondità per n passi
+    // the graph has no cycles: propagating the depth for n passes is enough
     for (let i = 0; i < ns.length; i++) {
       for (const e of es) depth.set(e.target, Math.max(depth.get(e.target) ?? 0, (depth.get(e.source) ?? 0) + 1));
     }
@@ -212,7 +212,7 @@ function Editor() {
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.15 }), 30);
   }, [flow, setNodes]);
 
-  /** Dopo il caricamento di un grafo: se ci sono pedali sovrapposti, riordina. */
+  /** After loading a graph: if pedals overlap, tidy up. */
   const tidyIfOverlapping = useCallback(() => {
     window.setTimeout(() => {
       const ns = flow.getNodes();
@@ -226,7 +226,7 @@ function Editor() {
       );
       if (!overlap) return;
       tidy();
-      // il riordino automatico non è una modifica da annullare
+      // automatic tidying is not an edit to undo
       window.setTimeout(() => {
         history.current.reset({ nodes: flow.getNodes(), edges: edgesRef.current });
         bumpHistory();
@@ -236,17 +236,17 @@ function Editor() {
 
   tidyIfOverlappingRef.current = tidyIfOverlapping;
 
-  /** Grafo vuoto: solo Chitarra collegata all'Ampli (si sente il pulito). Si annulla con Ctrl+Z. */
+  /** Empty graph: only Guitar connected to Amp (you hear the clean sound). Undo with Ctrl+Z. */
   const newGraph = useCallback(() => {
     const nIn = specToNode({ id: "in", type: INPUT, pos: [0, 0], params: {} });
     const nOut = specToNode({ id: "out", type: OUTPUT, pos: [300, 0], params: {} });
     setNodes([nIn, nOut]);
     setEdges([{ id: edgeId("in", "out"), source: "in", target: "out" }]);
-    setGraphName("nuovo");
+    setGraphName("new");
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.6, maxZoom: 1 }), 50);
   }, [flow, setNodes, setEdges]);
 
-  // --- cronologia: un'istantanea quando il grafo resta fermo per un attimo ---
+  // --- history: a snapshot when the graph stays still for a moment ---
   useEffect(() => {
     if (nodes.some((n) => n.dragging)) return;
     const h = window.setTimeout(() => {
@@ -255,14 +255,14 @@ function Editor() {
     return () => window.clearTimeout(h);
   }, [nodes, edges, graphName, bumpHistory]);
 
-  /** Riporta il grafo a un'istantanea e lo comunica al motore nel modo più leggero. */
+  /** Restores the graph to a snapshot and tells the engine in the lightest way possible. */
   const applySnapshot = useCallback(
     (s: Snapshot) => {
       const prev = new Map(nodes.map((n) => [n.id, n]));
       setNodes(s.nodes);
       setEdges(s.edges);
       bumpHistory();
-      if (editingRef.current) return; // dentro un pedale si manda tutto al salvataggio
+      if (editingRef.current) return; // inside a pedal everything is sent on save
       const name = s.name ?? graphName;
       setGraphName(name);
       const key = structureKey(s.nodes, s.edges, catalog);
@@ -271,7 +271,7 @@ function Editor() {
         conn.current?.send({ type: "set_graph", graph: flowToGraph(name, s.nodes, s.edges) });
         return;
       }
-      // stessa struttura: bastano i parametri cambiati, senza ricostruire il suono
+      // same structure: only the changed parameters are needed, without rebuilding the sound
       for (const n of s.nodes) {
         const before = prev.get(n.id);
         const item = catalog.get(n.data.kind);
@@ -296,7 +296,7 @@ function Editor() {
     if (s) applySnapshot(s);
   }, [applySnapshot]);
 
-  // --- eliminazione ---
+  // --- deletion ---
   const removeNodes = useCallback(
     (ids: string[]) => {
       const gone = new Set(ids.filter((id) => !isFixed(flow.getNode(id)?.data.kind ?? "")));
@@ -316,14 +316,14 @@ function Editor() {
     removeNodes(nodes.filter((n) => n.selected).map((n) => n.id));
   }, [nodes, edges, removeNodes, removeEdges]);
 
-  // --- cavi: trascinando un'estremità lo si sposta, lasciandola nel vuoto lo si toglie ---
+  // --- cables: dragging an end moves it, dropping it in empty space removes it ---
   const reconnected = useRef(true);
   const onReconnect = useCallback(
     (old: Edge, c: FlowConnection) => {
       reconnected.current = true;
       const others = edgesRef.current.filter((e) => e.id !== old.id);
       if (wouldCycle(others, c.source, c.target) || others.some((e) => e.source === c.source && e.target === c.target)) {
-        toast("Quel cavo non è valido: creerebbe un ciclo o esiste già.");
+        toast("That cable is not valid: it would create a cycle or already exists.");
         return;
       }
       setEdges([...others, { id: edgeId(c.source, c.target), source: c.source, target: c.target }]);
@@ -331,7 +331,7 @@ function Editor() {
     [setEdges, toast],
   );
 
-  // --- parametri ---
+  // --- parameters ---
   const setParam = useCallback(
     (nodeId: string, paramId: string, value: ParamValue) => {
       setNodes((ns) =>
@@ -346,7 +346,7 @@ function Editor() {
   const removeNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
   const ctx = useMemo(() => ({ catalog, setParam, removeNode }), [catalog, setParam, removeNode]);
 
-  // --- cavi ---
+  // --- cables ---
   const isValidConnection = useCallback(
     (c: FlowConnection | Edge) =>
       !wouldCycle(edgesRef.current, c.source, c.target) &&
@@ -358,7 +358,7 @@ function Editor() {
     [setEdges],
   );
 
-  // --- aggiunta, duplicazione ---
+  // --- adding, duplicating ---
   const addNode = useCallback(
     (kind: string, pos?: { x: number; y: number }) => {
       const taken = new Set(nodes.map((n) => n.id));
@@ -371,7 +371,7 @@ function Editor() {
     [nodes, flow, setNodes],
   );
 
-  /** Duplica i pedali indicati (o, senza argomenti, quelli selezionati) con i cavi tra loro. */
+  /** Duplicates the given pedals (or, with no arguments, the selected ones) along with the cables between them. */
   const duplicate = useCallback((only?: string[]) => {
     const sel = nodes.filter((n) => (only ? only.includes(n.id) : n.selected) && !isFixed(n.data.kind));
     if (sel.length === 0) return;
@@ -425,26 +425,26 @@ function Editor() {
   };
 
   const savePreset = () => {
-    const name = window.prompt("Nome del preset", graphName || "mio-suono")?.trim();
+    const name = window.prompt("Preset name", graphName || "my-sound")?.trim();
     if (!name) return;
     setGraphName(name);
     conn.current?.send({ type: "save_preset", name, graph: flowToGraph(name, nodes, edges) });
-    toast(`Preset «${name}» salvato`);
+    toast(`Preset «${name}» saved`);
   };
 
   const deletePreset = () => {
     if (!presets.includes(graphName)) return;
-    if (!window.confirm(`Eliminare il preset «${graphName}»?\nIl file presets/${graphName}.toml verrà cancellato (il suono attuale resta).`)) return;
+    if (!window.confirm(`Delete preset «${graphName}»?\nThe file presets/${graphName}.toml will be deleted (the current sound stays).`)) return;
     conn.current?.send({ type: "delete_preset", name: graphName });
-    toast(`Preset «${graphName}» eliminato`);
+    toast(`Preset «${graphName}» deleted`);
   };
 
   const deletePedal = (item: CatalogItem) => {
-    if (!window.confirm(`Eliminare il pedale «${item.label}»?`)) return;
+    if (!window.confirm(`Delete pedal «${item.label}»?`)) return;
     conn.current?.send({ type: "delete_pedal", id: item.kind.replace(/^pedal:/, "") });
   };
 
-  // --- pedali composti ---
+  // --- composite pedals ---
   const candidatesFor = (list: PNode[]): Candidate[] =>
     list.flatMap((n) => {
       const item = catalog.get(n.data.kind);
@@ -458,8 +458,8 @@ function Editor() {
   const createPedal = (ids: string[], f: PedalForm) => {
     const sel = nodes.filter((n) => ids.includes(n.id));
     const inSel = new Set(ids);
-    let id = slug(f.name) || "pedale";
-    for (let i = 2; catalog.has(PEDAL_PREFIX + id); i++) id = `${slug(f.name) || "pedale"}-${i}`;
+    let id = slug(f.name) || "pedal";
+    for (let i = 2; catalog.has(PEDAL_PREFIX + id); i++) id = `${slug(f.name) || "pedal"}-${i}`;
     const kind = PEDAL_PREFIX + id;
 
     const minX = Math.min(...sel.map((n) => n.position.x));
@@ -511,14 +511,14 @@ function Editor() {
     };
     conn.current?.send({ type: "save_pedal", id, pedal });
     setDialog(null);
-    toast(`Pedale «${f.name}» creato`);
+    toast(`Pedal «${f.name}» created`);
   };
 
   const enterPedal = (node: PNode) => {
     if (!node.data.kind.startsWith(PEDAL_PREFIX) || editing) return;
     const id = node.data.kind.slice(PEDAL_PREFIX.length);
     const p = pedals.current[id];
-    if (!p) return toast("Il contenuto di questo pedale non è disponibile (file in pedals/ mancante o non valido).");
+    if (!p) return toast("The contents of this pedal are not available (pedals/ file missing or invalid).");
     const f = specsToFlow(p.node, p.edge);
     const xs = p.node.map((n) => n.pos[0]);
     const ys = p.node.map((n) => n.pos[1]);
@@ -561,12 +561,12 @@ function Editor() {
     const pedal: PedalFile = { name: meta.name, category: meta.category, description: meta.description, node, edge, knob: knobs };
     pedals.current[editing.id] = pedal;
     conn.current?.send({ type: "save_pedal", id: editing.id, pedal });
-    // il pedale cambiato va ricompilato nel grafo principale
+    // the changed pedal must be recompiled into the main graph
     const parent = editing.parent;
     conn.current?.send({ type: "set_graph", graph: flowToGraph(graphName, parent.nodes, parent.edges) });
     setDialog(null);
     exitPedal();
-    toast(`Pedale «${meta.name}» salvato`);
+    toast(`Pedal «${meta.name}» saved`);
   };
 
   const selected = nodes.filter((n) => n.selected && !isFixed(n.data.kind));
@@ -576,21 +576,21 @@ function Editor() {
 
   const editButtons = (
     <span className="btn-group">
-      <button className="icon" onClick={undo} disabled={!history.current.canUndo} title="Annulla (Ctrl+Z)" aria-label="Annulla">
+      <button className="icon" onClick={undo} disabled={!history.current.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
         ↶
       </button>
-      <button className="icon" onClick={redo} disabled={!history.current.canRedo} title="Ripeti (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Ripeti">
+      <button className="icon" onClick={redo} disabled={!history.current.canRedo} title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">
         ↷
       </button>
       <button
         onClick={deleteSelection}
         disabled={selCount + selEdges === 0}
-        title="Elimina i pedali e i cavi selezionati (Canc)"
+        title="Delete the selected pedals and cables (Del)"
       >
-        Elimina
+        Delete
       </button>
-      <button onClick={tidy} title="Disponi i pedali in colonne nell'ordine del segnale">
-        Riordina
+      <button onClick={tidy} title="Arrange the pedals in columns in signal order">
+        Tidy up
       </button>
     </span>
   );
@@ -598,24 +598,24 @@ function Editor() {
   const menuItems = (m: NonNullable<Menu>): MenuItem[] => {
     if ("edge" in m.target) {
       const id = m.target.edge;
-      return [{ label: "Elimina cavo", hint: "Canc", danger: true, onClick: () => removeEdges([id]) }];
+      return [{ label: "Delete cable", hint: "Del", danger: true, onClick: () => removeEdges([id]) }];
     }
     const node = nodes.find((n) => n.id === (m.target as { node: string }).node);
     if (!node) return [];
     const fixed = isFixed(node.data.kind);
     const items: MenuItem[] = [];
     if (node.data.kind.startsWith(PEDAL_PREFIX) && !editing) {
-      items.push({ label: "Entra nel pedale", hint: "doppio clic", onClick: () => enterPedal(node) });
+      items.push({ label: "Enter pedal", hint: "double click", onClick: () => enterPedal(node) });
     }
     items.push(
       {
-        label: "Duplica",
+        label: "Duplicate",
         hint: "Ctrl+D",
         disabled: fixed,
         onClick: () => duplicate([node.id]),
       },
-      { label: "Scollega tutti i cavi", onClick: () => disconnect(node.id) },
-      { label: "Elimina pedale", hint: "Canc", danger: true, disabled: fixed, onClick: () => removeNodes([node.id]) },
+      { label: "Disconnect all cables", onClick: () => disconnect(node.id) },
+      { label: "Delete pedal", hint: "Del", danger: true, disabled: fixed, onClick: () => removeNodes([node.id]) },
     );
     return items;
   };
@@ -636,30 +636,30 @@ function Editor() {
           extra={
             editing ? (
               <>
-                <span className="crumb">Dentro il pedale «{editing.name}»</span>
+                <span className="crumb">Inside pedal «{editing.name}»</span>
                 {editButtons}
-                <button onClick={() => setDialog({ mode: "edit" })}>Dettagli e manopole…</button>
+                <button onClick={() => setDialog({ mode: "edit" })}>Details and knobs…</button>
                 <button className="primary" onClick={() => savePedalEdit()}>
-                  Salva pedale
+                  Save pedal
                 </button>
-                <button onClick={exitPedal}>Esci senza salvare</button>
+                <button onClick={exitPedal}>Exit without saving</button>
               </>
             ) : (
               <>
-                <button onClick={newGraph} title="Riparti da zero: solo Chitarra e Ampli (Ctrl+Z per tornare indietro)">
-                  Nuovo
+                <button onClick={newGraph} title="Start from scratch: only Guitar and Amp (Ctrl+Z to go back)">
+                  New
                 </button>
                 {editButtons}
                 <button onClick={() => duplicate()} disabled={selCount === 0} title="Ctrl+D">
-                  Duplica
+                  Duplicate
                 </button>
                 <button
                   className={selCount > 0 ? "primary" : undefined}
                   disabled={selCount === 0}
-                  title="Racchiudi i nodi selezionati in un nuovo pedale"
+                  title="Wrap the selected nodes in a new pedal"
                   onClick={() => setDialog({ mode: "create", ids: selected.map((n) => n.id) })}
                 >
-                  Crea pedale
+                  Create pedal
                 </button>
               </>
             )
@@ -668,7 +668,7 @@ function Editor() {
         <div className="main">
           <Palette catalog={catalogItems} onAdd={addNode} onDeletePedal={deletePedal} />
           <div className="canvas" ref={wrapper} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
-            {!ready && <div className="loading">Connessione a openPedal…</div>}
+            {!ready && <div className="loading">Connecting to openPedal…</div>}
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -677,7 +677,7 @@ function Editor() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onConnectEnd={(_, st) => {
-                if (st.toNode && !st.isValid) toast("Quel cavo non è valido: creerebbe un ciclo o esiste già.");
+                if (st.toNode && !st.isValid) toast("That cable is not valid: it would create a cycle or already exists.");
               }}
               isValidConnection={isValidConnection}
               onNodeDoubleClick={(_, n) => enterPedal(n)}
@@ -724,8 +724,8 @@ function Editor() {
         </div>
         {dialog?.mode === "create" && (
           <PedalDialog
-            title="Crea pedale"
-            submitLabel="Crea"
+            title="Create pedal"
+            submitLabel="Create"
             initial={{ name: "", category: "utility", description: "" }}
             candidates={candidatesFor(nodes.filter((n) => dialog.ids.includes(n.id)))}
             knobs={[]}
@@ -735,8 +735,8 @@ function Editor() {
         )}
         {dialog?.mode === "edit" && editing && (
           <PedalDialog
-            title={`Pedale «${editing.name}»`}
-            submitLabel="Salva pedale"
+            title={`Pedal «${editing.name}»`}
+            submitLabel="Save pedal"
             initial={editing}
             candidates={candidatesFor(nodes)}
             knobs={editing.knobs}
