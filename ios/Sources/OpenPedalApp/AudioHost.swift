@@ -141,9 +141,18 @@ final class AudioHost: ObservableObject {
             try fm.createDirectory(at: dest, withIntermediateDirectories: true)
             guard let bundled = Bundle.module.url(forResource: name, withExtension: nil),
                   let files = try? fm.contentsOfDirectory(atPath: bundled.path) else { continue }
-            for file in files where !fm.fileExists(atPath: dest.appendingPathComponent(file).path) {
-                try fm.copyItem(at: bundled.appendingPathComponent(file), to: dest.appendingPathComponent(file))
+            // Each bundled file is seeded once: remember it, so a factory preset the user
+            // deleted does not come back, and user edits are never overwritten.
+            let key = "seeded.\(name)"
+            var seeded = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+            for file in files where !seeded.contains(file) {
+                let target = dest.appendingPathComponent(file)
+                if !fm.fileExists(atPath: target.path) {
+                    try fm.copyItem(at: bundled.appendingPathComponent(file), to: target)
+                }
+                seeded.insert(file)
             }
+            UserDefaults.standard.set(Array(seeded), forKey: key)
         }
         return base.path
     }

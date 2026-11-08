@@ -295,6 +295,22 @@ mod tests {
     }
 
     #[test]
+    fn unwritable_dirs_report_errors_instead_of_failing_silently() {
+        let (state, _, root) = app("unwritable");
+        // A plain file where the folder should be: every write below must fail.
+        let blocked = root.join("blocked");
+        std::fs::write(&blocked, b"not a folder").unwrap();
+        let state = AppState { presets_dir: blocked.join("presets"), pedals_dir: blocked.join("pedals"), engine: state.engine.clone() };
+        let r = handle_message(&state, ClientMsg::SavePreset { name: "x".into(), graph: default_graph() });
+        assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("cannot")), "{r:?}");
+        let r = handle_message(&state, ClientMsg::SavePedal { id: "x".into(), pedal: pedal() });
+        assert!(matches!(r[0], ServerMsg::Error { .. }));
+        let r = handle_message(&state, ClientMsg::DeletePreset { name: "x".into() });
+        assert!(matches!(r[0], ServerMsg::Error { .. }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn save_load_preset_and_pedals() {
         let (state, _, root) = app("file");
         let r = handle_message(&state, ClientMsg::SavePreset { name: "my-sound".into(), graph: default_graph() });
