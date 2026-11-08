@@ -264,3 +264,75 @@ changes from one client are not broadcast to the others; mono signal path; Windo
 (E1, the `AudioBackend` trait exists); whammy/pitch shifter; `formula` block; stereo.
 
 UI regression tests: `tools/e2e/run.sh` (inside `nix develop`, after `cargo build --release`).
+
+## 10. Native iPad app and separate releases (planned 2026-11-08)
+
+Decisions (by the user): the iPad frontend is **fully native SwiftUI** with the system Liquid Glass
+material (iPadOS 26, `glassEffect`; the xtool SDK is iPhoneOS 27.2 and has it). **iPad first**, iPhone
+later. The **node editor stays desktop-only**: the iPad app has no WebView. **Separate releases**
+for desktop and iOS. iOS distribution stays **sideload with xtool** for now (7-day free signing).
+Reference design: the Liquid Glass pedalboard mockup (concept A v2): full-bleed horizontal pedalboard,
+floating glass toolbar (preset title menu, undo, meters, tuner, Save), floating glass inspector with
+big knobs for the selected pedal, bottom sheet to add a pedal.
+
+### 10.1 Architecture
+
+```
+ ┌──────────── iPad app (ios/) ─────────────────────┐
+ │ SwiftUI views: Pedalboard, Inspector, Toolbar     │
+ │ OpenPedalKit: Codable protocol + WebSocket client │──┐ ws://127.0.0.1:<port>/ws
+ │ AudioHost: AVAudioSession + C ABI (src/ffi.rs)    │  │ (later: a desktop on the LAN)
+ └──────────────┬────────────────────────────────────┘  │
+                │ openpedal_start / process             │
+ ┌──────────────▼──── Rust core (libopenpedal.a) ───────▼┐
+ │ server (same protocol §5.4) · graph · dsp             │
+ └───────────────────────────────────────────────────────┘
+```
+
+The native app talks to the in-process Rust server over the **same WebSocket protocol** as the web UI.
+This keeps one contract and later lets the iPad remote-control a desktop instance.
+
+**Chain view.** The iPad shows the graph as a chain: nodes in signal order from `input` to `output`.
+If the graph is not a simple chain (parallel branches, composite pedals are fine), the board shows the
+nodes in topological order and disables reordering/adding, with a note "Parallel routing: edit on the
+desktop". Adding/removing/reordering on a chain is done client-side by rewriting `node`/`edge` and
+sending `set_graph`.
+
+### 10.2 Contract changes (protocol v1)
+
+- **`protocol` field** in `state`: `u32`, constant `PROTOCOL_VERSION = 1` in `src/server/protocol.rs`.
+  Clients refuse to run (clear error) when the server's major contract is newer than they know.
+  Bump it on any breaking change to §5.4; additive optional fields do not bump it.
+- **Bypass.** `NodeSpec` gains `bypass: bool` (TOML `bypass = true`, omitted when false; default false).
+  A bypassed node passes its input through unchanged (sum of its inputs, as for any node). New
+  client message `{ "type": "set_bypass", "node": "<id>", "bypass": true }`: live, no graph rebuild,
+  with a short click-free crossfade (~10 ms) between processed and dry. `input`/`output` cannot be
+  bypassed (error). Saved with the preset. The web UI shows it as a toggle on the node.
+- Tuner (pitch in `meters`) is **not** in this round.
+
+### 10.3 Versions and releases
+
+| Product | Version source | Tag | Changelog |
+|---|---|---|---|
+| Desktop (binary + web UI) | `Cargo.toml` `version` | `desktop-vX.Y.Z` | `CHANGELOG.md` |
+| iPad app | `ios/Info.plist` `CFBundleShortVersionString` (+ `CFBundleVersion` build number) | `ios-vX.Y.Z` | `ios/CHANGELOG.md` |
+| Protocol | `PROTOCOL_VERSION` | – | noted in both changelogs |
+
+- Changelogs are generated with **git-cliff** from Conventional Commits. Scope routing: `ios` → iOS
+  only; `ui` → desktop only; `dsp`, `graph`, `engine`, `server`, `ffi` → both (shared core); `docs`,
+  `nix`, `chore` → neither by default.
+- `tools/release.sh <desktop|ios> <X.Y.Z>`: requires a clean tree on `master`, runs the checks
+  (desktop: cargo test, clippy, `npm run build`; ios: cargo test + `build-core.sh` + `xtool dev build`),
+  bumps the version, regenerates that changelog, commits `chore(release): desktop vX.Y.Z` and creates
+  the annotated tag. It never pushes; the user pushes.
+- The iOS app shows its version, the core commit and the protocol version in an About sheet.
+- First releases: `desktop-v0.2.0` (current master + bypass) and `ios-v0.1.0` (first native app).
+
+### 10.4 Work split
+
+| ID | Model | Owns | Task |
+|---|---|---|---|
+| N1 | Sonnet | `src/**`, `ui/src/**`, `presets/` fixtures | protocol v1: `protocol` field, bypass (model, compiler/executor, `set_bypass`, crossfade), fixtures, tests, web UI toggle |
+| N2 | Sonnet | `ios/Sources/**`, `ios/Package.swift`, `ios/Info.plist` | native SwiftUI app per §10.1 against contract §10.2 (codes `bypass`/`protocol` before N1 lands) |
+| N3 | Haiku | `tools/release.sh`, `cliff.toml`, `CHANGELOG.md`, `ios/CHANGELOG.md`, `docs/RELEASING.md` | release tooling per §10.3 |
+| – | Opus | integration | merge, iPad build and install, first tags |
