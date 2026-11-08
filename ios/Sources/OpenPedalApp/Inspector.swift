@@ -1,82 +1,209 @@
 import SwiftUI
 
-/// Floating glass panel with the controls of the selected node.
+enum InspectorDetent {
+    static let compact: CGFloat = 252
+    static let expanded: CGFloat = 540
+    static var mid: CGFloat { (compact + expanded) / 2 }
+}
+
+/// Floating glass panel with the controls of the selected node. Two detents: compact (one scrolling
+/// row) and expanded (modes + grid of controls), resized by the grabber or the "All controls" button.
 struct InspectorView: View {
     let store: Store
+    @Binding var expanded: Bool
+    /// Height while the grabber is being dragged; nil otherwise.
+    @Binding var liveHeight: CGFloat?
+    let height: CGFloat
+
+    @State private var dragStart: CGFloat?
+
+    private static let snap = Animation.spring(response: 0.4, dampingFraction: 0.85)
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            grabber
             if let node = store.selected {
                 content(node)
             } else {
                 Text("Select a pedal")
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(20)
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
     }
+
+    private var grabber: some View {
+        Capsule().fill(.white.opacity(0.32)).frame(width: 40, height: 5)
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { g in
+                        if dragStart == nil { dragStart = height }
+                        let h = (dragStart ?? height) - g.translation.height
+                        liveHeight = min(max(h, InspectorDetent.compact - 24), InspectorDetent.expanded + 24)
+                    }
+                    .onEnded { g in
+                        let projected = (dragStart ?? height) - g.predictedEndTranslation.height
+                        dragStart = nil
+                        withAnimation(Self.snap) {
+                            expanded = projected > InspectorDetent.mid
+                            liveHeight = nil
+                        }
+                    }
+            )
+            .accessibilityLabel(expanded ? "Collapse controls" : "Expand controls")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { withAnimation(Self.snap) { expanded.toggle() } }
+    }
+
+    // MARK: header and body
 
     @ViewBuilder
     private func content(_ node: NodeSpec) -> some View {
         let item = store.item(for: node)
-        let canBypass = node.type != "input" && node.type != "output"
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(item?.label ?? node.type).font(.title2.weight(.bold)).lineLimit(1)
-                Text(kindLine(node, item)).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-                if canBypass {
-                    Toggle(isOn: Binding(get: { !node.bypass }, set: { store.setBypass(node.id, !$0) })) {
-                        Text(node.bypass ? "Bypassed" : "Active").font(.subheadline.weight(.semibold))
-                    }
-                    .fixedSize()
-                    .padding(.top, 4)
-                }
-                if !store.canEditChain {
-                    Label("Parallel routing: edit on the desktop", systemImage: "info.circle")
-                        .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
-                }
+        let accent = enamel(for: node.type, category: item?.category)
+        let params = item?.params ?? []
+        VStack(spacing: 0) {
+            header(node, item, accent, count: params.count)
+            if params.isEmpty {
+                Text("No controls").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if expanded {
+                expandedBody(node, params, accent)
+            } else {
+                compactBody(node, params, accent)
             }
-            .frame(width: 190, alignment: .leading)
+        }
+    }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 22) {
-                    ForEach(item?.params ?? []) { p in
-                        switch p.kind {
-                        case .number:
-                            KnobView(
-                                label: p.label,
-                                n: normalized(store.numberValue(node, p), p),
-                                valueText: formatValue(store.numberValue(node, p), p),
-                                detent: detent(store.numberValue(node, p), p),
-                                onBegin: { store.beginEdit() },
-                                onChange: { store.setNumber(node, p, value(forNormalized: $0, p)) },
-                                onReset: { store.setDefault(node, p) }
-                            )
-                        case .choice:
-                            VStack(spacing: 8) {
-                                Picker(p.label, selection: Binding(
-                                    get: { store.choiceIndex(node, p) },
-                                    set: { store.setChoice(node, p, index: $0) })
-                                ) {
-                                    ForEach(Array(p.options.enumerated()), id: \.offset) { i, o in Text(o).tag(i) }
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(width: CGFloat(max(p.options.count, 2)) * 76)
-                                Text(p.label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            }
-                            .padding(.top, 28)
-                        case .file:
-                            VStack(spacing: 6) {
-                                Text(fileName(node, p)).font(.callout.weight(.semibold)).lineLimit(1).frame(maxWidth: 160)
-                                Text(p.label + " (edit on the desktop)").font(.caption).foregroundStyle(.secondary)
-                            }
-                            .padding(.top, 36)
+    private func header(_ node: NodeSpec, _ item: CatalogItem?, _ accent: Color, count: Int) -> some View {
+        let canBypass = node.type != "input" && node.type != "output"
+        return HStack(spacing: 12) {
+            Circle().fill(accent).frame(width: 12, height: 12).shadow(color: accent, radius: 5)
+            Text(item?.label ?? node.type)
+                .font(.system(size: 22, weight: .bold, design: .rounded)).lineLimit(1)
+            Text(kindLine(node, item)).font(.callout).foregroundStyle(.tertiary).lineLimit(1)
+            if !store.canEditChain {
+                Label("Parallel routing: edit on the desktop", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if count > 0 {
+                Button { store.resetParams(node) } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.glass)
+                Button {
+                    withAnimation(Self.snap) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(expanded ? "Less" : "All controls · \(count)").font(.subheadline.weight(.semibold))
+                        Image(systemName: "chevron.up").font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(expanded ? 180 : 0))
+                    }
+                }
+                .buttonStyle(.glass)
+            }
+            if canBypass {
+                Text("Active").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 6)
+                Toggle("Active", isOn: Binding(get: { !node.bypass }, set: { store.setBypass(node.id, !$0) }))
+                    .labelsHidden()
+                    .tint(.green)
+            }
+        }
+        .frame(height: 44)
+        .padding(.leading, 24).padding(.trailing, 16)
+        .padding(.bottom, 6)
+    }
+
+    private func compactBody(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                cells(node, params.filter { $0.kind == .choice }, accent)
+                cells(node, params.filter { $0.kind != .choice }, accent)
+            }
+            .padding(.leading, 20).padding(.trailing, 60)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .mask {
+            HStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 60)
+            }
+        }
+        .padding(.bottom, 14)
+    }
+
+    private func expandedBody(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
+        let modes = params.filter { $0.kind == .choice }
+        let controls = params.filter { $0.kind != .choice }
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                if !modes.isEmpty {
+                    section("Modes") {
+                        WrapLayout(hSpacing: 22, vSpacing: 10) { cells(node, modes, accent) }
+                    }
+                }
+                if !controls.isEmpty {
+                    section("Controls") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 112), spacing: 4)],
+                                  alignment: .leading, spacing: 6) {
+                            cells(node, controls, accent)
                         }
                     }
                 }
-                .padding(.horizontal, 4)
+            }
+            .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func section<C: View>(_ title: String, @ViewBuilder _ body: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.tertiary).padding(.leading, 4)
+            body()
+        }
+    }
+
+    @ViewBuilder
+    private func cells(_ node: NodeSpec, _ params: [ParamDesc], _ accent: Color) -> some View {
+        ForEach(params) { p in
+            switch p.kind {
+            case .number:
+                KnobView(
+                    label: p.label,
+                    accent: accent,
+                    n: normalized(store.numberValue(node, p), p),
+                    valueText: formatValue(store.numberValue(node, p), p),
+                    detent: detent(store.numberValue(node, p), p),
+                    onBegin: { store.beginEdit() },
+                    onChange: { store.setNumber(node, p, value(forNormalized: $0, p)) },
+                    onReset: { store.setDefault(node, p) }
+                )
+            case .choice:
+                ControlCell(width: CGFloat(max(p.options.count, 2)) * 76 + 16, value: "", name: p.label) {
+                    Picker(p.label, selection: Binding(
+                        get: { store.choiceIndex(node, p) },
+                        set: { store.setChoice(node, p, index: $0) })
+                    ) {
+                        ForEach(Array(p.options.enumerated()), id: \.offset) { i, o in Text(o.capitalized).tag(i) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: CGFloat(max(p.options.count, 2)) * 76)
+                }
+            case .file:
+                ControlCell(value: fileName(node, p), name: p.label) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "doc.waveform").font(.title2)
+                        Text("Desktop only").font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .accessibilityHint("Edit on the desktop")
             }
         }
     }
@@ -98,6 +225,65 @@ struct InspectorView: View {
     }
 }
 
+/// Wraps its subviews onto several rows (the "Modes" section).
+struct WrapLayout: Layout {
+    var hSpacing: CGFloat
+    var vSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(proposal.width ?? .infinity, subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let r = arrange(bounds.width, subviews)
+        for (s, p) in zip(subviews, r.origins) {
+            s.place(at: CGPoint(x: bounds.minX + p.x, y: bounds.minY + p.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxW: CGFloat = 0
+        for s in subviews {
+            let sz = s.sizeThatFits(.unspecified)
+            if x > 0, x + sz.width > width { x = 0; y += rowH + vSpacing; rowH = 0 }
+            origins.append(CGPoint(x: x, y: y))
+            x += sz.width + hSpacing
+            rowH = max(rowH, sz.height)
+            maxW = max(maxW, x - hSpacing)
+        }
+        return (CGSize(width: maxW, height: y + rowH), origins)
+    }
+}
+
+/// Every control is a cell with the same three rows (control box 84, value 22, name 18),
+/// so labels line up across knobs, pickers and file cells.
+struct ControlCell<Box: View>: View {
+    var width: CGFloat = 112
+    let value: String
+    let name: String
+    var valueColor: Color = .primary
+    var highlight = false
+    @ViewBuilder let box: Box
+
+    var body: some View {
+        VStack(spacing: 0) {
+            box.frame(height: 84)
+            Text(value.isEmpty ? " " : value)
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .foregroundStyle(valueColor)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: width - 8, minHeight: 22, maxHeight: 22)
+            Text(name)
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: width - 8, minHeight: 18, maxHeight: 18)
+        }
+        .frame(width: width, height: 138)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.white.opacity(highlight ? 0.06 : 0)))
+    }
+}
+
 /// Parameter value for a knob position 0...1: log scale and `step` honoured.
 func value(forNormalized n: Double, _ p: ParamDesc) -> Double {
     let n = min(max(n, 0), 1)
@@ -108,9 +294,10 @@ func value(forNormalized n: Double, _ p: ParamDesc) -> Double {
     return min(max(v, p.min), p.max)
 }
 
-/// Big knob: drag up/right to turn up, down/left to turn down; double tap resets.
+/// Knob: drag up/right to turn up, down/left to turn down; double tap resets.
 struct KnobView: View {
     let label: String
+    let accent: Color
     let n: Double
     let valueText: String
     let detent: Int
@@ -119,46 +306,26 @@ struct KnobView: View {
     let onReset: () -> Void
 
     @State private var startN: Double?
-    private static let size: CGFloat = 92
+    private static let size: CGFloat = 80
     /// Points of drag for the whole range.
     private static let travel: Double = 220
 
     var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle().trim(from: 0, to: 0.75)
-                    .stroke(.white.opacity(0.15), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(135))
-                Circle().trim(from: 0, to: 0.75 * n)
-                    .stroke(.tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(135))
-                Circle()
-                    .fill(RadialGradient(colors: [Color(white: 0.34), Color(white: 0.07)], center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: 60))
-                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 0.8))
-                    .padding(10)
-                    .shadow(color: .black.opacity(0.5), radius: 5, y: 3)
-                Capsule().fill(.white).frame(width: 4, height: 18).padding(.top, 14)
-                    .frame(width: Self.size, height: Self.size, alignment: .top)
-                    .rotationEffect(.degrees(-135 + 270 * n))
-            }
-            .frame(width: Self.size, height: Self.size)
-            .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 1)
-                    .onChanged { g in
-                        if startN == nil { startN = n; onBegin() }
-                        let delta = (-g.translation.height + g.translation.width) / Self.travel
-                        onChange((startN ?? n) + delta)
-                    }
-                    .onEnded { _ in startN = nil }
-            )
-            .onTapGesture(count: 2, perform: onReset)
-            .sensoryFeedback(.selection, trigger: detent)
-
-            Text(valueText).font(.callout.monospacedDigit().weight(.semibold))
-            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        ControlCell(value: valueText, name: label, valueColor: startN == nil ? .primary : accent, highlight: startN != nil) {
+            knob
         }
-        .frame(width: 100)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { g in
+                    if startN == nil { startN = n; onBegin() }
+                    let delta = (-g.translation.height + g.translation.width) / Self.travel
+                    onChange((startN ?? n) + delta)
+                }
+                .onEnded { _ in startN = nil }
+        )
+        .onTapGesture(count: 2, perform: onReset)
+        .sensoryFeedback(.selection, trigger: detent)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(valueText)
@@ -169,5 +336,28 @@ struct KnobView: View {
             @unknown default: break
             }
         }
+    }
+
+    /// 80 pt, arc and cap fully inside the bounds.
+    private var knob: some View {
+        ZStack {
+            Circle().trim(from: 0, to: 0.75)
+                .stroke(.white.opacity(0.12), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(135))
+                .padding(6)
+            Circle().trim(from: 0, to: 0.75 * n)
+                .stroke(accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(135))
+                .padding(6)
+            Circle()
+                .fill(RadialGradient(colors: [Color(white: 0.34), Color(white: 0.1)], center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: 40))
+                .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+                .frame(width: 48, height: 48)
+                .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+            Capsule().fill(.white).frame(width: 3, height: 10).padding(.top, 20)
+                .frame(width: Self.size, height: Self.size, alignment: .top)
+                .rotationEffect(.degrees(-135 + 270 * n))
+        }
+        .frame(width: Self.size, height: Self.size)
     }
 }
