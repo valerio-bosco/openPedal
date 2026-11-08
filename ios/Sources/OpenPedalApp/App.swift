@@ -56,18 +56,21 @@ struct RootView: View {
             // the whole board on each touch event).
             let detentHeight = showInspector ? (expanded ? InspectorDetent.expanded : InspectorDetent.compact) : 0
             let boardHeight = max(0, geo.size.height - Self.toolbarBand - (showInspector ? detentHeight + Self.inspectorPadding : 0))
-            ZStack {
+            let unit = pedalUnit(forBoardHeight: boardHeight)
+            ZStack(alignment: .top) {
                 Ambient(tint: tint)
                 VStack(spacing: 0) {
                     ToolbarView(store: store, showAbout: $showAbout)
                         .frame(height: 52)
                         .padding(.horizontal, 20).padding(.top, 8)
-                    BoardView(store: store, showAdd: $showAdd, expanded: expanded, pf: pedalUnit(forBoardHeight: boardHeight))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if showInspector {
-                        InspectorView(store: store, expanded: $expanded, liveHeight: $liveHeight, height: ih)
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                    }
+                    // The board is laid out once at its final size; the resize is a transform (BoardScale)
+                    // animated with the inspector spring, so no pedal re-renders meanwhile.
+                    BoardView(store: store, showAdd: $showAdd, pf: unit)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: boardHeight)
+                        .transaction(value: boardHeight) { $0.animation = nil }
+                        .modifier(BoardScale(u: unit, h: boardHeight, targetU: unit, targetH: boardHeight))
+                    Spacer(minLength: 0)
                 }
                 .overlay(alignment: .top) {
                     if let text = store.banner {
@@ -80,6 +83,13 @@ struct RootView: View {
                     }
                 }
                 .animation(.smooth, value: store.banner)
+
+                // Floats over the bottom of the screen: its height animates without moving the board.
+                if showInspector {
+                    InspectorView(store: store, expanded: $expanded, liveHeight: $liveHeight, height: ih, detentHeight: detentHeight)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
 
                 if store.protocolTooNew {
                     Text("This app is older than the openPedal core (protocol v\(store.serverProtocol ?? 0)). Update the app.")

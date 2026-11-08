@@ -53,18 +53,13 @@ struct LongPressDrag: UIGestureRecognizerRepresentable {
 }
 
 /// Horizontal pedalboard between the toolbar and the inspector: input jack, pedals in signal order,
-/// output jack, "+". Pedals are vertically centred, scale with `pf` and can be reordered by
-/// long-press and drag. Animatable so `pf` changes smoothly (real layout, not a blurry transform).
-struct BoardView: View, Animatable {
+/// output jack, "+". Pedals are vertically centred, laid out at `pf` and can be reordered by
+/// long-press and drag. `pf` is always the final unit: when it changes, the caller animates the size
+/// with `BoardScale` (a pure GPU transform), so no pedal re-renders during the animation.
+struct BoardView: View {
     let store: Store
     @Binding var showAdd: Bool
-    /// Changes when the inspector snaps to another detent: the selected pedal is scrolled back into view.
-    var expanded: Bool
-    var pf: CGFloat
-    var animatableData: CGFloat {
-        get { pf }
-        set { pf = newValue }
-    }
+    let pf: CGFloat
 
     @State private var drag: DragInfo?
 
@@ -130,10 +125,13 @@ struct BoardView: View, Animatable {
             .onChange(of: store.selectedID) { _, id in
                 if let id, drag == nil { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) } }
             }
-            .task(id: expanded) {
-                // Let the inspector finish its spring before centring the selection again.
-                try? await Task.sleep(for: .milliseconds(380))
-                if let id = store.selectedID { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) } }
+            .onChange(of: pf) { _, _ in
+                // New unit: the scroll offset (in points) is stale. Re-centre the selection at once and
+                // without animation; BoardScale scales about the centre, so it stays put during the resize.
+                guard let id = store.selectedID else { return }
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) { proxy.scrollTo(id, anchor: .center) }
             }
         }
     }
@@ -193,6 +191,33 @@ struct BoardView: View, Animatable {
         } else {
             view
         }
+    }
+}
+
+/// Animates the board from the previous pedal unit/height to the current layout with a single transform.
+/// `u` and `h` are the interpolated values (the previous ones at the start of an animation); `targetU` and
+/// `targetH` are what the content is really laid out at. At rest `u == targetU` and the effect is the
+/// identity, so the end state is a crisp layout at the final size. Being a GeometryEffect, only the
+/// transform is re-evaluated per frame: the wrapped view's body, layout and layers are untouched.
+struct BoardScale: GeometryEffect {
+    var u: CGFloat
+    var h: CGFloat
+    let targetU: CGFloat
+    let targetH: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(u, h) }
+        set { u = newValue.first; h = newValue.second }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let s = targetU > 0 ? u / targetU : 1
+        // Scale about the board centre, then keep the old centre line (the board frame is already final).
+        let dy = (h - targetH) / 2
+        let t = CGAffineTransform(translationX: size.width / 2, y: size.height / 2 + dy)
+            .scaledBy(x: s, y: s)
+            .translatedBy(x: -size.width / 2, y: -size.height / 2)
+        return ProjectionTransform(t)
     }
 }
 
