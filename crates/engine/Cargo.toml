@@ -1,0 +1,16 @@
+[package]
+name = "openpedal-engine"
+version.workspace = true
+edition.workspace = true
+description = "openPedal real-time engine, audio backends and the EngineHandle interface"
+
+[dependencies]
+openpedal-dsp.workspace = true
+openpedal-graph.workspace = true
+openpedal-protocol.workspace = true
+anyhow.workspace = true
+rtrb.workspace = true
+
+# JACK (PipeWire) is the Linux audio backend; iOS hosts call the C ABI instead.
+[target.'cfg(target_os = "linux")'.dependencies]
+jack.workspace = true

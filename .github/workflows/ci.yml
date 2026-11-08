@@ -27,14 +27,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ hashFiles('ui/package-lock.json') }}
+          key: npm-${{ hashFiles('apps/desktop/ui/package-lock.json') }}
           restore-keys: npm-
 
       - name: Test
-        run: nix develop -c cargo test
+        run: nix develop -c cargo test --workspace
 
       - name: Clippy
-        run: nix develop -c cargo clippy --all-targets -- -D warnings
+        run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build UI
-        run: nix develop -c bash -c "cd ui && npm ci && npm run build"
+        run: nix develop -c bash -c "cd apps/desktop/ui && npm ci && npm run build"

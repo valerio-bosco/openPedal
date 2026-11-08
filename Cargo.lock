@@ -805,16 +805,95 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "openpedal"
+name = "openpedal-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openpedal-dsp",
+ "openpedal-engine",
+ "openpedal-graph",
+ "openpedal-protocol",
+ "openpedal-server",
+ "rtrb",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "openpedal-dsp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rustfft",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "openpedal-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jack",
+ "openpedal-dsp",
+ "openpedal-graph",
+ "openpedal-protocol",
+ "rtrb",
+]
+
+[[package]]
+name = "openpedal-ffi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openpedal-engine",
+ "openpedal-graph",
+ "openpedal-server",
+ "toml",
+]
+
+[[package]]
+name = "openpedal-graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openpedal-dsp",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "openpedal-library"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openpedal-graph",
+ "toml",
+]
+
+[[package]]
+name = "openpedal-protocol"
+version = "0.1.0"
+dependencies = [
+ "openpedal-graph",
+ "serde",
+]
+
+[[package]]
+name = "openpedal-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
  "futures-util",
- "jack",
- "rtrb",
+ "openpedal-dsp",
+ "openpedal-engine",
+ "openpedal-graph",
+ "openpedal-library",
+ "openpedal-protocol",
  "rust-embed",
- "rustfft",
  "serde",
  "serde_json",
  "tokio",

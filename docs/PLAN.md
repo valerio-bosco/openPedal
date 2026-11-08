@@ -13,8 +13,8 @@ A **node editor** (like Blender's or Unreal's) where:
 - the signal starts at the **Guitar** node (`input`) and is heard when it reaches the **Amp** node (`output`);
 - every knob works **live**, while you play;
 - new pedals can be **created from scratch**, both from the UI and from files:
-  - a **composite pedal** is a sub-graph of basic blocks with some knobs "exposed" (UI: select nodes → *Create pedal*; files: `pedals/*.toml`);
-  - a **basic block** is Rust code in `src/dsp/`. A future `formula` block will let users write DSP as math expressions from the UI (phase 3);
+  - a **composite pedal** is a sub-graph of basic blocks with some knobs "exposed" (UI: select nodes → *Create pedal*; files: `content/pedals/*.toml`);
+  - a **basic block** is Rust code in `crates/dsp/src/`. A future `formula` block will let users write DSP as math expressions from the UI (phase 3);
 - it runs on **Linux, Windows and macOS** (Windows/macOS audio backend: task E1).
 
 ## 2. UI technology
@@ -35,19 +35,20 @@ A **node editor** (like Blender's or Unreal's) where:
  └──────────────┬──────────────────────────────┘
                 │ WebSocket JSON (protocol §5.4)
  ┌──────────────▼──────────────────────────────┐
- │ src/server/   axum: HTTP (assets) + WS       │
- │               EngineHandle trait, MockEngine │
- │ src/live.rs   EngineHandle on the real engine│
+ │ crates/server    axum: HTTP (assets) + WS    │
+ │                  MockEngine, uses protocol + │
+ │                  library (files on disk)     │
  ├──────────────────────────────────────────────┤
- │ src/graph/    model, loading, compilation    │
- │               (composite pedals → blocks,    │
- │               topological order), executor   │
+ │ crates/engine    EngineHandle trait, live.rs │
+ │                  (LiveEngine), engine.rs,    │
+ │                  audio/ (JACK; cpal: E1)     │
  ├──────────────────────────────────────────────┤
- │ src/dsp/      basic blocks + catalog         │
- │               (parameter descriptors)        │
+ │ crates/graph     model, loading, compilation │
+ │                  (composite pedals → blocks, │
+ │                  topological order), executor│
  ├──────────────────────────────────────────────┤
- │ src/engine.rs JACK/PipeWire (Linux)          │
- │ src/audio/    cpal backend (Win/macOS, E1)   │
+ │ crates/dsp       basic blocks + catalog      │
+ │                  (parameter descriptors), wav│
  └──────────────────────────────────────────────┘
 ```
 
@@ -59,8 +60,8 @@ Changes reach the audio thread through lock-free queues (`rtrb`); old structures
 | Term | Meaning |
 |---|---|
 | **Basic block** | Rust DSP: `gain`, `drive`, `filter`, `cab`, `compressor`… Described by a `BlockDesc` |
-| **Composite pedal** | sub-graph of basic blocks and/or other pedals, with exposed `knob`s. File `pedals/<id>.toml` |
-| **Graph** (preset) | nodes + cables + screen positions. File `presets/<name>.toml` (format v2) |
+| **Composite pedal** | sub-graph of basic blocks and/or other pedals, with exposed `knob`s. File `content/pedals/<id>.toml` |
+| **Graph** (preset) | nodes + cables + screen positions. File `content/presets/<name>.toml` (format v2) |
 | `input` ("Guitar") | special node: the guitar. Exactly one, no inputs |
 | `output` ("Amp") | special node: the output, with `volume_db`. Exactly one. Without a path to it there is no sound |
 | Fan-out / fan-in | many cables may leave one output (the signal is copied); cables entering the same node are **summed** |
@@ -70,7 +71,7 @@ The graph signal is **mono**; true stereo is planned for phase 3.
 
 ## 5. Contracts
 
-### 5.1 Parameters and catalog: `src/dsp/params.rs`
+### 5.1 Parameters and catalog: `crates/dsp/src/params.rs`
 
 ```rust
 pub enum ParamKind {
@@ -86,7 +87,7 @@ pub struct ParamValues(BTreeMap<String, Value>);   // Value = Number(f32) | Text
 
 `id`s, block `kind`s and choice option strings are stored in users' files: **never rename them**. Labels are free text shown in the UI.
 
-### 5.2 Blocks: `src/dsp/mod.rs`
+### 5.2 Blocks: `crates/dsp/src/lib.rs`
 
 ```rust
 pub trait Block: Send {
@@ -102,15 +103,15 @@ pub const <NAME>_DESC: BlockDesc;
 pub fn build_<name>(values: &ParamValues, sr: f32) -> anyhow::Result<Box<dyn Block>>;
 ```
 
-- Registering a new block = **one line** in `CATALOG` (`src/dsp/mod.rs`).
-- `Smoothed` (in `src/dsp/mod.rs`) is the smoothed value for gains and levels: `Smoothed::new(v, 15.0, sr)`, then `.target = …` in `set_param` and `.next()` per sample.
+- Registering a new block = **one line** in `CATALOG` (`crates/dsp/src/lib.rs`).
+- `Smoothed` (in `crates/dsp/src/lib.rs`) is the smoothed value for gains and levels: `Smoothed::new(v, 15.0, sr)`, then `.target = …` in `set_param` and `.next()` per sample.
 - Reference examples: `drive.rs` and the `Gain` part of `dynamics.rs`.
-- A parameter that cannot change live (e.g. the procedural `cab` IR) is handled by `src/live.rs`: it marks the graph for a rebuild, done at most every 100 ms with a crossfade.
+- A parameter that cannot change live (e.g. the procedural `cab` IR) is handled by `crates/engine/src/live.rs`: it marks the graph for a rebuild, done at most every 100 ms with a crossfade.
 
-### 5.3 Graph (preset v2) and pedal files: `src/graph/model.rs`
+### 5.3 Graph (preset v2) and pedal files: `crates/graph/src/model.rs`
 
 ```toml
-# presets/crunch.toml
+# content/presets/crunch.toml
 name = "crunch"
 version = 2
 
@@ -127,7 +128,7 @@ params = { shape = "asym", gain_db = 12 }
 
 [[node]]
 id = "speaker"
-type = "pedal:cab-4x12"      # composite pedal: "pedal:" + file name in pedals/
+type = "pedal:cab-4x12"      # composite pedal: "pedal:" + file name in content/pedals/
 pos = [440, 0]
 params = { Brightness = 0.4 }
 
@@ -144,7 +145,7 @@ to = "dist"
 ```
 
 ```toml
-# pedals/cab-4x12.toml
+# content/pedals/cab-4x12.toml
 name = "4x12 Cab"
 category = "amp"
 
@@ -173,7 +174,7 @@ default = 0.4
 - In JSON the keys stay **singular** (`node`, `edge`, `knob`), as in the TOML files.
 - In `params`, choices are stored as text (`shape = "asym"`) and files as paths; `set_param` sends a choice as its index.
 - A loaded or saved graph is named after its file (`clean.toml` → `"clean"`), so the UI can recognize it.
-- Rust types: `src/graph/model.rs`. TypeScript types: `ui/src/protocol.ts`.
+- Rust types: `crates/graph/src/model.rs`. TypeScript types: `apps/desktop/ui/src/protocol.ts`.
 
 ### 5.4 WebSocket protocol (`/ws`, JSON messages with a `type` field)
 
@@ -186,8 +187,8 @@ Client → server:
 | `set_bypass` | `node`, `bypass` | live, click-free (~10 ms crossfade) bypass of a node, no graph rebuild; `error` for `input`/`output`; also stored in the graph (`bypass` on the node) |
 | `set_graph` | `graph` | new graph: compiled and swapped in with a crossfade |
 | `load_preset` / `save_preset` | `name` (+ `graph` when saving) | replies with `state` |
-| `delete_preset` | `name` | deletes `presets/<name>.toml`; the playing graph is unchanged; replies with `state` |
-| `save_pedal` / `delete_pedal` | `id` + `pedal` / `id` | writes or deletes `pedals/<id>.toml`, replies with `state` (updated catalog) |
+| `delete_preset` | `name` | deletes `content/presets/<name>.toml`; the playing graph is unchanged; replies with `state` |
+| `save_pedal` / `delete_pedal` | `id` + `pedal` / `id` | writes or deletes `content/pedals/<id>.toml`, replies with `state` (updated catalog) |
 
 Server → client:
 
@@ -197,9 +198,9 @@ Server → client:
 | `meters` | `in_db`, `out_db`, `dsp` (0..1), `xruns`, about 20 times per second |
 | `error` | `message` (shown to the user), `node` (optional: the node the error is about) |
 
-Exact JSON examples live in `ui/src/fixtures/*.json` and are regenerated with `openpedal dev-fixtures ui/src/fixtures`. They are the reference.
+Exact JSON examples live in `apps/desktop/ui/src/fixtures/*.json` and are regenerated with `openpedal dev-fixtures apps/desktop/ui/src/fixtures`. They are the reference.
 
-### 5.5 Server ↔ engine boundary: `src/server/mod.rs`
+### 5.5 Server ↔ engine boundary: `crates/engine/src/lib.rs`
 
 ```rust
 pub trait EngineHandle: Send + Sync + 'static {
@@ -213,7 +214,7 @@ pub trait EngineHandle: Send + Sync + 'static {
 }
 ```
 
-The **server** reads and writes files in `presets/` and `pedals/`; the **engine** compiles and plays. `MockEngine` (`src/server/mock.rs`) is used with `--no-audio` or when no audio interface is available; `LiveEngine` (`src/live.rs`) drives the real engine. Graph errors are `graph::GraphError`, which carries the node to highlight.
+The **server** reads and writes files in `content/presets/` and `content/pedals/`; the **engine** compiles and plays. `MockEngine` (`crates/server/src/mock.rs`) is used with `--no-audio` or when no audio interface is available; `LiveEngine` (`crates/engine/src/live.rs`) drives the real engine. Graph errors are `graph::GraphError`, which carries the node to highlight.
 
 ## 6. How parallel work is organized
 
@@ -238,21 +239,21 @@ The project has been built by an integrator (Opus) plus parallel agents (Sonnet 
 | D3 | Haiku | Freeverb reverb |
 | D4 | Sonnet | 4x oversampled drive, TMB tone stack (Fender, Marshall, Vox) |
 | I2 | Opus | integration: `LiveEngine`, rebuild of non-live parameters, filter glide, `pedals` in `state`, error node |
-| – | Opus | undo/redo, deleting pedals/cables/presets, context menu, *Tidy up*, *New*; English translation |
+| – | Opus | undo/redo, deleting content/pedals/cables/presets, context menu, *Tidy up*, *New*; English translation |
 
 ## 8. Next
 
-- **E1 · Windows and macOS audio:** `src/audio/` with an `AudioBackend` trait; `jack.rs` (current code) as the Linux default, `cpal.rs` for WASAPI/CoreAudio (separate input/output streams joined by an `rtrb` queue of 2 buffers; optional `asio` feature). Check builds for `x86_64-pc-windows-gnu` and `aarch64-apple-darwin`.
+- **E1 · Windows and macOS audio:** `crates/engine/src/audio/` with an `AudioBackend` trait; `jack.rs` (current code) as the Linux default, `cpal.rs` for WASAPI/CoreAudio (separate input/output streams joined by an `rtrb` queue of 2 buffers; optional `asio` feature). Check builds for `x86_64-pc-windows-gnu` and `aarch64-apple-darwin`.
 - **`formula` block:** DSP written as an expression (e.g. `tanh(x * drive) * 0.5`), compiled to a small bytecode when it changes and evaluated without allocations.
 - True stereo (wide reverb and chorus), MIDI (footswitches and controllers), state sync between several open clients (PC + phone), a native window with Tauri, packages and CI for the three OSes.
 
 ## 9. Status and next task (2026-11-08)
 
-Done since §7: `fuzz` (gated Fuzz Factory style) and `octave` blocks, `presets/plug-in-baby.toml` (tuned
+Done since §7: `fuzz` (gated Fuzz Factory style) and `octave` blocks, `content/presets/plug-in-baby.toml` (tuned
 on a real recording of the riff: the fuzz `gate` depends on the input level), the core split into a
-library with an `AudioBackend` trait and a C ABI (`src/ffi.rs`), and the iPad app (`ios/`, Swift shell +
+library with an `AudioBackend` trait and a C ABI (`crates/ffi/src/lib.rs`), and the iPad app (`ios/`, Swift shell +
 WKWebView on the Rust server) built from Linux with xtool and installed on a real iPad — see
-`ios/README.md`.
+`apps/ios/README.md`.
 
 **Next: a touch-first frontend for tablets and phones.** The node editor works on the iPad but is
 designed for mouse and keyboard (small handles, right-click menus, vertical-drag knobs, a dense top bar).
@@ -279,10 +280,10 @@ big knobs for the selected pedal, bottom sheet to add a pedal.
 ### 10.1 Architecture
 
 ```
- ┌──────────── iPad app (ios/) ─────────────────────┐
+ ┌──────────── iPad app (apps/ios/) ─────────────────────┐
  │ SwiftUI views: Pedalboard, Inspector, Toolbar     │
  │ OpenPedalKit: Codable protocol + WebSocket client │──┐ ws://127.0.0.1:<port>/ws
- │ AudioHost: AVAudioSession + C ABI (src/ffi.rs)    │  │ (later: a desktop on the LAN)
+ │ AudioHost: AVAudioSession + C ABI (crates/ffi/src/lib.rs)    │  │ (later: a desktop on the LAN)
  └──────────────┬────────────────────────────────────┘  │
                 │ openpedal_start / process             │
  ┌──────────────▼──── Rust core (libopenpedal.a) ───────▼┐
@@ -301,7 +302,7 @@ sending `set_graph`.
 
 ### 10.2 Contract changes (protocol v1)
 
-- **`protocol` field** in `state`: `u32`, constant `PROTOCOL_VERSION = 1` in `src/server/protocol.rs`.
+- **`protocol` field** in `state`: `u32`, constant `PROTOCOL_VERSION = 1` in `crates/protocol/src/lib.rs`.
   Clients refuse to run (clear error) when the server's major contract is newer than they know.
   Bump it on any breaking change to §5.4; additive optional fields do not bump it.
 - **Bypass.** `NodeSpec` gains `bypass: bool` (TOML `bypass = true`, omitted when false; default false).
@@ -316,7 +317,7 @@ sending `set_graph`.
 | Product | Version source | Tag | Changelog |
 |---|---|---|---|
 | Desktop (binary + web UI) | `Cargo.toml` `version` | `desktop-vX.Y.Z` | `CHANGELOG.md` |
-| iPad app | `ios/Info.plist` `CFBundleShortVersionString` (+ `CFBundleVersion` build number) | `ios-vX.Y.Z` | `ios/CHANGELOG.md` |
+| iPad app | `apps/ios/Info.plist` `CFBundleShortVersionString` (+ `CFBundleVersion` build number) | `ios-vX.Y.Z` | `apps/ios/CHANGELOG.md` |
 | Protocol | `PROTOCOL_VERSION` | – | noted in both changelogs |
 
 - Changelogs are generated with **git-cliff** from Conventional Commits. Scope routing: `ios` → iOS
@@ -333,9 +334,9 @@ sending `set_graph`.
 
 | ID | Model | Owns | Task |
 |---|---|---|---|
-| N1 | Sonnet | `src/**`, `ui/src/**`, `presets/` fixtures | protocol v1: `protocol` field, bypass (model, compiler/executor, `set_bypass`, crossfade), fixtures, tests, web UI toggle |
-| N2 | Sonnet | `ios/Sources/**`, `ios/Package.swift`, `ios/Info.plist` | native SwiftUI app per §10.1 against contract §10.2 (codes `bypass`/`protocol` before N1 lands) |
-| N3 | Haiku | `tools/release.sh`, `cliff.toml`, `CHANGELOG.md`, `ios/CHANGELOG.md`, `docs/RELEASING.md` | release tooling per §10.3 |
+| N1 | Sonnet | `src/**`, `apps/desktop/ui/src/**`, `content/presets/` fixtures | protocol v1: `protocol` field, bypass (model, compiler/executor, `set_bypass`, crossfade), fixtures, tests, web UI toggle |
+| N2 | Sonnet | `apps/ios/Sources/**`, `apps/ios/Package.swift`, `apps/ios/Info.plist` | native SwiftUI app per §10.1 against contract §10.2 (codes `bypass`/`protocol` before N1 lands) |
+| N3 | Haiku | `tools/release.sh`, `cliff.toml`, `CHANGELOG.md`, `apps/ios/CHANGELOG.md`, `docs/RELEASING.md` | release tooling per §10.3 |
 | – | Opus | integration | merge, iPad build and install, first tags |
 
 ## 11. Restructuring (decided 2026-11-08)
@@ -353,6 +354,14 @@ Architecture map and findings: artifact "openPedal Architecture Map". Decisions 
    `desktop-v*` / `ios-v*`; CI must pass before merging.
 5. **Thin clients.** Chain edits (move, add, remove a pedal) and undo/redo move into the core as protocol
    messages; desktop and iPad only send commands and render state. The server broadcasts state to every client.
+
+Phase 2 done: layout. The workspace is `crates/{dsp,graph,protocol,library,engine,server,ffi}`,
+`apps/{desktop,ios}` and `content/{presets,pedals,irs}`. The `EngineHandle` trait now lives in `crates/engine`
+(re-exported by `crates/server`), so the server depends on the engine's interface and never the reverse.
+Dependencies: graph → dsp; protocol → graph; library → graph; engine → dsp, graph, protocol;
+server → engine, protocol, library, graph; ffi → engine, server, graph; desktop → all but ffi, library.
+The static library for the iPad is `openpedal-ffi`, with `[lib] name = "openpedal"` so it is still `libopenpedal.a`.
+`openpedal-dsp` has a `legacy-chain` feature that exposes the old linear `Chain` to the graph crate's tests.
 
 Phases (each ends with green tests and unchanged audio renders):
 

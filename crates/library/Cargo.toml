@@ -1,0 +1,10 @@
+[package]
+name = "openpedal-library"
+version.workspace = true
+edition.workspace = true
+description = "openPedal presets and pedals on disk"
+
+[dependencies]
+openpedal-graph.workspace = true
+anyhow.workspace = true
+toml.workspace = true

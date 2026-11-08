@@ -1,0 +1,15 @@
+[package]
+name = "openpedal-graph"
+version.workspace = true
+edition.workspace = true
+description = "openPedal graph model, loader, compiler and executor"
+
+[dependencies]
+openpedal-dsp.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+openpedal-dsp = { workspace = true, features = ["legacy-chain"] }

@@ -1,0 +1,15 @@
+[package]
+name = "openpedal-dsp"
+version.workspace = true
+edition.workspace = true
+description = "openPedal DSP blocks, parameters and WAV loading"
+
+[dependencies]
+anyhow.workspace = true
+rustfft.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[features]
+# The old linear `Chain`, used by other crates' tests as a reference.
+legacy-chain = []

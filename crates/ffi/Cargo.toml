@@ -1,0 +1,17 @@
+[package]
+name = "openpedal-ffi"
+version.workspace = true
+edition.workspace = true
+description = "openPedal C ABI for the iPad app (static library libopenpedal.a)"
+
+# The library is named `openpedal` so the iOS build produces libopenpedal.a.
+[lib]
+name = "openpedal"
+crate-type = ["staticlib"]
+
+[dependencies]
+openpedal-graph.workspace = true
+openpedal-engine.workspace = true
+openpedal-server.workspace = true
+anyhow.workspace = true
+toml.workspace = true

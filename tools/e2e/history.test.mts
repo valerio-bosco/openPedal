@@ -1,4 +1,4 @@
-import { History } from "../../ui/src/history.ts";
+import { History } from "../../apps/desktop/ui/src/history.ts";
 const node = (id: string, x: number, params: Record<string, number> = {}) => ({ id, type: "pedal" as const, position: { x, y: 0 }, data: { kind: "drive", params } });
 const ok = (c: boolean, m: string) => { if (!c) { console.log("FAIL:", m); process.exit(1); } console.log("ok  ", m); };
 const h = new History();

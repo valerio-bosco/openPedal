@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Browser tests of the UI: starts `openpedal ui --no-audio` on a temporary copy of
-# presets/ and pedals/, drives a headless Chromium over the DevTools protocol and runs
+# content/presets/ and content/pedals/, drives a headless Chromium over the DevTools protocol and runs
 # every test. Usage, inside `nix develop`, after `cargo build --release`:
 #   tools/e2e/run.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 port=7811
 dir="$(mktemp -d)"
-cp -r "$root/presets" "$root/pedals" "$root/openpedal.toml" "$dir/"
-git -C "$root" ls-files --error-unmatch presets >/dev/null   # only tracked presets are expected
-for f in "$dir"/presets/*.toml; do git -C "$root" ls-files --error-unmatch "presets/$(basename "$f")" >/dev/null 2>&1 || rm "$f"; done
+mkdir -p "$dir/content"
+cp -r "$root/content/presets" "$root/content/pedals" "$dir/content/"
+cp "$root/openpedal.toml" "$dir/"
+git -C "$root" ls-files --error-unmatch content/presets >/dev/null   # only tracked presets are expected
+for f in "$dir"/content/presets/*.toml; do git -C "$root" ls-files --error-unmatch "content/presets/$(basename "$f")" >/dev/null 2>&1 || rm "$f"; done
 chrome="$(nix build --no-link --print-out-paths nixpkgs#chromium)/bin/chromium"
 
 (cd "$dir" && exec "$root/target/release/openpedal" ui --no-audio --no-browser --port $port >"$dir/server.log" 2>&1) &

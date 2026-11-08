@@ -1,0 +1,24 @@
+[package]
+name = "openpedal-server"
+version.workspace = true
+edition.workspace = true
+description = "openPedal HTTP and WebSocket server for the interface"
+
+[dependencies]
+openpedal-dsp.workspace = true
+openpedal-graph.workspace = true
+openpedal-protocol.workspace = true
+openpedal-library.workspace = true
+openpedal-engine.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+tokio.workspace = true
+rust-embed.workspace = true
+webbrowser.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite.workspace = true
+toml.workspace = true

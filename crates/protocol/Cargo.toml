@@ -1,0 +1,9 @@
+[package]
+name = "openpedal-protocol"
+version.workspace = true
+edition.workspace = true
+description = "openPedal WebSocket protocol messages"
+
+[dependencies]
+openpedal-graph.workspace = true
+serde.workspace = true

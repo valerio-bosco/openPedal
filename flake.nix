@@ -14,7 +14,7 @@
         inherit system;
         overlays = [ rust-overlay.overlays.default ];
       };
-      # Stable Rust with the iPad targets' std (cross-compiled staticlib, see ios/README.md).
+      # Stable Rust with the iPad targets' std (cross-compiled staticlib, see apps/ios/README.md).
       rust = pkgs.rust-bin.stable.latest.default.override {
         extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
         targets = [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
@@ -26,7 +26,7 @@
           rust # cargo, rustc, clippy, rustfmt, rust-analyzer + iOS std
           pkg-config
           qpwgraph # to see the audio connections
-          nodejs # only needed to develop the UI (ui/); not needed to run openPedal
+          nodejs # only needed to develop the UI (apps/desktop/ui/); not needed to run openPedal
           git-cliff # changelogs, used by tools/release.sh
         ];
         # libjack2 is only needed to build (headers and jack.pc); at runtime

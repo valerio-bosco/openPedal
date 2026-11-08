@@ -12,7 +12,7 @@ read -rp "Press Enter and start playing... "
 for b in "${BUFFERS[@]}"; do
     echo ">> buffer $b"
     # timeout sends SIGTERM and closes openPedal after the recording
-    timeout -s TERM $((SECONDS_EACH + 2)) ./target/release/openpedal presets/dry.toml \
+    timeout -s TERM $((SECONDS_EACH + 2)) ./target/release/openpedal content/presets/dry.toml \
         --buffer "$b" --record "recordings/b$b.wav" --seconds "$SECONDS_EACH" 2>/dev/null || true
 done
 echo "Done: recordings/b*.wav"

@@ -8,8 +8,8 @@ The project uses a Nix flake for its toolchain (Rust, Node.js, PipeWire's libjac
 
 ```sh
 nix develop
-(cd ui && npm install && npm run build)
-cargo test
+(cd apps/desktop/ui && npm install && npm run build)
+cargo test --workspace
 cargo run --release -- ui --no-audio      # editor without touching your audio interface
 ```
 
@@ -17,10 +17,10 @@ Without Nix you need Rust, Node.js, JACK development files and, on Linux with Pi
 
 ## Before sending a change
 
-- `cargo test` passes and `cargo clippy --all-targets` has no warnings.
-- If you changed `ui/`: `npm run build` passes (it includes the TypeScript check).
+- `cargo test --workspace` passes and `cargo clippy --workspace --all-targets` has no warnings.
+- If you changed `apps/desktop/ui/`: `npm run build` passes (it includes the TypeScript check).
 - If you changed the UI behavior: `tools/e2e/run.sh` passes (headless Chromium tests; keep the button labels they rely on or update the tests).
-- If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures ui/src/fixtures` and keep `ui/src/protocol.ts` in sync.
+- If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures apps/desktop/ui/src/fixtures` and keep `apps/desktop/ui/src/protocol.ts` in sync.
 - New behavior comes with a test. DSP tests should measure something (levels, frequencies, timing), not just "it runs".
 
 ## Language
@@ -49,31 +49,31 @@ The audio thread runs `Block::process`, `Block::set_param` and the graph executo
 
 - no allocations (`Vec::new`, `vec!`, `Box::new`, `String`, `format!`, `collect`…): allocate everything in `build_*`;
 - no locks, no I/O, no logging;
-- smooth abrupt parameter changes (about 10-20 ms) to avoid clicks; `Smoothed` in `src/dsp/mod.rs` helps.
+- smooth abrupt parameter changes (about 10-20 ms) to avoid clicks; `Smoothed` in `crates/dsp/src/lib.rs` helps.
 
 Data reaches the audio thread through lock-free `rtrb` queues; anything the audio thread discards is sent back and freed elsewhere.
 
 ## Adding a block
 
-1. Create `src/dsp/<name>.rs` with `pub const <NAME>_DESC: BlockDesc` (parameters with ids, labels, ranges, units) and `pub fn build_<name>(values: &ParamValues, sr: f32) -> Result<Box<dyn Block>>`.
+1. Create `crates/dsp/src/<name>.rs` with `pub const <NAME>_DESC: BlockDesc` (parameters with ids, labels, ranges, units) and `pub fn build_<name>(values: &ParamValues, sr: f32) -> Result<Box<dyn Block>>`.
 2. Implement `Block::process` and `Block::set_param` (`index` follows the order of the parameters in the descriptor; use named constants for the indices).
-3. Add one line to `CATALOG` in `src/dsp/mod.rs` and declare the module.
+3. Add one line to `CATALOG` in `crates/dsp/src/lib.rs` and declare the module.
 4. The UI picks it up automatically: knobs are generated from the descriptor.
 
 Parameter `id`s, block `kind`s and choice option names end up in users' preset files: once released, don't rename them.
 
 ## Adding a composite pedal
 
-No code needed: build it in the UI (*Create pedal*) or write `pedals/<id>.toml` (see `pedals/cab-4x12.toml` and `docs/PLAN.md` §5.3).
+No code needed: build it in the UI (*Create pedal*) or write `content/pedals/<id>.toml` (see `content/pedals/cab-4x12.toml` and `docs/PLAN.md` §5.3).
 
 ## Golden renders
 
-`tests/golden.rs` renders every tracked preset (`presets/*.toml`, except names starting with `test`) over a deterministic synthetic guitar signal (1.5 s, 48 kHz, blocks of 128) and compares the result with `tests/golden/<preset>.f32` (raw little-endian f32, mono; max abs diff 1e-5). It also checks that the output is finite and not silent.
+`crates/graph/tests/golden.rs` renders every tracked preset (`content/presets/*.toml`, except names starting with `test`) over a deterministic synthetic guitar signal (1.5 s, 48 kHz, blocks of 128) and compares the result with `crates/graph/tests/golden/<preset>.f32` (raw little-endian f32, mono; max abs diff 1e-5). It also checks that the output is finite and not silent.
 
 If a sound change is intended, regenerate the references and commit them with the change:
 
 ```
-OPENPEDAL_BLESS=1 cargo test --test golden
+OPENPEDAL_BLESS=1 cargo test -p openpedal-graph --test golden
 ```
 
 Never bless to make an unexpected failure go away: refactors must not change the audio.

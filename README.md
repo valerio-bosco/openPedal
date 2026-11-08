@@ -9,17 +9,17 @@ You build your sound as a **graph of pedals** in a node editor (or in TOML files
 
 ```sh
 nix develop                                # Rust, Node.js and PipeWire's libjack
-(cd ui && npm install && npm run build)    # first time only, or after changing ui/
+(cd apps/desktop/ui && npm install && npm run build)    # first time only, or after changing the UI
 cargo run --release -- ui                  # opens http://127.0.0.1:7777
 ```
 
 - Drag pedals from the palette and wire them from **Guitar** to **Amp (output)**: whatever reaches the Amp is what you hear.
 - Knobs act live. Several cables into one node are summed, so you can build parallel chains.
-- **Create pedal**: select several nodes and save them as a composite pedal (`pedals/<name>.toml`) with the knobs you choose. Double-click a composite pedal to edit it.
+- **Create pedal**: select several nodes and save them as a composite pedal (`content/pedals/<name>.toml`) with the knobs you choose. Double-click a composite pedal to edit it.
 - Undo/redo (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y), delete (Del, ×, right-click menu), **New** for an empty graph, **Tidy up** to lay pedals out along the signal path.
-- Options: `ui PRESET` (initial preset, default `presets/clean.toml`), `--lan` (reachable from your phone), `--port N`, `--no-browser`, `--no-audio` (editor only), `--in`/`--out`/`--buffer` (see below).
+- Options: `ui PRESET` (initial preset, default `content/presets/clean.toml`), `--lan` (reachable from your phone), `--port N`, `--no-browser`, `--no-audio` (editor only), `--in`/`--out`/`--buffer` (see below).
 - If no audio interface is available, the UI still starts in editor-only mode.
-- UI development: `cd ui && npm run dev` (with `openpedal ui --no-browser` running for audio; otherwise it uses sample data).
+- UI development: `cd apps/desktop/ui && npm run dev` (with `openpedal ui --no-browser` running for audio; otherwise it uses sample data).
 
 Before playing: **turn off "Direct Monitor"** on the interface, or you will also hear the dry signal.
 Plug the guitar into the instrument input (**INST** on); set the gain so `IN` peaks around -12 dB.
@@ -27,10 +27,10 @@ Plug the guitar into the instrument input (**INST** on); set the gain so `IN` pe
 ## Command line
 
 ```sh
-cargo run --release                          # play presets/clean.toml, with a status line
-cargo run --release -- presets/crunch.toml   # the preset reloads every time you save the file
+cargo run --release                          # play content/presets/clean.toml, with a status line
+cargo run --release -- content/presets/crunch.toml   # the preset reloads every time you save the file
 cargo run --release -- ports                 # list the audio ports
-cargo run --release -- check presets/*.toml  # validate presets without audio
+cargo run --release -- check content/presets/*.toml  # validate presets without audio
 cargo run --release -- catalog               # blocks and pedals as JSON
 ```
 
@@ -45,8 +45,8 @@ The status line shows input/output levels, DSP load, the actual buffer size and 
 ## Recording and re-processing
 
 ```sh
-cargo run --release -- presets/clean.toml --record recordings/take.wav --seconds 20   # left dry, right processed
-cargo run --release -- render presets/crunch.toml recordings/take.wav recordings/take-crunch.wav
+cargo run --release -- content/presets/clean.toml --record recordings/take.wav --seconds 20   # left dry, right processed
+cargo run --release -- render content/presets/crunch.toml recordings/take.wav recordings/take-crunch.wav
 ```
 
 `render` runs a preset on the dry channel of a recording, so you can tweak presets without playing.
@@ -67,22 +67,29 @@ cargo run --release -- render presets/crunch.toml recordings/take.wav recordings
 | `delay`      | `time_ms` (350), `feedback` (0.35), `mix` (0.3), `damp_hz` (5000)       |
 | `reverb`     | `room` (0.5), `damp` (0.5), `mix` (0.25), `predelay_ms` (10), `width_hz` (8000) |
 
-The cab usually goes after the drive and before modulation and time effects. IR files go in `irs/` (see `irs/README.md`). With the procedural cab, every `seed` gives different cone irregularities, i.e. a different speaker.
+The cab usually goes after the drive and before modulation and time effects. IR files go in `content/irs/` (see `content/irs/README.md`). With the procedural cab, every `seed` gives different cone irregularities, i.e. a different speaker.
 
 ## Preset and pedal files
 
-A preset (`presets/*.toml`) is a graph: `[[node]]` entries (`id`, `type`, `pos`, `params`) and `[[edge]]` entries (`from`, `to`), with exactly one `input` and one `output` node. See `docs/examples/crunch-graph.toml`. Older presets made of a linear list of `[[block]]` entries still work: they are converted to a graph on load.
+A preset (`content/presets/*.toml`) is a graph: `[[node]]` entries (`id`, `type`, `pos`, `params`) and `[[edge]]` entries (`from`, `to`), with exactly one `input` and one `output` node. See `docs/examples/crunch-graph.toml`. Older presets made of a linear list of `[[block]]` entries still work: they are converted to a graph on load.
 
-A composite pedal (`pedals/<id>.toml`) is a sub-graph between the implicit nodes `pedal_in` and `pedal_out`, plus `[[knob]]` entries that map a 0..1 knob onto an inner parameter. It is used in a graph as `type = "pedal:<id>"`. See `pedals/cab-4x12.toml`.
+A composite pedal (`content/pedals/<id>.toml`) is a sub-graph between the implicit nodes `pedal_in` and `pedal_out`, plus `[[knob]]` entries that map a 0..1 knob onto an inner parameter. It is used in a graph as `type = "pedal:<id>"`. See `content/pedals/cab-4x12.toml`.
 
 A misspelled parameter is an error, and the sound keeps playing with the previous graph.
 
 ## Architecture
 
-- `src/dsp/`: the blocks and the catalog (`CATALOG` in `src/dsp/mod.rs`). Each block describes its parameters (`BlockDesc`), so the UI builds its knobs automatically.
-- `src/graph/`: graph model, loading, compilation (composite pedals expanded, topological order) and the real-time executor.
-- `src/engine.rs`: JACK client (served by PipeWire), real-time callback, lock-free swap of graphs with a 20 ms crossfade, meters.
-- `src/server/`: HTTP + WebSocket server for the UI, behind the `EngineHandle` trait; `src/live.rs` implements it on the real engine.
-- `ui/`: the node editor (React + React Flow), embedded in the binary at build time.
+The repository is a Cargo workspace:
+
+- `crates/dsp`: the blocks and the catalog (`CATALOG` in `crates/dsp/src/lib.rs`), plus WAV loading. Each block describes its parameters (`BlockDesc`), so the UI builds its knobs automatically.
+- `crates/graph`: graph model, loading, compilation (composite pedals expanded, topological order) and the real-time executor. Depends on `dsp`.
+- `crates/protocol`: the WebSocket messages (`PROTOCOL_VERSION`).
+- `crates/engine`: real-time engine, JACK client (served by PipeWire), lock-free swap of graphs with a 20 ms crossfade, meters, `LiveEngine`, and the `EngineHandle` trait the server talks to.
+- `crates/library`: presets and pedals on disk.
+- `crates/server`: HTTP + WebSocket server for the UI, behind the `EngineHandle` trait.
+- `crates/ffi`: the C ABI and static library (`libopenpedal.a`) for the iPad app.
+- `apps/desktop`: the `openpedal` binary and `ui/`, the node editor (React + React Flow), embedded in the binary at build time.
+- `apps/ios`: the iPad app (see `apps/ios/README.md`).
+- `content/`: the presets, pedals and IRs that ship with openPedal. Run `openpedal` from the repository root: its default paths are `content/presets` and `content/pedals`.
 
 `docs/PLAN.md` describes the contracts between these parts. See `CONTRIBUTING.md` before sending changes.

@@ -1,13 +1,20 @@
-[package]
-name = "openpedal"
+[workspace]
+resolver = "2"
+members = ["crates/*", "apps/desktop"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 description = "Real-time guitar effects with a node-graph editor for building and combining pedals"
 
-[lib]
-crate-type = ["rlib", "staticlib"]
+[workspace.dependencies]
+openpedal-dsp = { path = "crates/dsp" }
+openpedal-graph = { path = "crates/graph" }
+openpedal-protocol = { path = "crates/protocol" }
+openpedal-engine = { path = "crates/engine" }
+openpedal-library = { path = "crates/library" }
+openpedal-server = { path = "crates/server" }
 
-[dependencies]
 rtrb = "0.3"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
@@ -19,12 +26,7 @@ tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "tim
 rust-embed = "8.13"
 webbrowser = "1.2"
 futures-util = "0.3.34"
-
-# JACK (PipeWire) is the Linux audio backend; iOS hosts call the C ABI instead.
-[target.'cfg(target_os = "linux")'.dependencies]
 jack = "0.13"
-
-[dev-dependencies]
 tokio-tungstenite = "0.30"
 
 [profile.release]

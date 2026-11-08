@@ -10,8 +10,8 @@ usage() {
   cat <<'EOF'
 Usage: tools/release.sh <desktop|ios> <X.Y.Z> [--dry-run] [--skip-checks]
 
-  desktop   binary + web UI: version in Cargo.toml, tag desktop-vX.Y.Z, CHANGELOG.md
-  ios       iPad app: version in ios/Info.plist (+ build number), tag ios-vX.Y.Z, ios/CHANGELOG.md
+  desktop   binary + web UI: workspace version in Cargo.toml, tag desktop-vX.Y.Z, apps/desktop/CHANGELOG.md
+  ios       iPad app: version in apps/ios/Info.plist (+ build number), tag ios-vX.Y.Z, apps/ios/CHANGELOG.md
 
   --dry-run      print what would happen and change nothing (a dirty tree or another
                  branch only produces a warning)
@@ -72,14 +72,14 @@ case "$product" in
   desktop)
     prefix=desktop
     other_scope=ios
-    changelog=CHANGELOG.md
-    version_files=(Cargo.toml Cargo.lock CHANGELOG.md)
+    changelog=apps/desktop/CHANGELOG.md
+    version_files=(Cargo.toml Cargo.lock apps/desktop/CHANGELOG.md)
     ;;
   ios)
     prefix=ios
     other_scope=ui
-    changelog=ios/CHANGELOG.md
-    version_files=(ios/Info.plist ios/CHANGELOG.md)
+    changelog=apps/ios/CHANGELOG.md
+    version_files=(apps/ios/Info.plist apps/ios/CHANGELOG.md)
     ;;
   *)
     usage >&2
@@ -129,13 +129,13 @@ echo "Releasing $product $version as $tag"
 if [ "$skip_checks" -eq 1 ]; then
   warn "checks skipped (--skip-checks)"
 elif [ "$product" = desktop ]; then
-  step "cargo test" nix develop -c cargo test
-  step "clippy" nix develop -c cargo clippy --all-targets -- -D warnings
-  step "web UI build" bash -c 'cd ui && npm run build'
+  step "cargo test" nix develop -c cargo test --workspace
+  step "clippy" nix develop -c cargo clippy --workspace --all-targets -- -D warnings
+  step "web UI build" bash -c 'cd apps/desktop/ui && npm run build'
 else
-  step "cargo test" nix develop -c cargo test
-  step "Rust core for the iPad" nix develop -c ios/scripts/build-core.sh
-  step "xtool build" ios/scripts/xtool.sh dev build
+  step "cargo test" nix develop -c cargo test --workspace
+  step "Rust core for the iPad" nix develop -c apps/ios/scripts/build-core.sh
+  step "xtool build" apps/ios/scripts/xtool.sh dev build
 fi
 
 # 2. Version bump. The python snippets only print their changes in a dry run.
@@ -144,18 +144,18 @@ if [ "$product" = desktop ]; then
 import re, sys
 version, dry, path = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 text = open(path, encoding="utf-8").read()
-pattern = re.compile(r'(^\[package\]\n(?:(?!\[).*\n)*?)^(version = ")([^"]*)(")', re.M)
+pattern = re.compile(r'(^\[workspace\.package\]\n(?:(?!\[).*\n)*?)^(version = ")([^"]*)(")', re.M)
 m = pattern.search(text)
 if not m:
-    sys.exit("error: no version in the [package] table of Cargo.toml")
+    sys.exit("error: no version in the [workspace.package] table of Cargo.toml")
 print(f"Cargo.toml: version {m.group(3)} -> {version}")
 if not dry:
     text = pattern.sub(lambda m: m.group(1) + m.group(2) + version + m.group(4), text, count=1)
     open(path, "w", encoding="utf-8").write(text)
 PY
-  step "refresh Cargo.lock" nix develop -c cargo update -p openpedal --offline
+  step "refresh Cargo.lock" nix develop -c cargo update --workspace --offline
 else
-  python3 - "$version" "$dry_run" "$root/ios/Info.plist" <<'PY'
+  python3 - "$version" "$dry_run" "$root/apps/ios/Info.plist" <<'PY'
 import re, sys
 version, dry, path = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 text = open(path, encoding="utf-8").read()
