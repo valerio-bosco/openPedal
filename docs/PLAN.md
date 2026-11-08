@@ -359,9 +359,9 @@ Phase 2 done: layout. The workspace is `crates/{dsp,graph,protocol,library,engin
 `apps/{desktop,ios}` and `content/{presets,pedals,irs}`. The `EngineHandle` trait now lives in `crates/engine`
 (re-exported by `crates/server`), so the server depends on the engine's interface and never the reverse.
 Dependencies: graph → dsp; protocol → graph; library → graph; engine → dsp, graph, protocol;
-server → engine, protocol, library, graph; ffi → engine, server, graph; desktop → all but ffi, library.
+server → engine, protocol, library, graph; ffi → engine, server, graph; desktop → all but ffi.
 The static library for the iPad is `openpedal-ffi`, with `[lib] name = "openpedal"` so it is still `libopenpedal.a`.
-`openpedal-dsp` has a `legacy-chain` feature that exposes the old linear `Chain` to the graph crate's tests.
+Phase 3 wave 1 done: Effect/Control/Route + registry in `crates/graph` (v1 linear chain removed), `crates/library` owns files and factory seeding (C ABI `openpedal_start2`, `openpedal_version`).
 
 Phases (each ends with green tests and unchanged audio renders):
 
