@@ -1,7 +1,6 @@
 //! HTTP routes, WebSocket and message handling (protocol: docs/PLAN.md §5.4).
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,24 +14,21 @@ use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 
 use openpedal_protocol::{ClientMsg, ServerMsg, StateMsg, PROTOCOL_VERSION};
-use openpedal_library as files;
+use openpedal_library::Library;
 
 use crate::{assets, EngineHandle};
-use openpedal_graph::load::read_graph;
 
 pub struct ServerOptions {
     pub port: u16,
     pub open_browser: bool,
     /// true = listen on all interfaces (for the phone).
     pub lan: bool,
-    pub presets_dir: PathBuf,
-    pub pedals_dir: PathBuf,
+    pub library: Library,
 }
 
 pub struct AppState {
     pub engine: Arc<dyn EngineHandle>,
-    pub presets_dir: PathBuf,
-    pub pedals_dir: PathBuf,
+    pub library: Library,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -61,7 +57,7 @@ pub fn run(engine: Arc<dyn EngineHandle>, opts: ServerOptions) -> Result<()> {
                 eprintln!("  cannot open the browser ({e}): open the address by hand");
             }
         }
-        let state = Arc::new(AppState { engine, presets_dir: opts.presets_dir, pedals_dir: opts.pedals_dir });
+        let state = Arc::new(AppState { engine, library: opts.library });
         axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await.context("server error")
     })
 }
@@ -152,8 +148,8 @@ pub fn state_msg(state: &AppState) -> ServerMsg {
         protocol: PROTOCOL_VERSION,
         catalog: state.engine.catalog(),
         graph: state.engine.graph(),
-        presets: files::list(&state.presets_dir),
-        pedals: openpedal_graph::load::read_pedals(&state.pedals_dir).unwrap_or_default().into_iter().collect(),
+        presets: state.library.list_presets(),
+        pedals: state.library.load_pedals().unwrap_or_default().into_iter().collect(),
         audio: state.engine.audio(),
     })
 }
@@ -175,30 +171,27 @@ pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
             Ok(vec![])
         }
         ClientMsg::LoadPreset { name } => {
-            let path = files::file_path(&state.presets_dir, &name)?;
-            let mut graph = read_graph(&path)?;
-            // The interface recognizes the preset by its name: it must be the file's name
-            // (v1 presets have names like "Clean" for the file clean.toml).
-            graph.name = name;
+            // The library names the graph after the file (v1 presets have names like "Clean"
+            // for the file clean.toml): the interface recognizes the preset by that name.
+            let graph = state.library.load_preset(&name)?;
             state.engine.set_graph(graph)?;
             Ok(vec![state_msg(state)])
         }
-        ClientMsg::SavePreset { name, mut graph } => {
-            graph.name = name.clone();
-            files::save_graph(&state.presets_dir, &name, &graph)?;
+        ClientMsg::SavePreset { name, graph } => {
+            state.library.save_preset(&name, &graph)?;
             Ok(vec![state_msg(state)])
         }
         ClientMsg::SavePedal { id, pedal } => {
-            files::save_pedal(&state.pedals_dir, &id, &pedal)?;
+            state.library.save_pedal(&id, &pedal)?;
             state.engine.reload_pedals()?;
             Ok(vec![state_msg(state)])
         }
         ClientMsg::DeletePreset { name } => {
-            files::delete(&state.presets_dir, &name)?;
+            state.library.delete_preset(&name)?;
             Ok(vec![state_msg(state)])
         }
         ClientMsg::DeletePedal { id } => {
-            files::delete(&state.pedals_dir, &id)?;
+            state.library.delete_pedal(&id)?;
             state.engine.reload_pedals()?;
             Ok(vec![state_msg(state)])
         }
@@ -212,7 +205,7 @@ mod tests {
     use openpedal_dsp::params::Value;
     use openpedal_graph::model::PedalFile;
     use crate::mock::{default_graph, MockEngine};
-    use std::path::Path;
+    use std::path::PathBuf;
 
     /// Unique temporary folder for a test.
     fn temp_dir(tag: &str) -> PathBuf {
@@ -224,10 +217,10 @@ mod tests {
 
     fn app(tag: &str) -> (Arc<AppState>, Arc<MockEngine>, PathBuf) {
         let root = temp_dir(tag);
-        let (presets, pedals) = (root.join("presets"), root.join("pedals"));
-        std::fs::create_dir_all(&pedals).unwrap();
-        let engine = Arc::new(MockEngine::new(&pedals, default_graph()));
-        let state = Arc::new(AppState { engine: engine.clone(), presets_dir: presets, pedals_dir: pedals });
+        let library = Library::new(&root);
+        std::fs::create_dir_all(library.pedals_dir()).unwrap();
+        let engine = Arc::new(MockEngine::new(library.pedals_dir(), default_graph()));
+        let state = Arc::new(AppState { engine: engine.clone(), library });
         (state, engine, root)
     }
 
@@ -325,7 +318,7 @@ mod tests {
             assert!(matches!(r[0], ServerMsg::Error { .. }));
         }
         assert!(!root.join("x.toml").exists());
-        assert!(files::list(&state.presets_dir).is_empty());
+        assert!(state.library.list_presets().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -335,7 +328,7 @@ mod tests {
         // A plain file where the folder should be: every write below must fail.
         let blocked = root.join("blocked");
         std::fs::write(&blocked, b"not a folder").unwrap();
-        let state = AppState { presets_dir: blocked.join("presets"), pedals_dir: blocked.join("pedals"), engine: state.engine.clone() };
+        let state = AppState { library: Library::new(&blocked), engine: state.engine.clone() };
         let r = handle_message(&state, ClientMsg::SavePreset { name: "x".into(), graph: default_graph() });
         assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("cannot")), "{r:?}");
         let r = handle_message(&state, ClientMsg::SavePedal { id: "x".into(), pedal: pedal() });
@@ -353,7 +346,7 @@ mod tests {
         assert_eq!(s.presets, vec!["my-sound".to_string()]);
         // the saved graph's name is the file's name
         assert_eq!(
-            read_graph(Path::new(&state.presets_dir.join("my-sound.toml"))).unwrap(),
+            state.library.load_preset("my-sound").unwrap(),
             openpedal_graph::model::GraphFile { name: "my-sound".into(), ..default_graph() }
         );
         let r = handle_message(&state, ClientMsg::LoadPreset { name: "my-sound".into() });
@@ -362,13 +355,15 @@ mod tests {
         assert!(matches!(r[0], ServerMsg::Error { .. }));
         let r = handle_message(&state, ClientMsg::DeletePreset { name: "my-sound".into() });
         let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
-        assert!(s.presets.is_empty() && !state.presets_dir.join("my-sound.toml").exists());
+        assert!(s.presets.is_empty() && !state.library.presets_dir().join("my-sound.toml").exists());
         let r = handle_message(&state, ClientMsg::DeletePreset { name: "my-sound".into() });
         assert!(matches!(r[0], ServerMsg::Error { .. }), "deleting a preset that does not exist is an error");
 
         let r = handle_message(&state, ClientMsg::SavePedal { id: "test".into(), pedal: pedal() });
         let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
         assert!(s.catalog.iter().any(|c| c.kind == "pedal:test"));
+        assert!(s.pedals.contains_key("test"));
+        assert!(state.library.list_pedals() == ["test"], "the pedal is saved through the library");
         let r = handle_message(&state, ClientMsg::DeletePedal { id: "test".into() });
         let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
         assert!(!s.catalog.iter().any(|c| c.kind == "pedal:test"));
