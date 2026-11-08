@@ -35,39 +35,55 @@ struct RootView: View {
     let store: Store
     @State private var showAdd = false
     @State private var showAbout = false
+    @State private var expanded = false
+    @State private var liveHeight: CGFloat?
 
     private var tint: Color {
         guard let n = store.selected else { return Color(hex: 0xff8a3d) }
         return enamel(for: n.type, category: store.item(for: n)?.category)
     }
 
-    var body: some View {
-        ZStack {
-            Ambient(tint: tint)
-            BoardView(store: store, showAdd: $showAdd)
-            VStack(spacing: 0) {
-                ToolbarView(store: store, showAbout: $showAbout)
-                    .padding(.horizontal, 20).padding(.top, 8)
-                if let text = store.banner {
-                    Label(text, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .glassEffect(.regular.tint(.red.opacity(0.35)), in: .capsule)
-                        .padding(.top, 10)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                Spacer()
-                InspectorView(store: store)
-                    .padding(.horizontal, 20).padding(.bottom, 8)
-            }
-            .animation(.smooth, value: store.banner)
+    /// Toolbar row (8 top + 52) and the inspector's outer padding (8 + 8): fixed chrome around the board.
+    private static let toolbarBand: CGFloat = 60
+    private static let inspectorPadding: CGFloat = 16
 
-            if store.protocolTooNew {
-                Text("This app is older than the openPedal core (protocol v\(store.serverProtocol ?? 0)). Update the app.")
-                    .multilineTextAlignment(.center).padding(28)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
-            } else if !store.connected {
-                ProgressView("Connecting...").padding(24).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
+    var body: some View {
+        GeometryReader { geo in
+            let showInspector = store.hasPedals
+            let ih = showInspector ? (liveHeight ?? (expanded ? InspectorDetent.expanded : InspectorDetent.compact)) : 0
+            let boardHeight = max(0, geo.size.height - Self.toolbarBand - (showInspector ? ih + Self.inspectorPadding : 0))
+            ZStack {
+                Ambient(tint: tint)
+                VStack(spacing: 0) {
+                    ToolbarView(store: store, showAbout: $showAbout)
+                        .frame(height: 52)
+                        .padding(.horizontal, 20).padding(.top, 8)
+                    BoardView(store: store, showAdd: $showAdd, expanded: expanded, pf: pedalUnit(forBoardHeight: boardHeight))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if showInspector {
+                        InspectorView(store: store, expanded: $expanded, liveHeight: $liveHeight, height: ih)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if let text = store.banner {
+                        Label(text, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 18).padding(.vertical, 10)
+                            .glassEffect(.regular.tint(.red.opacity(0.35)), in: .capsule)
+                            .padding(.top, 72)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.smooth, value: store.banner)
+
+                if store.protocolTooNew {
+                    Text("This app is older than the openPedal core (protocol v\(store.serverProtocol ?? 0)). Update the app.")
+                        .multilineTextAlignment(.center).padding(28)
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
+                } else if !store.connected {
+                    ProgressView("Connecting...").padding(24).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
+                }
             }
         }
         .sheet(isPresented: $showAdd) { AddPedalSheet(store: store) }

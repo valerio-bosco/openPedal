@@ -29,7 +29,7 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
 | `Package.swift`, `xtool.yml`, `Info.plist` | SwiftPM package and xtool config (microphone usage string, `UIBackgroundModes: audio`) |
 | `OpenPedalCore/include/openpedal.h` | the C API, hand-written, keep in sync with `src/ffi.rs` |
 | `OpenPedalCore/lib/libopenpedal.a` | built by `scripts/build-core.sh` (git-ignored) |
-| `Sources/OpenPedalApp/` | `App.swift` (root, ambient), `AudioHost.swift`, `Protocol.swift` (Codable protocol), `WSClient.swift`, `Store.swift` (@Observable state, undo, throttled set_param), `Chain.swift` (chain derivation), `Board.swift` (pedals), `Inspector.swift` (knobs), `Toolbar.swift`, `Sheets.swift` (add pedal, About), `Theme.swift` |
+| `Sources/OpenPedalApp/` | `App.swift` (root, ambient), `AudioHost.swift`, `Protocol.swift` (Codable protocol), `WSClient.swift`, `Store.swift` (@Observable state, undo, throttled set_param), `Chain.swift` (chain derivation), `Board.swift` (pedalboard, pedals, drag and drop reorder), `Inspector.swift` (resizable controls panel, knobs), `Toolbar.swift`, `Sheets.swift` (add pedal, About), `Theme.swift` |
 | `scripts/build-core.sh` | UI build + `cargo build --lib --release --target aarch64-apple-ios` + copies |
 
 ## Build with xtool (from Linux) — verified on 2026-11-08
@@ -76,4 +76,4 @@ Troubleshooting:
 
 - The UI needs iPadOS 26 (`glassEffect`, `GlassEffectContainer`, `.glass`/`.glassProminent` button styles). No WebView.
 - It talks to the in-process server over `ws://127.0.0.1:<port>/ws` and tolerates a core without `protocol`/`bypass` (docs/PLAN.md §10.2).
-- Parallel graphs are shown in topological order; adding, removing and moving pedals is only enabled for a simple chain.
+- Parallel graphs are shown in topological order; adding, removing and moving (menu or long-press drag) pedals is only enabled for a simple chain.

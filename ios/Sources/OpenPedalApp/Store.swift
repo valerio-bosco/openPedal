@@ -31,6 +31,8 @@ final class Store {
     /// The server speaks a newer contract than this app knows.
     var protocolTooNew: Bool { (serverProtocol ?? 0) > supportedProtocolVersion }
     var canEditChain: Bool { chain.linear }
+    /// At least one node besides the input and output jacks.
+    var hasPedals: Bool { chain.nodes.contains { $0.type != "input" && $0.type != "output" } }
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
@@ -224,15 +226,41 @@ final class Store {
     }
 
     func movePedal(_ id: String, by delta: Int) {
+        guard let i = chain.nodes.firstIndex(where: { $0.id == id }) else { return }
+        moveTo(id, slot: (i - 1) + delta)
+    }
+
+    /// Moves a pedal to `slot` (0 = first pedal after the input). Input stays first, output last.
+    func moveTo(_ id: String, slot: Int) {
         guard chain.linear else { return }
         var order = chain.nodes
-        guard let i = order.firstIndex(where: { $0.id == id }) else { return }
-        let j = i + delta
-        // Keep the input first and the output last.
-        guard j >= 1, j <= order.count - 2, i >= 1, i <= order.count - 2 else { return }
+        guard let i = order.firstIndex(where: { $0.id == id }), i >= 1, i <= order.count - 2 else { return }
+        let j = min(max(slot, 0), order.count - 3) + 1
+        guard j != i else { return }
         pushUndo()
-        order.swapAt(i, j)
+        let node = order.remove(at: i)
+        order.insert(node, at: j)
+        selectedID = id
         commit(Chain.rewrite(graph, order: order))
+    }
+
+    /// Every parameter of a node back to its default, as one undo step.
+    func resetParams(_ node: NodeSpec) {
+        guard let item = item(for: node) else { return }
+        pushUndo()
+        for p in item.params {
+            switch p.kind {
+            case .number:
+                setNumber(node, p, p.def)
+            case .choice:
+                let idx = Int(p.def)
+                guard p.options.indices.contains(idx) else { continue }
+                update(node.id) { $0.params[p.id] = .string(p.options[idx]) }
+                queue(.setParam(node: node.id, param: p.id, value: Double(idx)), key: node.id + "." + p.id)
+            case .file:
+                break
+            }
+        }
     }
 
     // MARK: presets
