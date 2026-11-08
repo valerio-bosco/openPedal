@@ -21,6 +21,8 @@ pub enum ClientMsg {
     SetGraph { graph: GraphFile },
     LoadPreset { name: String },
     SavePreset { name: String, graph: GraphFile },
+    /// Cancella presets/<name>.toml; il grafo che sta suonando non cambia.
+    DeletePreset { name: String },
     /// Scrive pedals/<id>.toml; il server poi rimanda `state` con il catalogo aggiornato.
     SavePedal { id: String, pedal: PedalFile },
     DeletePedal { id: String },

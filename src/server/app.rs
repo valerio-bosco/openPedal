@@ -169,17 +169,25 @@ pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
         }
         ClientMsg::LoadPreset { name } => {
             let path = files::file_path(&state.presets_dir, &name)?;
-            let graph = read_graph(&path)?;
+            let mut graph = read_graph(&path)?;
+            // L'interfaccia riconosce il preset dal nome: deve essere quello del file
+            // (i preset v1 hanno nomi come "Clean" per il file clean.toml).
+            graph.name = name;
             state.engine.set_graph(graph)?;
             Ok(vec![state_msg(state)])
         }
-        ClientMsg::SavePreset { name, graph } => {
+        ClientMsg::SavePreset { name, mut graph } => {
+            graph.name = name.clone();
             files::save_graph(&state.presets_dir, &name, &graph)?;
             Ok(vec![state_msg(state)])
         }
         ClientMsg::SavePedal { id, pedal } => {
             files::save_pedal(&state.pedals_dir, &id, &pedal)?;
             state.engine.reload_pedals()?;
+            Ok(vec![state_msg(state)])
+        }
+        ClientMsg::DeletePreset { name } => {
+            files::delete(&state.presets_dir, &name)?;
             Ok(vec![state_msg(state)])
         }
         ClientMsg::DeletePedal { id } => {
@@ -274,6 +282,8 @@ mod tests {
             assert!(matches!(r[0], ServerMsg::Error { .. }), "{bad:?} doveva essere rifiutato");
             let r = handle_message(&state, ClientMsg::SavePedal { id: bad.into(), pedal: pedal() });
             assert!(matches!(r[0], ServerMsg::Error { .. }));
+            let r = handle_message(&state, ClientMsg::DeletePreset { name: bad.into() });
+            assert!(matches!(r[0], ServerMsg::Error { .. }));
             let r = handle_message(&state, ClientMsg::DeletePedal { id: bad.into() });
             assert!(matches!(r[0], ServerMsg::Error { .. }));
             let r = handle_message(&state, ClientMsg::LoadPreset { name: bad.into() });
@@ -290,11 +300,20 @@ mod tests {
         let r = handle_message(&state, ClientMsg::SavePreset { name: "mio-suono".into(), graph: default_graph() });
         let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
         assert_eq!(s.presets, vec!["mio-suono".to_string()]);
-        assert_eq!(read_graph(Path::new(&state.presets_dir.join("mio-suono.toml"))).unwrap(), default_graph());
+        // il nome del grafo salvato è quello del file
+        assert_eq!(
+            read_graph(Path::new(&state.presets_dir.join("mio-suono.toml"))).unwrap(),
+            crate::graph::model::GraphFile { name: "mio-suono".into(), ..default_graph() }
+        );
         let r = handle_message(&state, ClientMsg::LoadPreset { name: "mio-suono".into() });
         assert!(matches!(r[0], ServerMsg::State(_)));
         let r = handle_message(&state, ClientMsg::LoadPreset { name: "inesistente".into() });
         assert!(matches!(r[0], ServerMsg::Error { .. }));
+        let r = handle_message(&state, ClientMsg::DeletePreset { name: "mio-suono".into() });
+        let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
+        assert!(s.presets.is_empty() && !state.presets_dir.join("mio-suono.toml").exists());
+        let r = handle_message(&state, ClientMsg::DeletePreset { name: "mio-suono".into() });
+        assert!(matches!(r[0], ServerMsg::Error { .. }), "cancellare un preset che non c'è è un errore");
 
         let r = handle_message(&state, ClientMsg::SavePedal { id: "prova".into(), pedal: pedal() });
         let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };

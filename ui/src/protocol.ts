@@ -128,5 +128,7 @@ export type ClientMsg =
   | { type: "set_graph"; graph: GraphFile }
   | { type: "load_preset"; name: string }
   | { type: "save_preset"; name: string; graph: GraphFile }
+  /** Cancella presets/<name>.toml; il grafo che sta suonando non cambia. */
+  | { type: "delete_preset"; name: string }
   | { type: "save_pedal"; id: string; pedal: PedalFile }
   | { type: "delete_pedal"; id: string };

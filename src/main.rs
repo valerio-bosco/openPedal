@@ -159,10 +159,19 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     }
     let presets_dir = PathBuf::from("presets");
     let pedals_dir = PathBuf::from("pedals");
-    let graph = graph::load::read_graph(&preset_path).unwrap_or_else(|e| {
-        eprintln!("{e:#}: parto da un grafo vuoto");
-        server::mock::default_graph()
-    });
+    let graph = match graph::load::read_graph(&preset_path) {
+        Ok(mut g) => {
+            // come per load_preset: il nome è quello del file, così l'interfaccia lo riconosce
+            if let Some(stem) = preset_path.file_stem().and_then(|s| s.to_str()) {
+                g.name = stem.to_string();
+            }
+            g
+        }
+        Err(e) => {
+            eprintln!("{e:#}: parto da un grafo vuoto");
+            server::mock::default_graph()
+        }
+    };
 
     let engine: std::sync::Arc<dyn server::EngineHandle> = if audio {
         match start_live(&config, graph.clone(), &pedals_dir) {
@@ -232,6 +241,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::LoadPreset { name: "clean".into() },
         ClientMsg::SavePreset { name: "mio-suono".into(), graph },
         ClientMsg::SavePedal { id: "cassa-4x12".into(), pedal },
+        ClientMsg::DeletePreset { name: "vecchio-suono".into() },
         ClientMsg::DeletePedal { id: "vecchio-pedale".into() },
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;

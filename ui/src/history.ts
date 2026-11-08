@@ -7,6 +7,8 @@ import type { PNode } from "./model";
 export interface Snapshot {
   nodes: PNode[];
   edges: Edge[];
+  /** Nome del grafo (es. "nuovo" dopo il pulsante Nuovo): torna con l'annulla. */
+  name?: string;
 }
 
 const LIMIT = 100;
@@ -23,6 +25,7 @@ function clean(s: Snapshot): Snapshot {
   return {
     nodes: s.nodes.map((n) => ({ ...n, selected: false, dragging: false, data: { ...n.data, error: undefined } })),
     edges: s.edges.map((e) => ({ ...e, selected: false })),
+    name: s.name,
   };
 }
 
@@ -36,7 +39,8 @@ export class History {
   reset(s: Snapshot) {
     this.past = [];
     this.future = [];
-    this.current = clean(s);
+    // senza nome (es. dopo il riordino automatico) resta quello che c'era
+    this.current = clean({ ...s, name: s.name ?? this.current?.name });
     this.key = contentKey(s);
   }
 

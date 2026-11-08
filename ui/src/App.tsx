@@ -149,7 +149,7 @@ function Editor() {
       setEdges(f.edges);
       // un preset caricato è un nuovo inizio; lo stesso grafo (es. dopo un salvataggio) no
       if (!history.current.same(f)) {
-        history.current.reset(f);
+        history.current.reset({ ...f, name: m.graph.name });
         bumpHistory();
         tidyIfOverlappingRef.current();
       }
@@ -250,10 +250,10 @@ function Editor() {
   useEffect(() => {
     if (nodes.some((n) => n.dragging)) return;
     const h = window.setTimeout(() => {
-      if (history.current.record({ nodes, edges })) bumpHistory();
+      if (history.current.record({ nodes, edges, name: graphName })) bumpHistory();
     }, 350);
     return () => window.clearTimeout(h);
-  }, [nodes, edges, bumpHistory]);
+  }, [nodes, edges, graphName, bumpHistory]);
 
   /** Riporta il grafo a un'istantanea e lo comunica al motore nel modo più leggero. */
   const applySnapshot = useCallback(
@@ -263,10 +263,12 @@ function Editor() {
       setEdges(s.edges);
       bumpHistory();
       if (editingRef.current) return; // dentro un pedale si manda tutto al salvataggio
+      const name = s.name ?? graphName;
+      setGraphName(name);
       const key = structureKey(s.nodes, s.edges, catalog);
       if (key !== lastKey.current) {
         lastKey.current = key;
-        conn.current?.send({ type: "set_graph", graph: flowToGraph(graphName, s.nodes, s.edges) });
+        conn.current?.send({ type: "set_graph", graph: flowToGraph(name, s.nodes, s.edges) });
         return;
       }
       // stessa struttura: bastano i parametri cambiati, senza ricostruire il suono
@@ -428,6 +430,13 @@ function Editor() {
     setGraphName(name);
     conn.current?.send({ type: "save_preset", name, graph: flowToGraph(name, nodes, edges) });
     toast(`Preset «${name}» salvato`);
+  };
+
+  const deletePreset = () => {
+    if (!presets.includes(graphName)) return;
+    if (!window.confirm(`Eliminare il preset «${graphName}»?\nIl file presets/${graphName}.toml verrà cancellato (il suono attuale resta).`)) return;
+    conn.current?.send({ type: "delete_preset", name: graphName });
+    toast(`Preset «${graphName}» eliminato`);
   };
 
   const deletePedal = (item: CatalogItem) => {
@@ -623,6 +632,7 @@ function Editor() {
           disabledPresets={!ready || !!editing}
           onLoadPreset={(name) => conn.current?.send({ type: "load_preset", name })}
           onSave={savePreset}
+          onDelete={deletePreset}
           extra={
             editing ? (
               <>

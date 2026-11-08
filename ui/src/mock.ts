@@ -118,6 +118,10 @@ export class MockServer {
         ];
         this.emit(this.state());
         break;
+      case "delete_preset":
+        this.presets = this.presets.filter((p) => p !== msg.name);
+        this.emit(this.state());
+        break;
       case "delete_pedal":
         delete this.pedals[msg.id];
         this.catalog = this.catalog.filter((c) => c.kind !== `pedal:${msg.id}`);

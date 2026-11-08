@@ -610,3 +610,7 @@ button.icon {
   padding-left: 8px;
   padding-right: 8px;
 }
+button.danger-hover:hover:not(:disabled) {
+  background: #c0392b;
+  border-color: #c0392b;
+}

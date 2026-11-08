@@ -32,10 +32,11 @@ interface Props {
   disabledPresets: boolean;
   onLoadPreset: (name: string) => void;
   onSave: () => void;
+  onDelete: () => void;
   extra?: ReactNode;
 }
 
-export function TopBar({ status, presets, graphName, audio, meters, disabledPresets, onLoadPreset, onSave, extra }: Props) {
+export function TopBar({ status, presets, graphName, audio, meters, disabledPresets, onLoadPreset, onSave, onDelete, extra }: Props) {
   return (
     <header className="topbar">
       <div className="logo">
@@ -60,6 +61,15 @@ export function TopBar({ status, presets, graphName, audio, meters, disabledPres
       </label>
       <button onClick={onSave} disabled={disabledPresets}>
         Salva preset
+      </button>
+      <button
+        className="icon danger-hover"
+        onClick={onDelete}
+        disabled={disabledPresets || !presets.includes(graphName)}
+        title={presets.includes(graphName) ? `Elimina il preset «${graphName}»` : "Il grafo attuale non è un preset salvato"}
+        aria-label="Elimina preset"
+      >
+        🗑
       </button>
       {extra}
       <div className="spacer" />

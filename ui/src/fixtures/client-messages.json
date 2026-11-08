@@ -280,6 +280,10 @@
     }
   },
   {
+    "type": "delete_preset",
+    "name": "vecchio-suono"
+  },
+  {
     "type": "delete_pedal",
     "id": "vecchio-pedale"
   }
