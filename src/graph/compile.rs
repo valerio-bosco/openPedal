@@ -476,6 +476,9 @@ mod tests {
         for entry in std::fs::read_dir("presets").unwrap() {
             let path = entry.unwrap().path();
             let text = std::fs::read_to_string(&path).unwrap();
+            if text.contains("[[node]]") {
+                continue; // already a graph: nothing to compare with
+            }
             let preset: Preset = toml::from_str(&text).unwrap();
             let mut chain = Chain::build(&preset, SR).unwrap();
             let mut old = input.clone();
@@ -749,5 +752,21 @@ to = "out"
         plan.process(&mut out);
         let g6 = crate::dsp::db_to_lin(-6.0);
         assert!((out[19999] - input[19999] * g6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn every_bundled_preset_compiles_and_plays() {
+        let pedals = crate::graph::load::read_pedals(Path::new("pedals")).unwrap();
+        for entry in std::fs::read_dir("presets").unwrap() {
+            let path = entry.unwrap().path();
+            let graph = crate::graph::load::read_graph(&path).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
+            let (mut plan, _) = compile(&graph, &pedals, SR).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
+            let mut buf = signal(48000);
+            for block in buf.chunks_mut(64) {
+                plan.process(block);
+            }
+            assert!(buf.iter().all(|s| s.is_finite()), "{}", path.display());
+            assert!(buf.iter().any(|s| s.abs() > 1e-4), "{} is silent", path.display());
+        }
     }
 }

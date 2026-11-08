@@ -190,10 +190,14 @@ mod tests {
     }
 
     #[test]
-    fn bundled_presets_are_valid() {
+    fn bundled_v1_presets_are_valid() {
         for entry in std::fs::read_dir("presets").unwrap() {
             let path = entry.unwrap().path();
             let text = std::fs::read_to_string(&path).unwrap();
+            // v2 presets (graphs) are covered by graph::compile's tests
+            if text.contains("[[node]]") {
+                continue;
+            }
             let p: Preset = toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let mut buf = sine(220.0, 0.5, 48000);
             Chain::build(&p, SR).unwrap().process(&mut buf);
