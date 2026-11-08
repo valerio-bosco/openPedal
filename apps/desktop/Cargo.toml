@@ -13,6 +13,7 @@ openpedal-dsp.workspace = true
 openpedal-graph.workspace = true
 openpedal-protocol.workspace = true
 openpedal-engine.workspace = true
+openpedal-library.workspace = true
 openpedal-server.workspace = true
 anyhow.workspace = true
 rtrb.workspace = true

@@ -16,16 +16,17 @@ use std::ffi::{c_char, CStr, CString};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::os::raw::c_float;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::{fs, thread};
+use std::thread;
 
 use anyhow::{bail, Context, Result};
 
 use openpedal_engine::engine::{AudioCore, Engine};
 use openpedal_graph::model::GraphFile;
-use openpedal_graph::{self as graph, load};
+use openpedal_graph::{self as graph};
+use openpedal_library::Library;
 use openpedal_engine::live::LiveEngine;
 use openpedal_server::{self as server, ServerOptions};
 
@@ -44,28 +45,12 @@ fn set_error(message: String) {
     *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
 }
 
-/// The initial graph: `presets/clean.toml`, else the first preset, else an empty graph.
-fn initial_graph(presets_dir: &Path) -> GraphFile {
-    let mut files: Vec<PathBuf> = fs::read_dir(presets_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("toml"))
-        .collect();
-    files.sort();
-    let clean = presets_dir.join("clean.toml");
-    let path = if files.contains(&clean) { Some(clean) } else { files.into_iter().next() };
-    if let Some(path) = path {
-        match load::read_graph(&path) {
-            Ok(mut g) => {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    g.name = stem.to_string();
-                }
-                return g;
-            }
-            Err(e) => eprintln!("{e:#}: starting from an empty graph"),
-        }
+/// The initial graph: `clean`, else the first preset, else an empty graph.
+fn initial_graph(library: &Library) -> GraphFile {
+    match library.initial_preset() {
+        Some(Ok(g)) => return g,
+        Some(Err(e)) => eprintln!("{e:#}: starting from an empty graph"),
+        None => {}
     }
     server::mock::default_graph()
 }
@@ -89,14 +74,16 @@ fn wait_for_server(port: u16) -> Result<()> {
     bail!("the UI server did not start on port {port}")
 }
 
-fn start(sample_rate: f32, data_dir: &Path, port: u16) -> Result<Box<OpenPedal>> {
-    let presets_dir = data_dir.join("presets");
-    let pedals_dir = data_dir.join("pedals");
-    fs::create_dir_all(&presets_dir).with_context(|| format!("cannot create {}", presets_dir.display()))?;
-    fs::create_dir_all(&pedals_dir).with_context(|| format!("cannot create {}", pedals_dir.display()))?;
+fn start(sample_rate: f32, data_dir: &Path, factory_dir: Option<&Path>, port: u16) -> Result<Box<OpenPedal>> {
+    let library = Library::new(data_dir);
+    library.ensure_dirs()?;
+    if let Some(factory) = factory_dir {
+        library.seed_from(factory)?;
+    }
+    let pedals_dir = library.pedals_dir();
 
-    let pedals = load::read_pedals(&pedals_dir)?;
-    let mut graph = initial_graph(&presets_dir);
+    let pedals = library.load_pedals()?;
+    let mut graph = initial_graph(&library);
     let compiled = match graph::compile(&graph, &pedals, sample_rate) {
         Ok(c) => c,
         Err(e) => {
@@ -107,11 +94,11 @@ fn start(sample_rate: f32, data_dir: &Path, port: u16) -> Result<Box<OpenPedal>>
     };
     let (plan, map) = compiled;
     let (engine, core) = Engine::new(plan, sample_rate, None);
-    let live = LiveEngine::new(engine, map, graph, pedals, pedals_dir.clone());
+    let live = LiveEngine::new(engine, map, graph, pedals, pedals_dir);
 
     let port = if port == 0 { free_port()? } else { port };
     let engine: Arc<dyn server::EngineHandle> = live.clone();
-    let opts = ServerOptions { port, open_browser: false, lan: false, presets_dir, pedals_dir };
+    let opts = ServerOptions { port, open_browser: false, lan: false, library };
     thread::Builder::new().name("openpedal-server".into()).spawn(move || {
         if let Err(e) = server::run(engine, opts) {
             eprintln!("openPedal server stopped: {e:#}");
@@ -121,17 +108,11 @@ fn start(sample_rate: f32, data_dir: &Path, port: u16) -> Result<Box<OpenPedal>>
     Ok(Box::new(OpenPedal { core, port, _live: live }))
 }
 
-/// Builds the engine with the preset found in `data_dir/presets` and starts the UI server on
-/// `127.0.0.1:port` (0 = pick a free port, see `openpedal_port`). `data_dir` holds `presets/`
-/// and `pedals/` (created if missing). `max_frames` is the largest buffer the host expects; it
-/// is only a hint, `openpedal_process` accepts any size.
-///
-/// Returns NULL on failure; see `openpedal_last_error`.
+/// Shared by `openpedal_start` and `openpedal_start2`.
 ///
 /// # Safety
-/// `data_dir` must be a valid NUL-terminated UTF-8 string.
-#[no_mangle]
-pub unsafe extern "C" fn openpedal_start(sample_rate: c_float, max_frames: u32, data_dir: *const c_char, port: u16) -> *mut OpenPedal {
+/// `data_dir` and `factory_dir` must each be NULL (factory only) or valid NUL-terminated strings.
+unsafe fn start_from_c(sample_rate: c_float, max_frames: u32, data_dir: *const c_char, factory_dir: *const c_char, port: u16) -> *mut OpenPedal {
     let result = catch_unwind(AssertUnwindSafe(|| -> Result<Box<OpenPedal>> {
         if data_dir.is_null() {
             bail!("data_dir is NULL");
@@ -140,7 +121,8 @@ pub unsafe extern "C" fn openpedal_start(sample_rate: c_float, max_frames: u32, 
             bail!("invalid sample_rate ({sample_rate}) or max_frames ({max_frames})");
         }
         let dir = CStr::from_ptr(data_dir).to_str().context("data_dir is not valid UTF-8")?;
-        start(sample_rate, Path::new(dir), port)
+        let factory = if factory_dir.is_null() { None } else { Some(CStr::from_ptr(factory_dir).to_str().context("factory_dir is not valid UTF-8")?) };
+        start(sample_rate, Path::new(dir), factory.map(Path::new), port)
     }));
     match result {
         Ok(Ok(handle)) => Box::into_raw(handle),
@@ -153,6 +135,39 @@ pub unsafe extern "C" fn openpedal_start(sample_rate: c_float, max_frames: u32, 
             std::ptr::null_mut()
         }
     }
+}
+
+/// Builds the engine with the preset found in `data_dir/presets` and starts the UI server on
+/// `127.0.0.1:port` (0 = pick a free port, see `openpedal_port`). `data_dir` holds `presets/`
+/// and `pedals/` (created if missing). `max_frames` is the largest buffer the host expects; it
+/// is only a hint, `openpedal_process` accepts any size. No factory content is seeded: see
+/// `openpedal_start2`.
+///
+/// Returns NULL on failure; see `openpedal_last_error`.
+///
+/// # Safety
+/// `data_dir` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn openpedal_start(sample_rate: c_float, max_frames: u32, data_dir: *const c_char, port: u16) -> *mut OpenPedal {
+    start_from_c(sample_rate, max_frames, data_dir, std::ptr::null(), port)
+}
+
+/// Like `openpedal_start`, and first seeds `data_dir` from `factory_dir` (which holds `presets/`
+/// and `pedals/`, e.g. the app bundle's resources): each factory file is copied once, a factory
+/// preset the user deleted does not come back and user edits are never overwritten (the copied
+/// names are remembered in `data_dir/.seeded.toml`). `factory_dir` may be NULL (no seeding).
+///
+/// # Safety
+/// `data_dir` must be a valid NUL-terminated UTF-8 string; `factory_dir` NULL or the same.
+#[no_mangle]
+pub unsafe extern "C" fn openpedal_start2(sample_rate: c_float, max_frames: u32, data_dir: *const c_char, factory_dir: *const c_char, port: u16) -> *mut OpenPedal {
+    start_from_c(sample_rate, max_frames, data_dir, factory_dir, port)
+}
+
+/// The core's version (e.g. "0.1.0") as a static NUL-terminated string: never NULL, never freed.
+#[no_mangle]
+pub extern "C" fn openpedal_version() -> *const c_char {
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
 }
 
 /// The port the UI server listens on (127.0.0.1), or 0 if `handle` is NULL.
@@ -209,14 +224,8 @@ pub extern "C" fn openpedal_last_error() -> *const c_char {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::{Read, Write};
-
-    fn copy_dir(from: &Path, to: &Path) {
-        fs::create_dir_all(to).unwrap();
-        for e in fs::read_dir(from).unwrap().flatten() {
-            fs::copy(e.path(), to.join(e.file_name())).unwrap();
-        }
-    }
 
     fn http_get(port: u16, path: &str) -> String {
         let mut s = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
@@ -230,13 +239,13 @@ mod tests {
     fn start_process_stop() {
         let dir = std::env::temp_dir().join(format!("openpedal-ffi-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        copy_dir(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../content/presets")), &dir.join("presets"));
-        copy_dir(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../content/pedals")), &dir.join("pedals"));
         let c_dir = CString::new(dir.to_str().unwrap()).unwrap();
+        let c_factory = CString::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../content")).unwrap();
 
         unsafe {
-            let h = openpedal_start(48000.0, 512, c_dir.as_ptr(), 0);
+            let h = openpedal_start2(48000.0, 512, c_dir.as_ptr(), c_factory.as_ptr(), 0);
             assert!(!h.is_null(), "start failed: {:?}", CStr::from_ptr(openpedal_last_error()));
+            assert!(dir.join("presets/clean.toml").exists() && dir.join(".seeded.toml").exists(), "factory content was not seeded");
             let port = openpedal_port(h);
             assert_ne!(port, 0);
             assert!(http_get(port, "/").starts_with("HTTP/1.1 200"), "the UI server does not answer");
@@ -264,9 +273,16 @@ mod tests {
     }
 
     #[test]
+    fn version_is_the_crate_version() {
+        let v = unsafe { CStr::from_ptr(openpedal_version()) };
+        assert_eq!(v.to_str().unwrap(), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
     fn start_reports_errors() {
         unsafe {
             assert!(openpedal_start(48000.0, 512, std::ptr::null(), 0).is_null());
+            assert!(openpedal_start2(48000.0, 512, std::ptr::null(), std::ptr::null(), 0).is_null());
             assert!(!openpedal_last_error().is_null());
             let dir = CString::new("/tmp").unwrap();
             assert!(openpedal_start(0.0, 512, dir.as_ptr(), 0).is_null());

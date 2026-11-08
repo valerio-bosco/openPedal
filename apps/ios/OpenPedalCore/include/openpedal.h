@@ -24,6 +24,15 @@ typedef struct OpenPedal OpenPedal;
  * connections. Call it once per process. */
 OpenPedal *openpedal_start(float sample_rate, uint32_t max_frames, const char *data_dir, uint16_t port);
 
+/* Like openpedal_start, and first seeds `data_dir` from `factory_dir` (holds presets/ and
+ * pedals/, e.g. the app bundle's resources): each factory file is copied once; a factory
+ * preset the user deleted does not come back and user edits are never overwritten (copied
+ * names are remembered in `data_dir`/.seeded.toml). `factory_dir` may be NULL (no seeding). */
+OpenPedal *openpedal_start2(float sample_rate, uint32_t max_frames, const char *data_dir, const char *factory_dir, uint16_t port);
+
+/* The core's version (e.g. "0.1.0"): static, never NULL, never freed. */
+const char *openpedal_version(void);
+
 /* The port the UI server listens on (127.0.0.1), or 0 if handle is NULL. */
 uint16_t openpedal_port(const OpenPedal *handle);
 

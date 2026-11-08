@@ -812,6 +812,7 @@ dependencies = [
  "openpedal-dsp",
  "openpedal-engine",
  "openpedal-graph",
+ "openpedal-library",
  "openpedal-protocol",
  "openpedal-server",
  "rtrb",
@@ -849,6 +850,7 @@ dependencies = [
  "anyhow",
  "openpedal-engine",
  "openpedal-graph",
+ "openpedal-library",
  "openpedal-server",
  "toml",
 ]
@@ -870,6 +872,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "openpedal-graph",
+ "serde",
  "toml",
 ]
 

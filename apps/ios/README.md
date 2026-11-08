@@ -15,12 +15,12 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
  └───────────────────────────────┘               └─────────────────────────────┘
 ```
 
-- `openpedal_start(sample_rate, max_frames, data_dir, port)` builds the engine, loads `data_dir/presets/clean.toml` (else the first preset, else an empty graph), starts the UI server in background threads on loopback and returns when it accepts connections. `port = 0` picks a free port; read it with `openpedal_port`.
+- `openpedal_start2(sample_rate, max_frames, data_dir, factory_dir, port)` (and `openpedal_start`, the same without seeding) builds the engine, loads `data_dir/presets/clean.toml` (else the first preset, else an empty graph), starts the UI server in background threads on loopback and returns when it accepts connections. `port = 0` picks a free port; read it with `openpedal_port`.
 - `openpedal_process(handle, input, out_left, out_right, frames)` is called by the audio render callback. It only runs the real-time `Runner`: no allocation, locks or logging. Graph/parameter changes from the UI arrive through lock-free queues; a Rust thread frees retired plans.
-- Call `openpedal_start` once per process: `openpedal_stop` stops the audio, but the UI server has no shutdown hook yet and lives until the app exits.
+- Call `openpedal_start2` once per process: `openpedal_stop` stops the audio, but the UI server has no shutdown hook yet and lives until the app exits.
 - `AudioHost.swift` assumes the input sink node and the output source node run in the same hardware cycle (both are in one `AVAudioEngine` on the same device), so the sink writes the guitar channel into a preallocated buffer and the source node reads it. If you hear glitches or one-buffer dropouts, replace that buffer with a small SPSC ring in Rust.
 - Guitar input channel: index 1 (Scarlett Solo Inst jack), see `guitarChannel` in `AudioHost.swift`.
-- Data dir: `Application Support/OpenPedal/{presets,pedals}`. On first launch the app copies the bundled `presets/` and `pedals/` (from `content/` in the repo, synced into `Sources/OpenPedalApp/Resources` by `scripts/build-core.sh`) there, only for files that do not exist yet, so edits are never overwritten.
+- Data dir: `Application Support/OpenPedal/{presets,pedals}`. The Rust core (`openpedal-library`) seeds it from `factory_dir`, the bundle's resources (`content/` in the repo, synced into `Sources/OpenPedalApp/Resources` by `scripts/build-core.sh`): each factory file is copied once and remembered in `.seeded.toml`, so a factory preset the user deleted stays deleted and edits are never overwritten. Apps that seeded in Swift before keep their record: `AudioHost` writes the old `seeded.*` UserDefaults keys into `.seeded.toml` once, then drops them. `openpedal_version()` returns the core version.
 
 ## Layout
 

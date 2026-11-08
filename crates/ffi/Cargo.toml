@@ -11,6 +11,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 openpedal-graph.workspace = true
+openpedal-library.workspace = true
 openpedal-engine.workspace = true
 openpedal-server.workspace = true
 anyhow.workspace = true

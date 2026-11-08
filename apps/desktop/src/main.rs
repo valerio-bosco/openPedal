@@ -13,6 +13,7 @@ use openpedal_engine::audio::jack;
 use openpedal_dsp::lin_to_db;
 use openpedal_engine::engine::Engine;
 use openpedal_graph::model::GraphFile;
+use openpedal_library::Library;
 use openpedal_graph::{self as graph, NodeMap, Plan};
 use openpedal_dsp::wav;
 use openpedal_engine::live;
@@ -62,13 +63,20 @@ fn load_config() -> Result<Config> {
     }
 }
 
+/// The content folder (`presets/` and `pedals/`).
+const CONTENT_DIR: &str = "content";
+
+fn library() -> Library {
+    Library::new(CONTENT_DIR)
+}
+
 /// Folder of composite pedals.
 const PEDALS_DIR: &str = "content/pedals";
 
 /// Reads a preset (v1 or v2) and the pedals, and compiles the graph.
 fn load_plan(path: &Path, sr: f32) -> Result<(GraphFile, Plan, NodeMap)> {
     let graph = graph::load::read_graph(path)?;
-    let pedals = graph::load::read_pedals(Path::new(PEDALS_DIR))?;
+    let pedals = library().load_pedals()?;
     let (plan, map) = graph::compile(&graph, &pedals, sr).with_context(|| format!("preset {}", path.display()))?;
     Ok((graph, plan, map))
 }
@@ -157,8 +165,8 @@ fn run_ui(args: Vec<String>) -> Result<()> {
             _ => preset_path = PathBuf::from(arg),
         }
     }
-    let presets_dir = PathBuf::from("content/presets");
-    let pedals_dir = PathBuf::from("content/pedals");
+    let library = library();
+    let pedals_dir = library.pedals_dir();
     let graph = match graph::load::read_graph(&preset_path) {
         Ok(mut g) => {
             // as in load_preset: the name is the file's name, so the interface recognizes it
@@ -174,7 +182,7 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     };
 
     let engine: std::sync::Arc<dyn server::EngineHandle> = if audio {
-        match start_live(&config, graph.clone(), &pedals_dir) {
+        match start_live(&config, graph.clone(), &library) {
             Ok(live) => live,
             Err(e) => {
                 eprintln!("audio unavailable ({e:#}): editor only, no sound");
@@ -184,23 +192,23 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     } else {
         std::sync::Arc::new(server::mock::MockEngine::new(&pedals_dir, graph))
     };
-    server::run(engine, server::ServerOptions { port, open_browser, lan, presets_dir, pedals_dir })
+    server::run(engine, server::ServerOptions { port, open_browser, lan, library })
 }
 
 /// Starts the real audio engine with the initial graph.
-fn start_live(config: &Config, graph: GraphFile, pedals_dir: &Path) -> Result<std::sync::Arc<live::LiveEngine>> {
+fn start_live(config: &Config, graph: GraphFile, library: &Library) -> Result<std::sync::Arc<live::LiveEngine>> {
     let backend = open_backend(config)?;
     let sr = backend.sample_rate();
-    let pedals = graph::load::read_pedals(pedals_dir)?;
+    let pedals = library.load_pedals()?;
     let (plan, map) = graph::compile(&graph, &pedals, sr)?;
     let engine = Engine::start(backend, plan, None)?;
     eprintln!("  {} Hz, preset \"{}\"", engine.sample_rate, graph.name);
-    Ok(live::LiveEngine::new(engine, map, graph, pedals, pedals_dir.to_path_buf()))
+    Ok(live::LiveEngine::new(engine, map, graph, pedals, library.pedals_dir()))
 }
 
 /// The catalog in JSON, as the interface receives it.
 fn print_catalog() -> Result<()> {
-    let pedals = graph::load::read_pedals(Path::new(PEDALS_DIR))?;
+    let pedals = library().load_pedals()?;
     println!("{}", serde_json::to_string_pretty(&graph::model::catalog_items(&pedals))?);
     Ok(())
 }
@@ -210,7 +218,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     use openpedal_protocol::{AudioInfo, ClientMsg, MetersMsg, ServerMsg, StateMsg};
 
     fs::create_dir_all(dir)?;
-    let pedals = graph::load::read_pedals(Path::new(PEDALS_DIR))?;
+    let pedals = library().load_pedals()?;
     let catalog = graph::model::catalog_items(&pedals);
     let graph = graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml"))?;
     let write = |name: &str, json: String| -> Result<()> {

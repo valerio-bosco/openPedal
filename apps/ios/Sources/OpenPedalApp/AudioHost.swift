@@ -63,7 +63,12 @@ final class AudioHost: ObservableObject {
 
             let sampleRate = session.sampleRate
             let dataDir = try Self.prepareDataDir()
-            guard let handle = dataDir.withCString({ openpedal_start(Float(sampleRate), Self.maxFrames, $0, 0) }) else {
+            let factory = Self.factoryDir()
+            let started: OpaquePointer? = dataDir.withCString { data in
+                if let factory { return factory.withCString { openpedal_start2(Float(sampleRate), Self.maxFrames, data, $0, 0) } }
+                return openpedal_start2(Float(sampleRate), Self.maxFrames, data, nil, 0)
+            }
+            guard let handle = started else {
                 let reason = openpedal_last_error().map { String(cString: $0) } ?? "unknown error"
                 fail("Core failed to start: \(reason)")
                 return
@@ -130,30 +135,46 @@ final class AudioHost: ObservableObject {
         engine.connect(source, to: engine.mainMixerNode, format: outFormat)
     }
 
-    /// `Application Support/OpenPedal` with `presets/` and `pedals/`. The bundled ones are
-    /// copied there the first time (and only the files that are missing, so user edits stay).
+    /// `Application Support/OpenPedal`: the core's data dir (`presets/`, `pedals/`). The core
+    /// seeds it from the bundled factory content; see `openpedal_start2`.
     private static func prepareDataDir() throws -> String {
         let fm = FileManager.default
         let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("OpenPedal", isDirectory: true)
-        for name in ["presets", "pedals"] {
-            let dest = base.appendingPathComponent(name, isDirectory: true)
-            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-            guard let bundled = Bundle.module.url(forResource: name, withExtension: nil),
-                  let files = try? fm.contentsOfDirectory(atPath: bundled.path) else { continue }
-            // Each bundled file is seeded once: remember it, so a factory preset the user
-            // deleted does not come back, and user edits are never overwritten.
-            let key = "seeded.\(name)"
-            var seeded = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
-            for file in files where !seeded.contains(file) {
-                let target = dest.appendingPathComponent(file)
-                if !fm.fileExists(atPath: target.path) {
-                    try fm.copyItem(at: bundled.appendingPathComponent(file), to: target)
-                }
-                seeded.insert(file)
-            }
-            UserDefaults.standard.set(Array(seeded), forKey: key)
-        }
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        migrateSeededRecord(into: base)
         return base.path
+    }
+
+    /// The bundle's resource folder, which holds the factory `presets/` and `pedals/`.
+    private static func factoryDir() -> String? {
+        Bundle.module.url(forResource: "presets", withExtension: nil)?.deletingLastPathComponent().path
+    }
+
+    /// Older versions seeded in Swift and remembered the copied files in UserDefaults. Hand
+    /// that record to the core's `.seeded.toml` once (so factory presets the user deleted stay
+    /// deleted), then stop using the keys.
+    private static func migrateSeededRecord(into base: URL) {
+        let defaults = UserDefaults.standard
+        let kinds = ["presets", "pedals"]
+        let state = base.appendingPathComponent(".seeded.toml")
+        guard !FileManager.default.fileExists(atPath: state.path) else {
+            kinds.forEach { defaults.removeObject(forKey: "seeded.\($0)") }
+            return
+        }
+        let lists = kinds.map { (kind: $0, names: defaults.stringArray(forKey: "seeded.\($0)")) }
+        guard lists.contains(where: { $0.names != nil }) else { return }
+        var text = ""
+        for (kind, names) in lists {
+            // File names never contain quotes or backslashes in practice; skip any that do.
+            let items = (names ?? []).filter { !$0.contains("\"") && !$0.contains("\\") }.map { "\"\($0)\"" }
+            text += "\(kind) = [\(items.joined(separator: ", "))]\n"
+        }
+        do {
+            try text.write(to: state, atomically: true, encoding: .utf8)
+            kinds.forEach { defaults.removeObject(forKey: "seeded.\($0)") }
+        } catch {
+            // Keep the keys: the next launch tries again.
+        }
     }
 }
