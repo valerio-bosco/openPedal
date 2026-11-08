@@ -15,6 +15,11 @@
     "value": 3.0
   },
   {
+    "type": "set_bypass",
+    "node": "dist",
+    "bypass": true
+  },
+  {
     "type": "set_graph",
     "graph": {
       "name": "Crunch (graph)",

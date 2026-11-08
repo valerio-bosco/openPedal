@@ -217,6 +217,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
 
     write("catalog.json", serde_json::to_string_pretty(&catalog)?)?;
     let state = ServerMsg::State(StateMsg {
+        protocol: server::protocol::PROTOCOL_VERSION,
         catalog,
         graph: graph.clone(),
         presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-graph".into()],
@@ -234,6 +235,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::Hello,
         ClientMsg::SetParam { node: "dist".into(), param: "gain_db".into(), value: 18.0 },
         ClientMsg::SetParam { node: "dist".into(), param: "shape".into(), value: 3.0 },
+        ClientMsg::SetBypass { node: "dist".into(), bypass: true },
         ClientMsg::SetGraph { graph: graph.clone() },
         ClientMsg::LoadPreset { name: "clean".into() },
         ClientMsg::SavePreset { name: "my-sound".into(), graph },

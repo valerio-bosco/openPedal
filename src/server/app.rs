@@ -14,7 +14,7 @@ use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 
-use super::protocol::{ClientMsg, ServerMsg, StateMsg};
+use super::protocol::{ClientMsg, ServerMsg, StateMsg, PROTOCOL_VERSION};
 use super::{assets, files, EngineHandle};
 use crate::graph::load::read_graph;
 
@@ -147,6 +147,7 @@ fn error_from(e: anyhow::Error) -> ServerMsg {
 
 pub fn state_msg(state: &AppState) -> ServerMsg {
     ServerMsg::State(StateMsg {
+        protocol: PROTOCOL_VERSION,
         catalog: state.engine.catalog(),
         graph: state.engine.graph(),
         presets: files::list(&state.presets_dir),
@@ -161,6 +162,10 @@ pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
         ClientMsg::Hello => Ok(vec![state_msg(state)]),
         ClientMsg::SetParam { node, param, value } => {
             state.engine.set_param(&node, &param, value)?;
+            Ok(vec![])
+        }
+        ClientMsg::SetBypass { node, bypass } => {
+            state.engine.set_bypass(&node, bypass)?;
             Ok(vec![])
         }
         ClientMsg::SetGraph { graph } => {
@@ -239,6 +244,8 @@ mod tests {
         let json = serde_json::to_value(&replies[0]).unwrap();
         let fixture: serde_json::Value = serde_json::from_str(include_str!("../../ui/src/fixtures/state.json")).unwrap();
         assert_eq!(json["type"], "state");
+        assert_eq!(json["protocol"], PROTOCOL_VERSION);
+        assert_eq!(fixture["protocol"], PROTOCOL_VERSION);
         // Same top-level keys, and the real catalog.
         let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(keys(&json), keys(&fixture));
@@ -250,6 +257,32 @@ mod tests {
     }
 
     #[test]
+    fn set_bypass_updates_the_graph_and_rejects_input_output() {
+        let (state, engine, root) = app("bypass");
+        let mut g = default_graph();
+        g.nodes[1].kind = "drive".into();
+        g.nodes[1].id = "dist".into();
+        g.nodes.push(crate::graph::model::NodeSpec { id: "out".into(), kind: "output".into(), pos: [440.0, 0.0], params: Default::default(), bypass: false });
+        assert!(handle_message(&state, ClientMsg::SetGraph { graph: g }).is_empty());
+        assert!(handle_message(&state, ClientMsg::SetBypass { node: "dist".into(), bypass: true }).is_empty());
+        assert!(engine.graph().nodes.iter().find(|n| n.id == "dist").unwrap().bypass);
+        let json = serde_json::to_value(engine.graph()).unwrap();
+        assert_eq!(json["node"][1]["bypass"], true);
+        assert!(handle_message(&state, ClientMsg::SetBypass { node: "dist".into(), bypass: false }).is_empty());
+        assert!(!engine.graph().nodes.iter().find(|n| n.id == "dist").unwrap().bypass);
+        for node in ["in", "out"] {
+            let r = handle_message(&state, ClientMsg::SetBypass { node: node.into(), bypass: true });
+            assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("cannot be bypassed")), "{node}: {r:?}");
+        }
+        let r = handle_message(&state, ClientMsg::SetBypass { node: "nope".into(), bypass: true });
+        assert!(matches!(&r[0], ServerMsg::Error { .. }));
+        // wire format
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"set_bypass","node":"dist","bypass":true}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::SetBypass { bypass: true, .. }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn set_param_reaches_the_engine() {
         let (state, engine, root) = app("param");
         let mut g = default_graph();
@@ -257,7 +290,7 @@ mod tests {
         g.nodes[1].id = "dist".into();
         g.edges[0].to = "dist".into();
         // The mock graph needs an output: we add one.
-        g.nodes.push(crate::graph::model::NodeSpec { id: "out".into(), kind: "output".into(), pos: [440.0, 0.0], params: Default::default() });
+        g.nodes.push(crate::graph::model::NodeSpec { id: "out".into(), kind: "output".into(), pos: [440.0, 0.0], params: Default::default(), bypass: false });
         g.edges.push(crate::graph::model::EdgeSpec { from: "dist".into(), to: "out".into() });
         assert!(handle_message(&state, ClientMsg::SetGraph { graph: g }).is_empty());
 

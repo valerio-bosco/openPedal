@@ -25,7 +25,7 @@ pub struct MockEngine {
 
 /// Minimal graph: the guitar wired directly to the output.
 pub fn default_graph() -> GraphFile {
-    let node = |id: &str, kind: &str, x: f32| NodeSpec { id: id.into(), kind: kind.into(), pos: [x, 0.0], params: Default::default() };
+    let node = |id: &str, kind: &str, x: f32| NodeSpec { id: id.into(), kind: kind.into(), pos: [x, 0.0], params: Default::default(), bypass: false };
     GraphFile {
         name: "new".into(),
         version: 2,
@@ -72,6 +72,9 @@ impl EngineHandle for MockEngine {
         if count(INPUT) != 1 || count(OUTPUT) != 1 {
             bail!("the graph must have exactly one Guitar node and one Amp node");
         }
+        if let Some(n) = graph.nodes.iter().find(|n| n.bypass && (n.kind == INPUT || n.kind == OUTPUT)) {
+            bail!("node \"{}\" ({}) cannot be bypassed", n.id, n.kind);
+        }
         for e in &graph.edges {
             for id in [&e.from, &e.to] {
                 if !graph.nodes.iter().any(|n| &n.id == id) {
@@ -98,6 +101,16 @@ impl EngineHandle for MockEngine {
             _ => Value::Number(value),
         };
         spec.params.set(param, stored);
+        Ok(())
+    }
+
+    fn set_bypass(&self, node: &str, bypass: bool) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let spec = inner.graph.nodes.iter_mut().find(|n| n.id == node).with_context(|| format!("node \"{node}\" does not exist"))?;
+        if spec.kind == INPUT || spec.kind == OUTPUT {
+            bail!("node \"{node}\" ({}) cannot be bypassed", spec.kind);
+        }
+        spec.bypass = bypass;
         Ok(())
     }
 

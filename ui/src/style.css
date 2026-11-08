@@ -278,6 +278,18 @@ input:not([type]) {
   box-shadow: 0 0 7px var(--cat);
   flex: none;
 }
+.led-toggle {
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+.pedal.bypassed {
+  opacity: 0.5;
+}
+.pedal.bypassed .led {
+  background: #555a66;
+  box-shadow: none;
+}
 .pedal {
   min-width: 140px;
   background: linear-gradient(180deg, #2a2d36 0%, #1f2128 100%);

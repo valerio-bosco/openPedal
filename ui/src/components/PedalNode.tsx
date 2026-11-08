@@ -7,12 +7,13 @@ import { Knob } from "./Knob";
 export interface EditorCtx {
   catalog: Map<string, CatalogItem>;
   setParam: (nodeId: string, paramId: string, value: ParamValue) => void;
+  setBypass: (nodeId: string, bypass: boolean) => void;
   removeNode: (nodeId: string) => void;
 }
-export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {}, removeNode: () => {} });
+export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {}, setBypass: () => {}, removeNode: () => {} });
 
 function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
-  const { catalog, setParam, removeNode } = useContext(EditorContext);
+  const { catalog, setParam, setBypass, removeNode } = useContext(EditorContext);
   const item = catalog.get(data.kind);
   const color = CATEGORY_COLOR[item?.category ?? "utility"];
   const hasIn = data.kind !== INPUT && data.kind !== PEDAL_IN;
@@ -23,7 +24,7 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
 
   return (
     <div
-      className={`pedal${selected ? " selected" : ""}${data.error ? " has-error" : ""}${special ? " special" : ""}${
+      className={`pedal${selected ? " selected" : ""}${data.error ? " has-error" : ""}${special ? " special" : ""}${data.bypass ? " bypassed" : ""}${
         item?.composite ? " composite" : ""
       }`}
       style={{ ["--cat" as string]: color }}
@@ -31,7 +32,16 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
       {hasIn && <Handle type="target" position={Position.Left} />}
       {hasOut && <Handle type="source" position={Position.Right} />}
       <div className="pedal-head">
-        <span className="led" />
+        {special ? (
+          <span className="led" />
+        ) : (
+          <button
+            className="nodrag nopan led led-toggle"
+            title={data.bypass ? "Bypassed: click to enable" : "Active: click to bypass"}
+            aria-pressed={!data.bypass}
+            onClick={() => setBypass(id, !data.bypass)}
+          />
+        )}
         <span className="pedal-title">{item?.label ?? data.kind}</span>
         {item?.composite && <span className="pedal-badge" title="Composite pedal: double-click to edit it">composite</span>}
         {!special && (

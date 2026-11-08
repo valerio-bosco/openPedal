@@ -152,6 +152,21 @@ impl EngineHandle for LiveEngine {
         Ok(())
     }
 
+    fn set_bypass(&self, node: &str, bypass: bool) -> Result<()> {
+        let mut inner = self.lock();
+        if !inner.graph.nodes.iter().any(|n| n.id == node) {
+            return Err(anyhow!("node '{node}' does not exist"));
+        }
+        // Ok(None): the node is not connected; the flag is only saved in the graph.
+        if let Some(step) = inner.map.resolve_bypass(node)? {
+            inner.engine.set_bypass(step, bypass)?;
+        }
+        if let Some(spec) = inner.graph.nodes.iter_mut().find(|n| n.id == node) {
+            spec.bypass = bypass;
+        }
+        Ok(())
+    }
+
     fn reload_pedals(&self) -> Result<()> {
         let pedals = graph::load::read_pedals(&self.pedals_dir)?;
         let mut inner = self.lock();

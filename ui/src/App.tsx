@@ -20,6 +20,7 @@ import {
   PEDAL_IN,
   PEDAL_OUT,
   PEDAL_PREFIX,
+  PROTOCOL_VERSION,
   type AudioInfo,
   type CatalogItem,
   type Category,
@@ -127,6 +128,10 @@ function Editor() {
       if (m.type === "error") {
         toast(m.message);
         if (m.node) setNodes((ns) => ns.map((n) => (n.id === m.node ? { ...n, data: { ...n.data, error: m.message } } : n)));
+        return;
+      }
+      if (m.protocol > PROTOCOL_VERSION) {
+        toast(`This server speaks protocol ${m.protocol}, newer than this interface (${PROTOCOL_VERSION}). Update the interface.`);
         return;
       }
       setCatalogItems(m.catalog);
@@ -276,6 +281,7 @@ function Editor() {
         const before = prev.get(n.id);
         const item = catalog.get(n.data.kind);
         if (!before || !item) continue;
+        if (!!n.data.bypass !== !!before.data.bypass) conn.current?.send({ type: "set_bypass", node: n.id, bypass: !!n.data.bypass });
         for (const p of item.params) {
           if (p.kind === "file") continue;
           const now = n.data.params[p.id];
@@ -343,8 +349,21 @@ function Editor() {
     },
     [flow, catalog, setNodes],
   );
+  const setBypass = useCallback(
+    (nodeId: string, bypass: boolean) => {
+      setNodes((ns) =>
+        ns.map((n) => {
+          if (n.id !== nodeId) return n;
+          const { bypass: _old, ...data } = n.data;
+          return { ...n, data: bypass ? { ...data, bypass: true } : data };
+        }),
+      );
+      if (!editingRef.current) conn.current?.send({ type: "set_bypass", node: nodeId, bypass });
+    },
+    [setNodes],
+  );
   const removeNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
-  const ctx = useMemo(() => ({ catalog, setParam, removeNode }), [catalog, setParam, removeNode]);
+  const ctx = useMemo(() => ({ catalog, setParam, setBypass, removeNode }), [catalog, setParam, setBypass, removeNode]);
 
   // --- cables ---
   const isValidConnection = useCallback(
