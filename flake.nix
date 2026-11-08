@@ -2,20 +2,28 @@
   description = "openPedal - real-time guitar effects";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.rust-overlay = {
+    url = "github:oxalica/rust-overlay";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, rust-overlay }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ rust-overlay.overlays.default ];
+      };
+      # Stable Rust with the iPad targets' std (cross-compiled staticlib, see ios/README.md).
+      rust = pkgs.rust-bin.stable.latest.default.override {
+        extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
+        targets = [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
+      };
     in
     {
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
-          cargo
-          rustc
-          clippy
-          rustfmt
-          rust-analyzer
+          rust # cargo, rustc, clippy, rustfmt, rust-analyzer + iOS std
           pkg-config
           qpwgraph # to see the audio connections
           nodejs # only needed to develop the UI (ui/); not needed to run openPedal
