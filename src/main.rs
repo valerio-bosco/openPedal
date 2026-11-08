@@ -12,8 +12,10 @@ use std::{fs, thread};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use dsp::{lin_to_db, Chain, Preset};
+use dsp::lin_to_db;
 use engine::Engine;
+use graph::model::GraphFile;
+use graph::{NodeMap, Plan};
 
 const USAGE: &str = "\
 openPedal - effetti per chitarra in tempo reale
@@ -57,9 +59,26 @@ fn load_config() -> Result<Config> {
     }
 }
 
-fn load_preset(path: &Path) -> Result<Preset> {
-    let text = fs::read_to_string(path).with_context(|| format!("impossibile leggere {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("errore nel preset {}", path.display()))
+/// Cartella dei pedali composti.
+const PEDALS_DIR: &str = "pedals";
+
+/// Legge un preset (v1 o v2) e i pedali, e compila il grafo.
+fn load_plan(path: &Path, sr: f32) -> Result<(GraphFile, Plan, NodeMap)> {
+    let graph = graph::load::read_graph(path)?;
+    let pedals = graph::load::read_pedals(Path::new(PEDALS_DIR))?;
+    let (plan, map) = graph::compile(&graph, &pedals, sr).with_context(|| format!("preset {}", path.display()))?;
+    Ok((graph, plan, map))
+}
+
+/// Ultima modifica tra il preset e i pedali: serve a ricaricare quando cambia uno dei due.
+fn watch_stamp(preset: &Path) -> (Option<SystemTime>, Option<SystemTime>) {
+    let pedals = fs::read_dir(PEDALS_DIR)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| modified(&e.path()))
+        .max();
+    (modified(preset), pedals)
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -174,16 +193,10 @@ fn list_ports() -> Result<()> {
 fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
     let mut ok = true;
     for path in &paths {
-        match load_preset(path) {
-            Ok(p) => match Chain::build(&p, 48000.0) {
-                Ok(_) => println!("ok  {} \"{}\" ({} blocchi)", path.display(), p.name, p.blocks.len()),
-                Err(e) => {
-                    println!("ERR {}: {e:#}", path.display());
-                    ok = false;
-                }
-            },
+        match load_plan(path, 48000.0) {
+            Ok((g, _, _)) => println!("ok  {} \"{}\" ({} nodi)", path.display(), g.name, g.nodes.len()),
             Err(e) => {
-                println!("ERR {e:#}");
+                println!("ERR {}: {e:#}", path.display());
                 ok = false;
             }
         }
@@ -194,14 +207,13 @@ fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
 
 /// Elabora il primo canale di un WAV e salva pulito (sinistra) ed elaborato (destra).
 fn render(preset_path: &Path, input: &Path, output: &Path) -> Result<()> {
-    let preset = load_preset(preset_path)?;
     let data = wav::read(input)?;
+    let (graph, mut plan, _) = load_plan(preset_path, data.sample_rate as f32)?;
     let dry = &data.channels[0];
     let mut wet = dry.clone();
-    let mut chain = Chain::build(&preset, data.sample_rate as f32)?;
     // A blocchi da 64 come dal vivo, così il risultato è identico.
     for block in wet.chunks_mut(64) {
-        chain.process(block);
+        plan.process(block);
         for s in block.iter_mut() {
             *s = if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 };
         }
@@ -212,7 +224,7 @@ fn render(preset_path: &Path, input: &Path, output: &Path) -> Result<()> {
         writer.write(*w)?;
     }
     writer.finish()?;
-    println!("\"{}\" -> {}", preset.name, output.display());
+    println!("\"{}\" -> {}", graph.name, output.display());
     Ok(())
 }
 
@@ -243,12 +255,11 @@ fn spawn_recorder(path: PathBuf, seconds: f32, sample_rate: u32, mut rx: rtrb::C
 }
 
 fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> Result<()> {
-    let preset = load_preset(preset_path)?;
     // PipeWire legge questa variabile quando il client si collega.
     std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
     let client = engine::open_client("openPedal")?;
     let sr = client.sample_rate() as f32;
-    let chain = Chain::build(&preset, sr)?;
+    let (graph, plan, _) = load_plan(preset_path, sr)?;
 
     eprintln!("openPedal");
     let recorder = match record {
@@ -261,11 +272,11 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
         }
         None => None,
     };
-    let mut engine = Engine::start(client, chain, &config.input, &config.output, recorder)?;
+    let mut engine = Engine::start(client, plan, &config.input, &config.output, recorder)?;
     eprintln!("  {} Hz", engine.sample_rate);
-    eprintln!("  preset: \"{}\" ({} blocchi) - salva il file per ricaricarlo, Ctrl+C per uscire\n", preset.name, preset.blocks.len());
+    eprintln!("  preset: \"{}\" ({} nodi) - salva il file per ricaricarlo, Ctrl+C per uscire\n", graph.name, graph.nodes.len());
 
-    let mut last_mtime = modified(preset_path);
+    let mut last_stamp = watch_stamp(preset_path);
     let mut tick = 0u32;
     loop {
         thread::sleep(Duration::from_millis(100));
@@ -273,15 +284,14 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
 
         tick += 1;
         if tick.is_multiple_of(3) {
-            let mtime = modified(preset_path);
-            if mtime != last_mtime {
-                last_mtime = mtime;
-                let built = load_preset(preset_path).and_then(|p| Ok((Chain::build(&p, engine.sample_rate)?, p)));
-                match built {
-                    Ok((chain, p)) => {
-                        engine.swap_chain(chain);
-                        eprintln!("\r\x1b[2Kricaricato \"{}\" ({} blocchi)", p.name, p.blocks.len());
-                    }
+            let stamp = watch_stamp(preset_path);
+            if stamp != last_stamp {
+                last_stamp = stamp;
+                match load_plan(preset_path, engine.sample_rate) {
+                    Ok((g, plan, _)) => match engine.swap_plan(plan) {
+                        Ok(()) => eprintln!("\r\x1b[2Kricaricato \"{}\" ({} nodi)", g.name, g.nodes.len()),
+                        Err(e) => eprintln!("\r\x1b[2K{e:#} - resta attivo il preset precedente"),
+                    },
                     // Un errore di battitura non deve interrompere il suono: resta il preset vecchio.
                     Err(e) => eprintln!("\r\x1b[2K{e:#} - resta attivo il preset precedente"),
                 }
