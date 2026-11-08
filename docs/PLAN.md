@@ -347,7 +347,7 @@ Architecture map and findings: artifact "openPedal Architecture Map". Decisions 
    desktop binary + web UI move to `apps/desktop`, the iPad app to `apps/ios`; presets/pedals/IRs to `content/`.
    Dependencies go one way: dsp ← graph ← engine; protocol ← server; library ← server; ffi → server + engine.
 2. **One protocol source.** The Rust types in `crates/protocol` are the source; TypeScript and Swift types are
-   generated (typeshare). The JSON fixtures stay as contract tests.
+   generated (schemars JSON Schema + an in-repo generator, `cargo run -p openpedal-protocol --bin gen-protocol`; typeshare cannot express the internally tagged enums and flatten used on the wire). The JSON fixtures stay as contract tests.
 3. **File compatibility.** Saved presets and pedals stay readable forever; new formats get an automatic migration
    (as v1 → v2 today). Files are always written in the latest format.
 4. **Branches.** `master` always green; short-lived `feat/*` / `fix/*` branches deleted after merge; tags
