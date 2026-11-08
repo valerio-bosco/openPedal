@@ -1,19 +1,22 @@
-//! Audio engine: a JACK client (served by PipeWire on Linux) with one mono input
-//! and two outputs. The realtime callback runs the current plan (compiled graph).
+//! Audio engine: one mono input and two outputs, independent of the audio API.
+//! The realtime callback (`AudioCore::process`) runs the current plan (compiled graph);
+//! who calls it is an `AudioBackend` (JACK on Linux, see `crate::audio`) or a host
+//! that owns the audio callback (the C ABI in `crate::ffi`).
 //! New plans and parameter changes arrive through a single lock-free queue,
 //! so in order; retired plans are sent back to be deallocated outside the audio
 //! thread.
 //!
 //! A new plan comes in with a 20 ms crossfade: both plans run during that time.
 
+use std::any::Any;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
-use jack::{AudioIn, AudioOut, Client, ClientOptions, Control, Port, PortFlags, ProcessScope};
+use anyhow::Result;
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::audio::AudioBackend;
 use crate::graph::exec::MAX_BLOCK;
 use crate::graph::{ParamChange, Plan};
 
@@ -43,7 +46,7 @@ impl Meters {
     }
 }
 
-fn store_max(cell: &AtomicU32, v: f32) {
+pub(crate) fn store_max(cell: &AtomicU32, v: f32) {
     // Only valid for positive f32 values, for which bit order matches numeric order.
     cell.fetch_max(v.to_bits(), Ordering::Relaxed);
 }
@@ -127,10 +130,9 @@ impl Runner {
     }
 }
 
-struct Processor {
-    input: Port<AudioIn>,
-    out_l: Port<AudioOut>,
-    out_r: Port<AudioOut>,
+/// The audio-thread half of the engine: everything a backend (or a host) needs to turn
+/// input samples into output samples. `process` never allocates, locks or logs.
+pub struct AudioCore {
     runner: Runner,
     meters: Arc<Meters>,
     sample_rate: f32,
@@ -138,19 +140,22 @@ struct Processor {
     record: Option<Producer<f32>>,
 }
 
-impl jack::ProcessHandler for Processor {
-    fn process(&mut self, _: &Client, ps: &ProcessScope) -> Control {
-        let start = Instant::now();
+impl AudioCore {
+    pub fn meters(&self) -> &Arc<Meters> {
+        &self.meters
+    }
 
-        let input = self.input.as_slice(ps);
-        let out = self.out_l.as_mut_slice(ps);
+    /// `input` (mono) is processed into `out_l`, which is copied to `out_r`.
+    /// All three slices must have the same length.
+    pub fn process(&mut self, input: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+        let start = Instant::now();
         store_max(&self.meters.in_peak, input.iter().fold(0.0f32, |m, s| m.max(s.abs())));
 
-        self.runner.run(input, out);
+        self.runner.run(input, out_l);
 
         // Protection for ears and speakers: no NaN and nothing above 0 dBFS.
         let mut peak = 0.0f32;
-        for s in out.iter_mut() {
+        for s in out_l.iter_mut() {
             if !s.is_finite() {
                 *s = 0.0;
             }
@@ -158,50 +163,27 @@ impl jack::ProcessHandler for Processor {
             peak = peak.max(s.abs());
         }
         store_max(&self.meters.out_peak, peak);
-        self.out_r.as_mut_slice(ps).copy_from_slice(out);
+        out_r.copy_from_slice(out_l);
 
         if let Some(rec) = &mut self.record {
             // If the writer thread cannot keep up, samples are dropped, never real time.
-            for (dry, wet) in input.iter().zip(out.iter()) {
+            for (dry, wet) in input.iter().zip(out_l.iter()) {
                 let _ = rec.push(*dry);
                 let _ = rec.push(*wet);
             }
         }
 
-        self.meters.buffer_size.store(ps.n_frames(), Ordering::Relaxed);
-        let budget = ps.n_frames() as f32 / self.sample_rate;
+        self.meters.buffer_size.store(input.len() as u32, Ordering::Relaxed);
+        let budget = input.len() as f32 / self.sample_rate;
         let load = start.elapsed().as_secs_f32() / budget;
         self.meters.load_permille.fetch_max((load * 1000.0) as u32, Ordering::Relaxed);
-        Control::Continue
     }
 }
 
-struct Notifications {
-    meters: Arc<Meters>,
-}
-
-impl jack::NotificationHandler for Notifications {
-    fn xrun(&mut self, _: &Client) -> Control {
-        self.meters.xruns.fetch_add(1, Ordering::Relaxed);
-        Control::Continue
-    }
-}
-
-/// The JACK ports of the audio cards, filtered by direction.
-pub fn hardware_ports(client: &Client, capture: bool) -> Vec<String> {
-    // Seen from JACK, what the card "captures" is an output port.
-    let flags = if capture { PortFlags::IS_OUTPUT } else { PortFlags::IS_INPUT };
-    client.ports(None, Some("32 bit float mono audio"), flags | PortFlags::IS_PHYSICAL)
-}
-
-pub fn open_client(name: &str) -> Result<Client> {
-    let (client, _status) = Client::new(name, ClientOptions::NO_START_SERVER)
-        .context("cannot connect to JACK/PipeWire (are you inside `nix develop`?)")?;
-    Ok(client)
-}
-
+/// The control half of the engine, used from normal threads.
 pub struct Engine {
-    _active: jack::AsyncClient<Notifications, Processor>,
+    /// Keeps the backend's stream alive; dropping it stops the audio.
+    _backend: Option<Box<dyn Any + Send>>,
     to_audio: Producer<Msg>,
     from_audio: Consumer<Box<Plan>>,
     pub meters: Arc<Meters>,
@@ -209,60 +191,26 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Starts the engine and connects the ports matching the regexes.
-    pub fn start(
-        client: Client,
-        plan: Plan,
-        input_pattern: &str,
-        output_pattern: &str,
-        record: Option<Producer<f32>>,
-    ) -> Result<Engine> {
-        let sample_rate = client.sample_rate() as f32;
-        let input = client.register_port("in", AudioIn::default())?;
-        let out_l = client.register_port("out_L", AudioOut::default())?;
-        let out_r = client.register_port("out_R", AudioOut::default())?;
-        let my_in = input.name()?;
-        let my_out = [out_l.name()?, out_r.name()?];
-
-        let sources = client.ports(Some(input_pattern), None, PortFlags::IS_OUTPUT);
-        let Some(source) = sources.first().cloned() else {
-            bail!("no input port matches '{input_pattern}' (try `openpedal ports`)");
-        };
-        let sinks = client.ports(Some(output_pattern), None, PortFlags::IS_INPUT);
-        if sinks.is_empty() {
-            bail!("no output port matches '{output_pattern}' (try `openpedal ports`)");
-        }
-
+    /// Creates both halves without a backend: the caller drives `AudioCore::process`
+    /// (a host that owns the audio callback, or a test).
+    pub fn new(plan: Plan, sample_rate: f32, record: Option<Producer<f32>>) -> (Engine, AudioCore) {
         let (to_audio, incoming) = RingBuffer::new(1024);
         let (trash, from_audio) = RingBuffer::new(64);
         let meters = Arc::new(Meters::default());
-
-        let processor = Processor {
-            input,
-            out_l,
-            out_r,
+        let core = AudioCore {
             runner: Runner::new(Box::new(plan), sample_rate, incoming, trash),
             meters: meters.clone(),
             sample_rate,
             record,
         };
-        let active = client.activate_async(Notifications { meters: meters.clone() }, processor)?;
+        (Engine { _backend: None, to_audio, from_audio, meters, sample_rate }, core)
+    }
 
-        let c = active.as_client();
-        c.connect_ports_by_name(&source, &my_in)
-            .with_context(|| format!("connecting {source} -> {my_in}"))?;
-        // Only one output found (e.g. mono speakers): we send it the left channel.
-        for (i, sink) in sinks.iter().take(2).enumerate() {
-            let from = &my_out[i.min(1)];
-            c.connect_ports_by_name(from, sink)
-                .with_context(|| format!("connecting {from} -> {sink}"))?;
-        }
-        eprintln!("  input:  {source}");
-        for sink in sinks.iter().take(2) {
-            eprintln!("  output: {sink}");
-        }
-
-        Ok(Engine { _active: active, to_audio, from_audio, meters, sample_rate })
+    /// Starts the engine on an audio backend.
+    pub fn start(backend: Box<dyn AudioBackend>, plan: Plan, record: Option<Producer<f32>>) -> Result<Engine> {
+        let (mut engine, core) = Engine::new(plan, backend.sample_rate(), record);
+        engine._backend = Some(backend.start(core)?);
+        Ok(engine)
     }
 
     /// Sends a new plan to the audio thread, which introduces it with a 20 ms fade.

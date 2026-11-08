@@ -1,5 +1,5 @@
 //! The real audio engine behind the interface: implements `EngineHandle` using
-//! the compiled graph (`graph::compile`) and the JACK engine (`engine::Engine`).
+//! the compiled graph (`graph::compile`) and the audio engine (`engine::Engine`, any backend).
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;

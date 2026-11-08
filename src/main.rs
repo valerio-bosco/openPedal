@@ -1,9 +1,3 @@
-mod dsp;
-mod engine;
-mod graph;
-mod live;
-mod server;
-mod wav;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -13,10 +7,14 @@ use std::{fs, thread};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use dsp::lin_to_db;
-use engine::Engine;
-use graph::model::GraphFile;
-use graph::{NodeMap, Plan};
+use openpedal::audio::AudioBackend;
+#[cfg(target_os = "linux")]
+use openpedal::audio::jack;
+use openpedal::dsp::lin_to_db;
+use openpedal::engine::Engine;
+use openpedal::graph::model::GraphFile;
+use openpedal::graph::{self, NodeMap, Plan};
+use openpedal::{live, server, wav};
 
 const USAGE: &str = "\
 openPedal - real-time guitar effects
@@ -189,12 +187,11 @@ fn run_ui(args: Vec<String>) -> Result<()> {
 
 /// Starts the real audio engine with the initial graph.
 fn start_live(config: &Config, graph: GraphFile, pedals_dir: &Path) -> Result<std::sync::Arc<live::LiveEngine>> {
-    std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
-    let client = engine::open_client("openPedal")?;
-    let sr = client.sample_rate() as f32;
+    let backend = open_backend(config)?;
+    let sr = backend.sample_rate();
     let pedals = graph::load::read_pedals(pedals_dir)?;
     let (plan, map) = graph::compile(&graph, &pedals, sr)?;
-    let engine = Engine::start(client, plan, &config.input, &config.output, None)?;
+    let engine = Engine::start(backend, plan, None)?;
     eprintln!("  {} Hz, preset \"{}\"", engine.sample_rate, graph.name);
     Ok(live::LiveEngine::new(engine, map, graph, pedals, pedals_dir.to_path_buf()))
 }
@@ -249,17 +246,37 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Opens the platform's audio backend (JACK/PipeWire on Linux).
+#[cfg(target_os = "linux")]
+fn open_backend(config: &Config) -> Result<Box<dyn AudioBackend>> {
+    // PipeWire reads this variable when the client connects.
+    std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
+    let client = jack::open_client("openPedal")?;
+    Ok(Box::new(jack::JackBackend::new(client, &config.input, &config.output)))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_backend(_: &Config) -> Result<Box<dyn AudioBackend>> {
+    anyhow::bail!("this OS has no audio backend yet (Windows/macOS: task E1)")
+}
+
+#[cfg(target_os = "linux")]
 fn list_ports() -> Result<()> {
-    let client = engine::open_client("openPedal-ports")?;
+    let client = jack::open_client("openPedal-ports")?;
     println!("inputs (use with --in):");
-    for p in engine::hardware_ports(&client, true) {
+    for p in jack::hardware_ports(&client, true) {
         println!("  {p}");
     }
     println!("outputs (use with --out):");
-    for p in engine::hardware_ports(&client, false) {
+    for p in jack::hardware_ports(&client, false) {
         println!("  {p}");
     }
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_ports() -> Result<()> {
+    anyhow::bail!("this OS has no audio backend yet (Windows/macOS: task E1)")
 }
 
 fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
@@ -327,10 +344,8 @@ fn spawn_recorder(path: PathBuf, seconds: f32, sample_rate: u32, mut rx: rtrb::C
 }
 
 fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> Result<()> {
-    // PipeWire reads this variable when the client connects.
-    std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
-    let client = engine::open_client("openPedal")?;
-    let sr = client.sample_rate() as f32;
+    let backend = open_backend(config)?;
+    let sr = backend.sample_rate();
     let (graph, plan, _) = load_plan(preset_path, sr)?;
 
     eprintln!("openPedal");
@@ -344,7 +359,7 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
         }
         None => None,
     };
-    let mut engine = Engine::start(client, plan, &config.input, &config.output, recorder)?;
+    let mut engine = Engine::start(backend, plan, recorder)?;
     eprintln!("  {} Hz", engine.sample_rate);
     eprintln!("  preset: \"{}\" ({} nodes) - save the file to reload it, Ctrl+C to quit\n", graph.name, graph.nodes.len());
 
