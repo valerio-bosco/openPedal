@@ -1,0 +1,3 @@
+version: 1
+bundleID: dev.openpedal.app
+infoPath: Info.plist
