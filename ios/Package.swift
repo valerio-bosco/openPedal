@@ -8,7 +8,7 @@ let coreLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 
 let package = Package(
     name: "OpenPedal",
-    platforms: [.iOS(.v16)],
+    platforms: [.iOS(.v17)],
     products: [
         .library(name: "OpenPedal", targets: ["OpenPedalApp"]),
     ],

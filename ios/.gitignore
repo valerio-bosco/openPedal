@@ -2,3 +2,4 @@ OpenPedalCore/lib/
 Sources/OpenPedalApp/Resources/
 .build/
 *.xtool/
+xtool/

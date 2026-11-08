@@ -13,7 +13,7 @@ image=openpedal-xtool
 mkdir -p "$home"
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
-    docker build -t "$image" "$repo/ios/xtool"
+    docker build -t "$image" "$repo/ios/docker"
 fi
 
 tty=()
