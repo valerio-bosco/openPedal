@@ -33,7 +33,9 @@ params = { dry = 1.0, down = 0.25, up = 0.0, tone_hz = 1500, track_hz = 700 }
 id = "fuzz"
 type = "fuzz"
 pos = [640, 120]
-params = { drive = 0.75, gate = 0.45, comp = 0.6, bias = 0.35, tone_hz = 7000, level_db = -14 }
+params = { drive = 0.75, gate = 0.15, comp = 0.6, bias = 0.35, tone_hz = 7000, level_db = -14 }
+# gate depends on your input level: tuned on a riff peaking at -12 dBFS. Higher values
+# also cut the notes you play, lower ones let the tails ring.
 
 [[node]]
 id = "stack"
@@ -63,7 +65,7 @@ params = { room = 0.3, damp = 0.6, mix = 0.12, predelay_ms = 12 }
 id = "out"
 type = "output"
 pos = [1440, 120]
-params = { volume_db = -12 }   # same loudness as the clean and crunch presets
+params = { volume_db = -18 }   # same loudness as the clean and crunch presets
 
 [[edge]]
 from = "in"
