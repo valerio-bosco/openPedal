@@ -11,7 +11,7 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
  │   .measurement, ~2.7 ms buffer)│──────────────▶ openpedal_process (per buffer)
  │ AVAudioEngine: sink (input) +  │              │ UI server on 127.0.0.1:port │
  │   source (output) nodes        │              │ (assets embedded, axum + WS)│
- │ WKWebView ── http://127.0.0.1 ─┼──────────────▶                             │
+ │ SwiftUI ── ws://127.0.0.1/ws ──┼──────────────▶ (same WebSocket protocol §5.4)│
  └───────────────────────────────┘               └─────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
 | `Package.swift`, `xtool.yml`, `Info.plist` | SwiftPM package and xtool config (microphone usage string, `UIBackgroundModes: audio`) |
 | `OpenPedalCore/include/openpedal.h` | the C API, hand-written, keep in sync with `src/ffi.rs` |
 | `OpenPedalCore/lib/libopenpedal.a` | built by `scripts/build-core.sh` (git-ignored) |
-| `Sources/OpenPedalApp/` | `App.swift`, `AudioHost.swift`, `WebView.swift` |
+| `Sources/OpenPedalApp/` | `App.swift` (root, ambient), `AudioHost.swift`, `Protocol.swift` (Codable protocol), `WSClient.swift`, `Store.swift` (@Observable state, undo, throttled set_param), `Chain.swift` (chain derivation), `Board.swift` (pedals), `Inspector.swift` (knobs), `Toolbar.swift`, `Sheets.swift` (add pedal, About), `Theme.swift` |
 | `scripts/build-core.sh` | UI build + `cargo build --lib --release --target aarch64-apple-ios` + copies |
 
 ## Build with xtool (from Linux) — verified on 2026-11-08
@@ -71,3 +71,9 @@ Troubleshooting:
 - `Bundle.module` (used for the bundled presets) needs xtool to bundle SwiftPM resources into the app; if not, copy the folders into the app bundle and use `Bundle.main`.
 - If xtool refuses `unsafeFlags` for the root package, switch to an `.xcframework` binary target.
 - Audio latency: start with 128 frames (`setPreferredIOBufferDuration(0.0027)`); iOS may grant more. The UI shows the real buffer in the meters.
+
+## Native UI notes
+
+- The UI needs iPadOS 26 (`glassEffect`, `GlassEffectContainer`, `.glass`/`.glassProminent` button styles). No WebView.
+- It talks to the in-process server over `ws://127.0.0.1:<port>/ws` and tolerates a core without `protocol`/`bypass` (docs/PLAN.md §10.2).
+- Parallel graphs are shown in topological order; adding, removing and moving pedals is only enabled for a simple chain.
