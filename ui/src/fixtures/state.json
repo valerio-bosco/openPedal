@@ -248,6 +248,80 @@
       "composite": false
     },
     {
+      "kind": "fuzz",
+      "label": "Fuzz",
+      "category": "drive",
+      "params": [
+        {
+          "id": "drive",
+          "label": "Drive",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.7,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "gate",
+          "label": "Gate",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.3,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "comp",
+          "label": "Comp",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.5,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "bias",
+          "label": "Bias",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.4,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "tone_hz",
+          "label": "Tone",
+          "kind": "number",
+          "min": 1000.0,
+          "max": 12000.0,
+          "default": 6000.0,
+          "unit": "Hz",
+          "log": true,
+          "step": 0.0
+        },
+        {
+          "id": "level_db",
+          "label": "Level",
+          "kind": "number",
+          "min": -40.0,
+          "max": 6.0,
+          "default": -12.0,
+          "unit": "dB",
+          "log": false,
+          "step": 0.0
+        }
+      ],
+      "composite": false
+    },
+    {
       "kind": "tonestack",
       "label": "Tone stack",
       "category": "amp",
@@ -529,6 +603,69 @@
             "square"
           ],
           "default": 0
+        }
+      ],
+      "composite": false
+    },
+    {
+      "kind": "octave",
+      "label": "Octave",
+      "category": "modulation",
+      "params": [
+        {
+          "id": "dry",
+          "label": "Dry",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 1.0,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "down",
+          "label": "Down",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.5,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "up",
+          "label": "Up",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "tone_hz",
+          "label": "Tone",
+          "kind": "number",
+          "min": 300.0,
+          "max": 8000.0,
+          "default": 2000.0,
+          "unit": "Hz",
+          "log": true,
+          "step": 0.0
+        },
+        {
+          "id": "track_hz",
+          "label": "Tracking",
+          "kind": "number",
+          "min": 200.0,
+          "max": 2000.0,
+          "default": 800.0,
+          "unit": "Hz",
+          "log": true,
+          "step": 0.0
         }
       ],
       "composite": false
