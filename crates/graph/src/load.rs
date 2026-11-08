@@ -5,9 +5,36 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use serde::Deserialize;
 
 use super::model::{EdgeSpec, GraphFile, NodeSpec, PedalFile, INPUT, OUTPUT};
-use openpedal_dsp::{ParamValues, Preset, Value};
+use openpedal_dsp::{ParamValues, Value};
+
+/// A block of a v1 preset: `type` plus its parameters.
+#[derive(Deserialize)]
+struct V1Block {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(flatten)]
+    params: ParamValues,
+}
+
+/// v1 preset (a linear chain): name, output volume and ordered list of blocks.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct V1Preset {
+    #[serde(default = "unnamed")]
+    name: String,
+    /// Output volume in dB, applied after the whole chain.
+    #[serde(default)]
+    output_db: f32,
+    #[serde(default, rename = "block")]
+    blocks: Vec<V1Block>,
+}
+
+fn unnamed() -> String {
+    "unnamed".into()
+}
 
 /// Reads a preset (v2 or v1: v1 presets are converted into a linear graph).
 pub fn read_graph(path: &Path) -> Result<GraphFile> {
@@ -26,13 +53,13 @@ pub fn parse_graph(text: &str) -> Result<GraphFile> {
     if version == Some(1) {
         table.remove("version");
     }
-    let preset: Preset = table.try_into()?;
+    let preset: V1Preset = table.try_into()?;
     Ok(graph_from_preset(&preset))
 }
 
 /// Converts a v1 preset into an `input -> blocks -> output` graph.
 /// `output_db` becomes the output volume; nodes are placed 220 px apart.
-pub fn graph_from_preset(preset: &Preset) -> GraphFile {
+fn graph_from_preset(preset: &V1Preset) -> GraphFile {
     let mut nodes = vec![NodeSpec { id: "in".into(), kind: INPUT.into(), pos: [0.0, 0.0], params: ParamValues::default(), bypass: false }];
     let mut counters: HashMap<&str, usize> = HashMap::new();
     for (i, b) in preset.blocks.iter().enumerate() {

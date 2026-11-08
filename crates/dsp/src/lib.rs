@@ -1,4 +1,4 @@
-//! DSP blocks, catalog and linear chain (v1 presets).
+//! DSP blocks and catalog.
 //!
 //! Golden rule: `Block::process` and `Block::set_param` run on the realtime thread.
 //! No allocations, no locks, no I/O. Everything that is needed (buffers,
@@ -23,7 +23,6 @@ mod tonestack;
 pub mod wav;
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
 
 pub use params::{BlockDesc, ParamKind, ParamValues, Value};
 
@@ -86,64 +85,6 @@ pub fn build_block(kind: &str, values: &ParamValues, sr: f32) -> Result<Box<dyn 
     (entry.build)(values, sr).with_context(|| format!("block '{kind}'"))
 }
 
-/// A block of a v1 preset: `type` plus its parameters.
-#[derive(Deserialize, Debug, Clone)]
-pub struct BlockEntry {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(flatten)]
-    pub params: ParamValues,
-}
-
-/// v1 preset: name, output volume and ordered list of blocks.
-#[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct Preset {
-    #[serde(default = "default_name")]
-    pub name: String,
-    /// Output volume in dB, applied after the whole chain.
-    #[serde(default)]
-    pub output_db: f32,
-    #[serde(default, rename = "block")]
-    pub blocks: Vec<BlockEntry>,
-}
-
-fn default_name() -> String {
-    "unnamed".into()
-}
-
-/// The old linear chain: kept only as a reference in the tests
-/// (v1 presets must sound identical when converted to a graph). Only built for tests, and for
-/// other crates' tests through the `legacy-chain` feature.
-#[cfg(any(test, feature = "legacy-chain"))]
-pub struct Chain {
-    blocks: Vec<Box<dyn Block>>,
-    out_gain: f32,
-}
-
-#[cfg(any(test, feature = "legacy-chain"))]
-impl Chain {
-    /// Builds the chain (off the audio thread): it may read files, so it can fail.
-    pub fn build(preset: &Preset, sr: f32) -> Result<Chain> {
-        let blocks = preset
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(i, b)| build_block(&b.kind, &b.params, sr).with_context(|| format!("block #{}", i + 1)))
-            .collect::<Result<_>>()?;
-        Ok(Chain { blocks, out_gain: db_to_lin(preset.output_db) })
-    }
-
-    pub fn process(&mut self, buf: &mut [f32]) {
-        for block in &mut self.blocks {
-            block.process(buf);
-        }
-        for s in buf.iter_mut() {
-            *s *= self.out_gain;
-        }
-    }
-}
-
 pub fn db_to_lin(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
@@ -194,37 +135,23 @@ mod tests {
         buf.iter().fold(0.0, |m, s| m.max(s.abs()))
     }
 
-    fn chain(toml_text: &str) -> Chain {
-        Chain::build(&toml::from_str(toml_text).unwrap(), SR).unwrap()
-    }
-
-    #[test]
-    fn bundled_v1_presets_are_valid() {
-        for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../content/presets")).unwrap() {
-            let path = entry.unwrap().path();
-            let text = std::fs::read_to_string(&path).unwrap();
-            // v2 presets (graphs) are covered by graph::compile's tests
-            if text.contains("[[node]]") {
-                continue;
-            }
-            let p: Preset = toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-            let mut buf = sine(220.0, 0.5, 48000);
-            Chain::build(&p, SR).unwrap().process(&mut buf);
-            assert!(buf.iter().all(|s| s.is_finite()), "{}", path.display());
-        }
+    /// Runs one block, built from a TOML table of parameters (as in a node's `params`), over `buf`.
+    fn run(kind: &str, params: &str, buf: &mut [f32]) {
+        let values: ParamValues = toml::from_str(params).unwrap();
+        build_block(kind, &values, SR).unwrap().process(buf);
     }
 
     #[test]
     fn wrong_parameter_is_an_error() {
-        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\ngain = 3\n").unwrap();
-        let err = Chain::build(&p, SR).err().expect("the typo `gain` (instead of gain_db) must be reported");
+        let values: ParamValues = toml::from_str("gain = 3").unwrap();
+        let err = build_block("drive", &values, SR).err().expect("the typo `gain` (instead of gain_db) must be reported");
         assert!(format!("{err:#}").contains("gain_db"), "{err:#}");
     }
 
     #[test]
     fn wrong_choice_is_an_error() {
-        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\nshape = \"tube\"\n").unwrap();
-        assert!(Chain::build(&p, SR).is_err());
+        let values: ParamValues = toml::from_str("shape = \"tube\"").unwrap();
+        assert!(build_block("drive", &values, SR).is_err());
     }
 
     #[test]
@@ -250,12 +177,11 @@ mod tests {
 
     #[test]
     fn lowpass_cuts_highs() {
-        let mut c = chain("[[block]]\ntype = \"filter\"\nkind = \"lowpass\"\nfreq = 1000\n");
+        let params = "kind = \"lowpass\"\nfreq = 1000";
         let mut low = sine(100.0, 1.0, 9600);
         let mut high = sine(10000.0, 1.0, 9600);
-        c.process(&mut low);
-        let mut c = chain("[[block]]\ntype = \"filter\"\nkind = \"lowpass\"\nfreq = 1000\n");
-        c.process(&mut high);
+        run("filter", params, &mut low);
+        run("filter", params, &mut high);
         assert!(peak(&low[4800..]) > 0.95);
         assert!(peak(&high[4800..]) < 0.02);
     }
@@ -263,32 +189,29 @@ mod tests {
     #[test]
     fn drive_stays_bounded() {
         for shape in ["soft", "hard", "asym", "fuzz", "fold"] {
-            let mut c = chain(&format!(
-                "[[block]]\ntype = \"drive\"\nshape = \"{shape}\"\ngain_db = 40\nlevel_db = 0\n"
-            ));
             let mut buf = sine(110.0, 1.0, 4800);
-            c.process(&mut buf);
+            run("drive", &format!("shape = \"{shape}\"\ngain_db = 40\nlevel_db = 0"), &mut buf);
             assert!(peak(&buf) < 2.5, "{shape}: {}", peak(&buf));
         }
     }
 
     #[test]
     fn gate_closes_on_noise_and_passes_notes() {
-        let mut c = chain("[[block]]\ntype = \"gate\"\nthreshold_db = -50\n");
+        let values: ParamValues = toml::from_str("threshold_db = -50").unwrap();
+        let mut gate = build_block("gate", &values, SR).unwrap();
         let mut noise = sine(3000.0, 0.001, 24000); // -60 dB
-        c.process(&mut noise);
+        gate.process(&mut noise);
         assert!(peak(&noise[12000..]) < 1e-4);
         let mut note = sine(220.0, 0.3, 4800);
-        c.process(&mut note);
+        gate.process(&mut note);
         assert!(peak(&note[480..]) > 0.29);
     }
 
     #[test]
     fn delay_repeats_after_the_right_time() {
-        let mut c = chain("[[block]]\ntype = \"delay\"\ntime_ms = 100\nfeedback = 0\nmix = 0.5\n");
         let mut buf = vec![0.0; 9600];
         buf[0] = 1.0;
-        c.process(&mut buf);
+        run("delay", "time_ms = 100\nfeedback = 0\nmix = 0.5", &mut buf);
         let echo_at = buf[1..].iter().position(|s| s.abs() > 0.1).unwrap() + 1;
         assert_eq!(echo_at, 4800);
     }
