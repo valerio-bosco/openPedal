@@ -21,6 +21,8 @@ openPedal - effetti per chitarra in tempo reale
 uso:
   openpedal [PRESET] [--in REGEX] [--out REGEX] [--buffer N]
                                                   suona con un preset (default: presets/clean.toml)
+  openpedal ui [--port 7777] [--no-browser] [--lan]
+                                                  interfaccia web (editor a nodi) nel browser
   openpedal ports                                 elenca le porte audio delle schede
   openpedal check PRESET...                       controlla i preset senza aprire l'audio
   openpedal render PRESET IN.wav OUT.wav          applica un preset a una registrazione (canale 1 = pulito)
@@ -88,6 +90,7 @@ fn run() -> Result<()> {
             }
             "ports" => return list_ports(),
             "catalog" => return print_catalog(),
+            "ui" => return run_ui(args.collect()),
             "dev-fixtures" => return write_fixtures(&PathBuf::from(args.next().context("uso: dev-fixtures CARTELLA")?)),
             "check" => return check_presets(args.map(PathBuf::from).collect()),
             "--in" => config.input = args.next().context("--in vuole una regex")?,
@@ -108,6 +111,30 @@ fn run() -> Result<()> {
     }
 
     play(&config, &preset_path, record.map(|path| (path, seconds)))
+}
+
+/// `openpedal ui`: server dell'interfaccia web (per ora con il motore finto).
+fn run_ui(args: Vec<String>) -> Result<()> {
+    let mut port = 7777u16;
+    let mut open_browser = true;
+    let mut lan = false;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--port" => port = args.next().context("--port vuole un numero")?.parse().context("--port vuole un numero")?,
+            "--no-browser" => open_browser = false,
+            "--lan" => lan = true,
+            _ => anyhow::bail!("opzione sconosciuta per ui: {arg}"),
+        }
+    }
+    // Parte dal primo preset leggibile, altrimenti da un grafo vuoto.
+    let presets_dir = PathBuf::from("presets");
+    let graph = server::list_presets(&presets_dir)
+        .into_iter()
+        .find_map(|name| graph::load::read_graph(&presets_dir.join(format!("{name}.toml"))).ok())
+        .unwrap_or_else(server::mock::default_graph);
+    let engine = std::sync::Arc::new(server::mock::MockEngine::new("pedals", graph));
+    server::run(engine, server::ServerOptions { port, open_browser, lan, presets_dir, pedals_dir: PathBuf::from("pedals") })
 }
 
 /// Il catalogo in JSON, come lo riceve l'interfaccia.
