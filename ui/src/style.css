@@ -534,3 +534,79 @@ input:not([type]) {
   color: var(--dim);
   margin: 0 0 10px;
 }
+
+/* --- modifica: elimina, menu, annulla --- */
+.btn-group {
+  display: inline-flex;
+  gap: 4px;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.pedal-remove {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 18px;
+  font-size: 15px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: rgba(232, 230, 227, 0.35);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.pedal:hover .pedal-remove,
+.pedal.selected .pedal-remove {
+  opacity: 1;
+}
+.pedal-remove:hover:not(:disabled) {
+  color: #fff;
+  background: #c0392b;
+}
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 200px;
+  padding: 4px;
+  background: #22242b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+.ctx-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 10px;
+}
+.ctx-menu button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ctx-menu button.danger:hover:not(:disabled) {
+  background: #c0392b;
+}
+.ctx-menu kbd {
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.5;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3;
+}
+.react-flow__edgeupdater {
+  cursor: grab;
+}
+button.icon {
+  min-width: 34px;
+  font-size: 17px;
+  padding-left: 8px;
+  padding-right: 8px;
+}

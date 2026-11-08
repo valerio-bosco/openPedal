@@ -7,11 +7,12 @@ import { Knob } from "./Knob";
 export interface EditorCtx {
   catalog: Map<string, CatalogItem>;
   setParam: (nodeId: string, paramId: string, value: ParamValue) => void;
+  removeNode: (nodeId: string) => void;
 }
-export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {} });
+export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {}, removeNode: () => {} });
 
 function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
-  const { catalog, setParam } = useContext(EditorContext);
+  const { catalog, setParam, removeNode } = useContext(EditorContext);
   const item = catalog.get(data.kind);
   const color = CATEGORY_COLOR[item?.category ?? "utility"];
   const hasIn = data.kind !== INPUT && data.kind !== PEDAL_IN;
@@ -33,6 +34,11 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
         <span className="led" />
         <span className="pedal-title">{item?.label ?? data.kind}</span>
         {item?.composite && <span className="pedal-badge" title="Pedale composto: doppio clic per modificarlo">composto</span>}
+        {!special && (
+          <button className="nodrag pedal-remove" title="Elimina pedale (Canc)" onClick={() => removeNode(id)}>
+            ×
+          </button>
+        )}
       </div>
       {!item && <div className="pedal-unknown">Tipo sconosciuto: {data.kind}</div>}
       {params.length > 0 && (

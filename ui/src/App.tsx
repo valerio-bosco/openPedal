@@ -12,6 +12,8 @@ import {
   type Connection as FlowConnection,
   type Edge,
 } from "@xyflow/react";
+import { History, type Snapshot } from "./history";
+import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import {
   PEDAL_IN,
   PEDAL_OUT,
@@ -61,9 +63,13 @@ interface Editing {
   description: string;
   knobs: KnobSpec[];
   parent: { nodes: PNode[]; edges: Edge[] };
+  /** Cronologia del grafo principale, ripresa all'uscita dal pedale. */
+  parentHistory: History;
 }
 
 type Dialog = { mode: "create"; ids: string[] } | { mode: "edit" } | null;
+
+type Menu = { x: number; y: number; target: { node: string } | { edge: string } } | null;
 
 interface Toast {
   id: number;
@@ -80,6 +86,12 @@ function Editor() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [menu, setMenu] = useState<Menu>(null);
+  const history = useRef(new History());
+  /** Cambia quando cambia la cronologia: aggiorna i pulsanti Annulla / Ripeti. */
+  const [, setHistoryVersion] = useState(0);
+  const bumpHistory = useCallback(() => setHistoryVersion((v) => v + 1), []);
+  const tidyIfOverlappingRef = useRef<() => void>(() => {});
   const [nodes, setNodes, onNodesChange] = useNodesState<PNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -133,8 +145,14 @@ function Editor() {
       lastKey.current = structureKey(f.nodes, f.edges, cat);
       setNodes(f.nodes);
       setEdges(f.edges);
+      // un preset caricato è un nuovo inizio; lo stesso grafo (es. dopo un salvataggio) no
+      if (!history.current.same(f)) {
+        history.current.reset(f);
+        bumpHistory();
+        tidyIfOverlappingRef.current();
+      }
     },
-    [setNodes, setEdges, toast],
+    [setNodes, setEdges, toast, bumpHistory],
   );
 
   useEffect(() => {
@@ -162,6 +180,143 @@ function Editor() {
     return () => window.clearTimeout(h);
   }, [nodes, edges, catalog, catalogItems.length, graphName, setNodes, editing]);
 
+  // --- riordina: colonne nell'ordine del segnale, con le misure vere dei pedali ---
+  const tidy = useCallback(() => {
+    const ns = flow.getNodes();
+    const es = edgesRef.current;
+    const depth = new Map(ns.map((n) => [n.id, 0]));
+    // il grafo è senza cicli: basta propagare la profondità per n passi
+    for (let i = 0; i < ns.length; i++) {
+      for (const e of es) depth.set(e.target, Math.max(depth.get(e.target) ?? 0, (depth.get(e.source) ?? 0) + 1));
+    }
+    const cols: PNode[][] = [];
+    for (const n of ns) (cols[depth.get(n.id) ?? 0] ??= []).push(n);
+    const GAP_X = 70;
+    const GAP_Y = 40;
+    const pos = new Map<string, { x: number; y: number }>();
+    let x = 0;
+    for (const col of cols) {
+      if (!col) continue;
+      col.sort((a, b) => a.position.y - b.position.y);
+      const h = col.reduce((t, n) => t + (n.measured?.height ?? 120), 0) + GAP_Y * (col.length - 1);
+      let y = -h / 2;
+      for (const n of col) {
+        pos.set(n.id, { x, y });
+        y += (n.measured?.height ?? 120) + GAP_Y;
+      }
+      x += Math.max(...col.map((n) => n.measured?.width ?? 240)) + GAP_X;
+    }
+    setNodes((cur) => cur.map((n) => (pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n)));
+    window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.15 }), 30);
+  }, [flow, setNodes]);
+
+  /** Dopo il caricamento di un grafo: se ci sono pedali sovrapposti, riordina. */
+  const tidyIfOverlapping = useCallback(() => {
+    window.setTimeout(() => {
+      const ns = flow.getNodes();
+      const box = (n: PNode) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? 0, h: n.measured?.height ?? 0 });
+      const overlap = ns.some((a, i) =>
+        ns.slice(i + 1).some((b) => {
+          const p = box(a);
+          const q = box(b);
+          return p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h;
+        }),
+      );
+      if (!overlap) return;
+      tidy();
+      // il riordino automatico non è una modifica da annullare
+      window.setTimeout(() => {
+        history.current.reset({ nodes: flow.getNodes(), edges: edgesRef.current });
+        bumpHistory();
+      }, 60);
+    }, 120);
+  }, [flow, tidy, bumpHistory]);
+
+  tidyIfOverlappingRef.current = tidyIfOverlapping;
+
+  // --- cronologia: un'istantanea quando il grafo resta fermo per un attimo ---
+  useEffect(() => {
+    if (nodes.some((n) => n.dragging)) return;
+    const h = window.setTimeout(() => {
+      if (history.current.record({ nodes, edges })) bumpHistory();
+    }, 350);
+    return () => window.clearTimeout(h);
+  }, [nodes, edges, bumpHistory]);
+
+  /** Riporta il grafo a un'istantanea e lo comunica al motore nel modo più leggero. */
+  const applySnapshot = useCallback(
+    (s: Snapshot) => {
+      const prev = new Map(nodes.map((n) => [n.id, n]));
+      setNodes(s.nodes);
+      setEdges(s.edges);
+      bumpHistory();
+      if (editingRef.current) return; // dentro un pedale si manda tutto al salvataggio
+      const key = structureKey(s.nodes, s.edges, catalog);
+      if (key !== lastKey.current) {
+        lastKey.current = key;
+        conn.current?.send({ type: "set_graph", graph: flowToGraph(graphName, s.nodes, s.edges) });
+        return;
+      }
+      // stessa struttura: bastano i parametri cambiati, senza ricostruire il suono
+      for (const n of s.nodes) {
+        const before = prev.get(n.id);
+        const item = catalog.get(n.data.kind);
+        if (!before || !item) continue;
+        for (const p of item.params) {
+          if (p.kind === "file") continue;
+          const now = n.data.params[p.id];
+          if (now === before.data.params[p.id]) continue;
+          conn.current?.sendParam(n.id, p.id, paramValue(p, now));
+        }
+      }
+    },
+    [nodes, catalog, graphName, setNodes, setEdges, bumpHistory],
+  );
+
+  const undo = useCallback(() => {
+    const s = history.current.undo();
+    if (s) applySnapshot(s);
+  }, [applySnapshot]);
+  const redo = useCallback(() => {
+    const s = history.current.redo();
+    if (s) applySnapshot(s);
+  }, [applySnapshot]);
+
+  // --- eliminazione ---
+  const removeNodes = useCallback(
+    (ids: string[]) => {
+      const gone = new Set(ids.filter((id) => !isFixed(flow.getNode(id)?.data.kind ?? "")));
+      if (gone.size === 0) return;
+      setNodes((ns) => ns.filter((n) => !gone.has(n.id)));
+      setEdges((es) => es.filter((e) => !gone.has(e.source) && !gone.has(e.target)));
+    },
+    [flow, setNodes, setEdges],
+  );
+  const removeEdges = useCallback((ids: string[]) => setEdges((es) => es.filter((e) => !ids.includes(e.id))), [setEdges]);
+  const disconnect = useCallback(
+    (id: string) => setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)),
+    [setEdges],
+  );
+  const deleteSelection = useCallback(() => {
+    removeEdges(edges.filter((e) => e.selected).map((e) => e.id));
+    removeNodes(nodes.filter((n) => n.selected).map((n) => n.id));
+  }, [nodes, edges, removeNodes, removeEdges]);
+
+  // --- cavi: trascinando un'estremità lo si sposta, lasciandola nel vuoto lo si toglie ---
+  const reconnected = useRef(true);
+  const onReconnect = useCallback(
+    (old: Edge, c: FlowConnection) => {
+      reconnected.current = true;
+      const others = edgesRef.current.filter((e) => e.id !== old.id);
+      if (wouldCycle(others, c.source, c.target) || others.some((e) => e.source === c.source && e.target === c.target)) {
+        toast("Quel cavo non è valido: creerebbe un ciclo o esiste già.");
+        return;
+      }
+      setEdges([...others, { id: edgeId(c.source, c.target), source: c.source, target: c.target }]);
+    },
+    [setEdges, toast],
+  );
+
   // --- parametri ---
   const setParam = useCallback(
     (nodeId: string, paramId: string, value: ParamValue) => {
@@ -174,7 +329,8 @@ function Editor() {
     },
     [flow, catalog, setNodes],
   );
-  const ctx = useMemo(() => ({ catalog, setParam }), [catalog, setParam]);
+  const removeNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
+  const ctx = useMemo(() => ({ catalog, setParam, removeNode }), [catalog, setParam, removeNode]);
 
   // --- cavi ---
   const isValidConnection = useCallback(
@@ -201,8 +357,9 @@ function Editor() {
     [nodes, flow, setNodes],
   );
 
-  const duplicate = useCallback(() => {
-    const sel = nodes.filter((n) => n.selected && !isFixed(n.data.kind));
+  /** Duplica i pedali indicati (o, senza argomenti, quelli selezionati) con i cavi tra loro. */
+  const duplicate = useCallback((only?: string[]) => {
+    const sel = nodes.filter((n) => (only ? only.includes(n.id) : n.selected) && !isFixed(n.data.kind));
     if (sel.length === 0) return;
     const taken = new Set(nodes.map((n) => n.id));
     const map = new Map<string, string>();
@@ -229,14 +386,22 @@ function Editor() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA") return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "d") {
         e.preventDefault();
         duplicate();
+      } else if (mod && key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (mod && (key === "y" || (key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duplicate]);
+  }, [duplicate, undo, redo]);
 
   const onDrop = (e: React.DragEvent) => {
     const kind = e.dataTransfer.getData(DRAG_MIME);
@@ -346,9 +511,13 @@ function Editor() {
       description: p.description,
       knobs: p.knob,
       parent: { nodes, edges },
+      parentHistory: history.current,
     });
     setNodes([nIn, ...f.nodes, nOut]);
     setEdges(f.edges);
+    history.current = new History();
+    history.current.reset({ nodes: [nIn, ...f.nodes, nOut], edges: f.edges });
+    bumpHistory();
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.3 }), 50);
   };
 
@@ -356,6 +525,8 @@ function Editor() {
     if (!editing) return;
     setNodes(editing.parent.nodes);
     setEdges(editing.parent.edges);
+    history.current = editing.parentHistory;
+    bumpHistory();
     setEditing(null);
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.2 }), 50);
   };
@@ -380,6 +551,53 @@ function Editor() {
   const selected = nodes.filter((n) => n.selected && !isFixed(n.data.kind));
   const ready = catalogItems.length > 0;
   const selCount = selected.length;
+  const selEdges = edges.filter((e) => e.selected).length;
+
+  const editButtons = (
+    <span className="btn-group">
+      <button className="icon" onClick={undo} disabled={!history.current.canUndo} title="Annulla (Ctrl+Z)" aria-label="Annulla">
+        ↶
+      </button>
+      <button className="icon" onClick={redo} disabled={!history.current.canRedo} title="Ripeti (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Ripeti">
+        ↷
+      </button>
+      <button
+        onClick={deleteSelection}
+        disabled={selCount + selEdges === 0}
+        title="Elimina i pedali e i cavi selezionati (Canc)"
+      >
+        Elimina
+      </button>
+      <button onClick={tidy} title="Disponi i pedali in colonne nell'ordine del segnale">
+        Riordina
+      </button>
+    </span>
+  );
+
+  const menuItems = (m: NonNullable<Menu>): MenuItem[] => {
+    if ("edge" in m.target) {
+      const id = m.target.edge;
+      return [{ label: "Elimina cavo", hint: "Canc", danger: true, onClick: () => removeEdges([id]) }];
+    }
+    const node = nodes.find((n) => n.id === (m.target as { node: string }).node);
+    if (!node) return [];
+    const fixed = isFixed(node.data.kind);
+    const items: MenuItem[] = [];
+    if (node.data.kind.startsWith(PEDAL_PREFIX) && !editing) {
+      items.push({ label: "Entra nel pedale", hint: "doppio clic", onClick: () => enterPedal(node) });
+    }
+    items.push(
+      {
+        label: "Duplica",
+        hint: "Ctrl+D",
+        disabled: fixed,
+        onClick: () => duplicate([node.id]),
+      },
+      { label: "Scollega tutti i cavi", onClick: () => disconnect(node.id) },
+      { label: "Elimina pedale", hint: "Canc", danger: true, disabled: fixed, onClick: () => removeNodes([node.id]) },
+    );
+    return items;
+  };
 
   return (
     <EditorContext.Provider value={ctx}>
@@ -397,6 +615,7 @@ function Editor() {
             editing ? (
               <>
                 <span className="crumb">Dentro il pedale «{editing.name}»</span>
+                {editButtons}
                 <button onClick={() => setDialog({ mode: "edit" })}>Dettagli e manopole…</button>
                 <button className="primary" onClick={() => savePedalEdit()}>
                   Salva pedale
@@ -405,7 +624,8 @@ function Editor() {
               </>
             ) : (
               <>
-                <button onClick={duplicate} disabled={selCount === 0} title="Ctrl+D">
+                {editButtons}
+                <button onClick={() => duplicate()} disabled={selCount === 0} title="Ctrl+D">
                   Duplica
                 </button>
                 <button
@@ -436,6 +656,25 @@ function Editor() {
               }}
               isValidConnection={isValidConnection}
               onNodeDoubleClick={(_, n) => enterPedal(n)}
+              onNodeContextMenu={(e, n) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, target: { node: n.id } });
+              }}
+              onEdgeContextMenu={(e, edge) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, target: { edge: edge.id } });
+              }}
+              onEdgeDoubleClick={(_, edge) => removeEdges([edge.id])}
+              edgesReconnectable
+              onReconnectStart={() => {
+                reconnected.current = false;
+              }}
+              onReconnect={onReconnect}
+              onReconnectEnd={(_, edge) => {
+                if (!reconnected.current) removeEdges([edge.id]);
+                reconnected.current = true;
+              }}
+              onPaneClick={() => setMenu(null)}
               colorMode="dark"
               fitView
               minZoom={0.2}
@@ -480,6 +719,7 @@ function Editor() {
             onCancel={() => setDialog(null)}
           />
         )}
+        {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => setMenu(null)} />}
         <div className="toasts">
           {toasts.map((t) => (
             <div key={t.id} className="toast">
