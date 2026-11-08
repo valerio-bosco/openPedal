@@ -15,6 +15,8 @@ import {
 import { History, type Snapshot } from "./history";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import {
+  INPUT,
+  OUTPUT,
   PEDAL_IN,
   PEDAL_OUT,
   PEDAL_PREFIX,
@@ -233,6 +235,16 @@ function Editor() {
   }, [flow, tidy, bumpHistory]);
 
   tidyIfOverlappingRef.current = tidyIfOverlapping;
+
+  /** Grafo vuoto: solo Chitarra collegata all'Ampli (si sente il pulito). Si annulla con Ctrl+Z. */
+  const newGraph = useCallback(() => {
+    const nIn = specToNode({ id: "in", type: INPUT, pos: [0, 0], params: {} });
+    const nOut = specToNode({ id: "out", type: OUTPUT, pos: [300, 0], params: {} });
+    setNodes([nIn, nOut]);
+    setEdges([{ id: edgeId("in", "out"), source: "in", target: "out" }]);
+    setGraphName("nuovo");
+    window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.6, maxZoom: 1 }), 50);
+  }, [flow, setNodes, setEdges]);
 
   // --- cronologia: un'istantanea quando il grafo resta fermo per un attimo ---
   useEffect(() => {
@@ -624,6 +636,9 @@ function Editor() {
               </>
             ) : (
               <>
+                <button onClick={newGraph} title="Riparti da zero: solo Chitarra e Ampli (Ctrl+Z per tornare indietro)">
+                  Nuovo
+                </button>
                 {editButtons}
                 <button onClick={() => duplicate()} disabled={selCount === 0} title="Ctrl+D">
                   Duplica
