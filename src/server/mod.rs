@@ -4,7 +4,14 @@
 //! Così si sviluppa e si testa con un motore finto (MockEngine), e l'integrazione
 //! collega quello vero.
 
+mod app;
+mod assets;
+mod files;
+pub mod mock;
 pub mod protocol;
+
+pub use app::{run, ServerOptions};
+pub use files::list as list_presets;
 
 use anyhow::Result;
 
