@@ -245,46 +245,22 @@ The project has been built by an integrator (Opus) plus parallel agents (Sonnet 
 - **`formula` block:** DSP written as an expression (e.g. `tanh(x * drive) * 0.5`), compiled to a small bytecode when it changes and evaluated without allocations.
 - True stereo (wide reverb and chorus), MIDI (footswitches and controllers), state sync between several open clients (PC + phone), a native window with Tauri, packages and CI for the three OSes.
 
-## 9. Current tasks (2026-11-08)
+## 9. Status and next task (2026-11-08)
 
-Run in parallel, each in its own worktree; file ownership as listed. General rules: §6 and `CONTRIBUTING.md`.
+Done since §7: `fuzz` (gated Fuzz Factory style) and `octave` blocks, `presets/plug-in-baby.toml` (tuned
+on a real recording of the riff: the fuzz `gate` depends on the input level), the core split into a
+library with an `AudioBackend` trait and a C ABI (`src/ffi.rs`), and the iPad app (`ios/`, Swift shell +
+WKWebView on the Rust server) built from Linux with xtool and installed on a real iPad — see
+`ios/README.md`.
 
-### P1 · `fuzz` block (Sonnet) — owns `src/dsp/fuzz.rs`
+**Next: a touch-first frontend for tablets and phones.** The node editor works on the iPad but is
+designed for mouse and keyboard (small handles, right-click menus, vertical-drag knobs, a dense top bar).
+Plan the new frontend before coding: what a player needs on stage (preset switching, big knobs,
+bypass, tuner?) versus building pedals (keep the node editor, maybe tablet-only). It reuses the same
+WebSocket protocol (§5.4), so the backend should not need changes beyond small additions.
 
-Goal: the gated, sputtery fuzz of a Z.Vex Fuzz Factory (Muse, "Plug In Baby"). The current `drive` with `shape = "fuzz"` is a static curve: it saturates the same way at every level, with no gating. What is missing is **level-dependent behavior**: as a note decays the fuzz breaks up into "velcro" and then cuts off abruptly; louder picking clips harder and asymmetrically.
+Open issues: the server has no shutdown hook (`openpedal_stop` keeps it alive until the app exits);
+changes from one client are not broadcast to the others; mono signal path; Windows/macOS audio backend
+(E1, the `AudioBackend` trait exists); whammy/pitch shifter; `formula` block; stereo.
 
-`FUZZ_DESC` already exists (do not change ids/defaults/ranges): `drive`, `gate`, `comp`, `bias` (0..1), `tone_hz`, `level_db`. Suggested behavioral model (you may improve it, but document what you do):
-
-1. Input coupling high-pass (~80-150 Hz) — a Fuzz-Face-style input that tightens the lows.
-2. Pre-gain from `drive` (roughly +20..+50 dB, perceptually spread).
-3. **Starvation / gate:** a dead zone before the clipper, `u = sign(x) * max(|x| - d, 0)`, with `d` from `gate` scaled relative to the drive so that it acts on the decaying tail of notes. With high gain after it, decaying notes turn into narrowing pulses (sputter) and then silence. Make `d` follow a fast envelope slightly (bias drift) so the onset of a note "blooms".
-4. Asymmetric clipping with `bias` (e.g. `tanh(k*u + b) - tanh(b)` blended with a harder clipper by `comp`: low `comp` = smooth and compressed, high = harder/spikier).
-5. Run steps 3-4 at 4x with `oversample::Oversampler4` (see `drive.rs`).
-6. DC blocker, low-pass at `tone_hz`, `level_db`.
-7. `set_param` live for every parameter, smoothed where needed; no allocation in `process`/`set_param`.
-
-Tests (measure, don't just run): a decaying 220 Hz note gets cut off (output below -60 dBFS) earlier with `gate = 0.8` than with `gate = 0`, while `drive` on the same note keeps a gradual tail; output bounded and finite for 0 dBFS input at max drive; `bias > 0` produces even harmonics (2nd harmonic of a sine above -40 dB relative to the fundamental) and `bias = 0` doesn't; aliasing check like `drive.rs`; `set_param` changes the output.
-
-### P2 · `octave` block (Haiku) — owns `src/dsp/octave.rs`
-
-Analog octaver. `OCTAVE_DESC` already exists: `dry`, `down`, `up` (0..1 mix levels), `tone_hz`, `track_hz`.
-
-- **Tracking signal:** the input through a 2nd-order low-pass at `track_hz` (reuse the RBJ formulas: you may copy the lowpass coefficient code from `filter.rs` into a small private struct).
-- **Octave down (Boss OC-style divider):** a flip-flop `ff` (±1) toggles on every *rising* zero crossing of the tracking signal, with hysteresis (a crossing counts only after the signal went below `-h`, then above `+h`, with `h` = 2% of a slow envelope of the tracking signal). Octave-down voice = `ff * tracking_signal` (keeps the note's envelope).
-- **Octave up (Octavia-style):** `|tracking_signal|` minus its DC (a one-pole high-pass at ~20 Hz).
-- Both voices go through a 2nd-order low-pass at `tone_hz`. Output = `dry*x + down*voice_down + up*voice_up`.
-- `set_param` live (smoothed mixes with `Smoothed`, filters recomputed without allocating).
-
-Tests: a 220 Hz sine with `dry=0, down=1, up=0`: the magnitude at 110 Hz (single-bin DFT) is larger than at 220 Hz; with `dry=0, down=0, up=1`: 440 Hz dominates over 220 Hz; `dry=1, down=0, up=0`: output equals input; finite output on noise.
-
-### P3 · iPad core (Sonnet) — owns `Cargo.toml`, `flake.nix`, `src/lib.rs` (new), `src/ffi.rs` (new), `src/audio/**` (new), `ios/**` (new), and the module/`use` lines of `src/main.rs`, `src/engine.rs`, `src/live.rs` that the split requires. Must not change `src/dsp/**`, `src/graph/**`, `src/server/**` beyond `use` paths.
-
-Target architecture on iPad: **everything stays in Rust** (DSP, graph, server, UI assets); a thin Swift app (built later with [xtool](https://github.com/xtool-org/xtool) from Linux) opens the audio session (USB interface), calls into Rust for every audio buffer, and shows the UI in a `WKWebView` pointed at the Rust server on `127.0.0.1`.
-
-1. **Library split:** move everything except the CLI into a library crate (`src/lib.rs`), keep `src/main.rs` as the desktop binary. Add `crate-type = ["rlib", "staticlib"]`.
-2. **Audio backend abstraction:** the real-time `Runner` in `engine.rs` is already independent of JACK. Make the JACK client one backend (`src/audio/jack.rs`, Linux only via `cfg`); `jack` becomes a Linux-only dependency. `LiveEngine` must work with any backend.
-3. **C ABI for hosts that own the audio callback** (`src/ffi.rs`): e.g. `openpedal_start(sample_rate, max_frames, data_dir, port) -> *mut Handle` (builds the engine with the preset in `data_dir`, starts the UI server on `127.0.0.1:port` in a background thread), `openpedal_process(handle, input, output, frames)` (real-time safe: just runs the `Runner`), `openpedal_stop(handle)`. Generate or hand-write `ios/OpenPedalCore/include/openpedal.h`.
-4. **Cross-compilation check:** add the Rust std for `aarch64-apple-ios` to the dev shell (e.g. switch the flake's Rust to `rust-overlay` or `fenix` with that target, keeping the current stable version) and make `cargo build --lib --release --target aarch64-apple-ios` succeed on Linux (a staticlib needs no Apple linker). Desktop builds/tests must keep working and the binary must still embed the UI.
-5. **Swift shell draft** in `ios/` (SwiftPM package + `xtool.yml`, not buildable yet without the Apple SDK): `AVAudioSession` (`.playAndRecord`, `.measurement` mode, preferred IO buffer ~2-3 ms, input from the USB interface), `AVAudioEngine` with a source/sink calling `openpedal_process`, a `WKWebView` on `http://127.0.0.1:<port>`, `Info.plist` with the microphone usage description and `UIBackgroundModes: audio`. Write `ios/README.md` with the exact build steps with xtool (Swift 6.4 toolchain, Xcode.xip, usbmuxd, Developer Mode on the iPad) — the integrator will run them with the user.
-
-Tests: everything that passes today still passes; a test for the FFI that calls start/process/stop on a buffer with the mock data dir (no audio device).
+UI regression tests: `tools/e2e/run.sh` (inside `nix develop`, after `cargo build --release`).

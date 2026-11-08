@@ -1,0 +1,27 @@
+const PORT = process.argv[2];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const page = (await (await fetch("http://127.0.0.1:9333/json")).json()).find((t) => t.type === "page");
+const ws = new WebSocket(page.webSocketDebuggerUrl); await new Promise((r) => (ws.onopen = r));
+let id = 0; const pend = new Map();
+ws.onmessage = (e) => { const m = JSON.parse(e.data); pend.get(m.id)?.(m); };
+const cdp = (method, params = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+const ev = async (x) => (await cdp("Runtime.evaluate", { expression: x, returnByValue: true })).result.result.value;
+const count = () => ev("[document.querySelectorAll('.react-flow__node').length, document.querySelectorAll('.react-flow__edge').length]");
+const serverGraph = () => new Promise((res) => { const s = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, { headers: { Origin: `http://127.0.0.1:${PORT}` } });
+  s.onopen = () => s.send('{"type":"hello"}'); s.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "state") { s.close(); res([m.graph.node.length, m.graph.edge.length, m.graph.node.map(n=>n.type).join(",")]); } }; });
+let fail = 0; const check = (c, m, x = "") => { console.log((c ? "ok   " : "FAIL ") + m, x); if (!c) fail++; };
+await sleep(2500);
+const start = await count();
+await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='New').click()`); await sleep(800);
+let c = await count(); check(c[0] === 2 && c[1] === 1, "New: only Guitar → Amp", JSON.stringify(c));
+const sg = await serverGraph(); check(sg[0] === 2 && sg[1] === 1, "the engine plays the empty graph", JSON.stringify(sg));
+await ev(`[...document.querySelectorAll('.react-flow__node')].length`);
+// add a pedal by double-clicking it in the palette
+await ev(`[...document.querySelectorAll('.palette-item, [class*=palette] button, [class*=palette] div')].find(e=>e.textContent.trim()==='Drive')?.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`); await sleep(600);
+c = await count(); check(c[0] === 3, "pedals can be added to the empty graph", JSON.stringify(c));
+await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 2, windowsVirtualKeyCode: 90 }); await sleep(500);
+await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 2, windowsVirtualKeyCode: 90 }); await sleep(800);
+c = await count(); check(c[0] === start[0] && c[1] === start[1], "Ctrl+Z twice returns to the previous preset", JSON.stringify(c));
+const nm = await ev(`document.querySelector('.preset select').value`);
+check(nm === "clean", "after undo the menu shows the preset again", nm);
+console.log(fail ? "checks failed" : "all checks passed"); process.exit(fail ? 1 : 0);

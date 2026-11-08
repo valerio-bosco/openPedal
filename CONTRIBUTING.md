@@ -19,6 +19,7 @@ Without Nix you need Rust, Node.js, JACK development files and, on Linux with Pi
 
 - `cargo test` passes and `cargo clippy --all-targets` has no warnings.
 - If you changed `ui/`: `npm run build` passes (it includes the TypeScript check).
+- If you changed the UI behavior: `tools/e2e/run.sh` passes (headless Chromium tests; keep the button labels they rely on or update the tests).
 - If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures ui/src/fixtures` and keep `ui/src/protocol.ts` in sync.
 - New behavior comes with a test. DSP tests should measure something (levels, frequencies, timing), not just "it runs".
 

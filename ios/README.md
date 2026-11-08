@@ -1,6 +1,6 @@
 # openPedal for iPad
 
-Status: **draft, never built on a real device yet.** The Rust side (staticlib, C ABI) is built and tested on Linux; the Swift shell has not been compiled because it needs the Apple SDK. Expect small fixes on the first build.
+Status: **builds and installs on a real iPad** (2026-11-08). The UI is the desktop node editor and is not touch-friendly yet: a tablet/phone frontend is the next task (docs/PLAN.md §9).
 
 ## How it works
 
@@ -32,32 +32,38 @@ Status: **draft, never built on a real device yet.** The Rust side (staticlib, C
 | `Sources/OpenPedalApp/` | `App.swift`, `AudioHost.swift`, `WebView.swift` |
 | `scripts/build-core.sh` | UI build + `cargo build --lib --release --target aarch64-apple-ios` + copies |
 
-## Build with xtool (from Linux)
+## Build with xtool (from Linux) — verified on 2026-11-08
 
-Reference: <https://github.com/xtool-org/xtool> (check its docs if a command below has changed).
+Verified on NixOS with an iPad Air 5 (iPadOS 26.2.1), xtool 1.24.0, Swift 6.4.2 and Xcode 27.2.
+xtool runs in a Docker container (`ios/docker/Dockerfile`, official Swift 6.4 image), because
+nixpkgs ships an older Swift: `ios/scripts/xtool.sh <args>` runs it with the host's usbmuxd socket,
+the repository and a persistent home (`~/.local/share/openpedal-xtool`: Darwin SDK ~7 GB in
+`.swiftpm/`, Apple ID session in `.config/xtool/`).
 
 One-time setup:
 
-1. Install the **Swift toolchain** (6.x) for Linux, and `usbmuxd` + `libimobiledevice` tools (on NixOS: `services.usbmuxd.enable = true;`). Make sure `swift --version` works.
-2. Install **xtool** (release binary or AppImage from its GitHub releases) and put it in `PATH`.
-3. Get **Xcode.xip** from <https://developer.apple.com/download/all/> (free Apple ID; pick an Xcode version supported by xtool) and run `xtool setup`. It asks for the Apple ID sign-in (used for free development signing) and the path to Xcode.xip, and extracts the Darwin SDK into `~/.xtool`.
-4. On the iPad: **Settings > Privacy & Security > Developer Mode** on (it reboots). Connect it with USB-C and tap *Trust*.
-5. Check with `xtool devices` that the iPad is listed.
+1. Host: `services.usbmuxd.enable = true;` (NixOS) and `libimobiledevice` for `ideviceinfo`; Docker.
+2. Download **Xcode.xip** with a free Apple ID from <https://developer.apple.com/download/all/>, then
+   `ios/scripts/xtool.sh sdk install /downloads/<Xcode file>.xip` (`~/Downloads` is mounted on `/downloads`).
+3. `ios/scripts/xtool.sh auth login` (interactive: Apple ID, password, 2FA code).
+4. iPad on USB-C, unlocked, *Trust* the computer. Developer Mode: `idevicedevmodectl reveal`, then
+   Settings > Privacy & Security > Developer Mode (reboots). Check with `idevicedevmodectl list` → `enabled`.
 
-Every build:
+Every build (iPad connected and unlocked):
 
 ```sh
-# 1. Rust core (UI embedded) + bundled presets, inside the dev shell
-nix develop -c ios/scripts/build-core.sh
-
-# 2. Swift shell: build, sign with your Apple ID, install and launch on the iPad
-cd ios
-xtool dev
+nix develop -c ios/scripts/build-core.sh   # Rust staticlib (UI embedded) + bundled presets/pedals
+ios/scripts/xtool.sh dev                   # build, sign, install, launch
 ```
 
-`xtool dev build` only builds; `xtool dev run` runs the last build. Free Apple IDs sign apps for 7 days: re-run `xtool dev` weekly. The first run asks you to trust the developer profile on the iPad (Settings > General > VPN & Device Management). Allow the microphone when asked: iOS treats USB audio inputs as a microphone.
+First launch on the iPad: Settings > General > VPN & Device Management > trust your Apple ID; allow the
+microphone (iOS treats USB audio inputs as a microphone). Then unplug the iPad from the computer and plug
+the audio interface into it. Free Apple IDs sign for 7 days: reconnect and re-run `xtool.sh dev`.
 
-Simulator build of the core (no audio device there, only for UI checks): `TARGET=aarch64-apple-ios-sim nix develop -c ios/scripts/build-core.sh`.
+Troubleshooting:
+- `Mux error (-8)` / `LockdownClient.Error.muxError`: after an iPad reboot the stored pairing can become
+  invalid. Unlock the iPad with the passcode, then `sudo systemctl restart usbmuxd`, replug, *Trust* again.
+- The app needs iOS 17 (`AVAudioApplication`); `Package.swift` targets `.iOS(.v17)`.
 
 ## Known unknowns (first build)
 
