@@ -3,7 +3,7 @@ use anyhow::Result;
 use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
 use super::{db_to_lin, one_pole_coef, Block, Smoothed};
 
-// ---- Gain: esempio di riferimento di un blocco migrato -------------------------
+// ---- Gain: reference example of a migrated block -------------------------------
 
 pub const GAIN_DESC: BlockDesc = BlockDesc {
     kind: "gain",
@@ -42,14 +42,14 @@ pub const GATE_DESC: BlockDesc = BlockDesc {
     label: "Noise gate",
     category: Category::Dynamics,
     params: &[
-        ParamDesc::number("threshold_db", "Soglia", -90.0, 0.0, -60.0, "dB"),
-        ParamDesc::log("attack_ms", "Attacco", 0.1, 50.0, 0.5, "ms"),
-        ParamDesc::log("hold_ms", "Tenuta", 1.0, 500.0, 40.0, "ms"),
-        ParamDesc::log("release_ms", "Rilascio", 5.0, 2000.0, 80.0, "ms"),
+        ParamDesc::number("threshold_db", "Threshold", -90.0, 0.0, -60.0, "dB"),
+        ParamDesc::log("attack_ms", "Attack", 0.1, 50.0, 0.5, "ms"),
+        ParamDesc::log("hold_ms", "Hold", 1.0, 500.0, 40.0, "ms"),
+        ParamDesc::log("release_ms", "Release", 5.0, 2000.0, 80.0, "ms"),
     ],
 };
 
-// Indici dei parametri in GATE_DESC.
+// Parameter indices in GATE_DESC.
 const GATE_THRESHOLD: usize = 0;
 const GATE_ATTACK: usize = 1;
 const GATE_HOLD: usize = 2;
@@ -66,8 +66,8 @@ pub fn build_gate(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     Ok(Box::new(Gate::new(&params, sr)))
 }
 
-/// Noise gate: chiude il segnale sotto soglia, per eliminare il fruscio
-/// quando non suoni (indispensabile prima di un drive).
+/// Noise gate: closes the signal below the threshold, to remove hiss
+/// when you are not playing (essential before a drive).
 #[derive(Debug, Clone)]
 pub struct GateParams {
     pub threshold_db: f32,
@@ -100,7 +100,7 @@ impl Gate {
         Self {
             sr,
             open_thr: db_to_lin(p.threshold_db),
-            // Isteresi di 6 dB: evita che il gate "balbetti" attorno alla soglia.
+            // 6 dB hysteresis: stops the gate from "chattering" around the threshold.
             close_thr: db_to_lin(p.threshold_db - 6.0),
             env: 0.0,
             env_coef: one_pole_coef(10.0, sr),
@@ -161,8 +161,8 @@ mod gate_tests {
     }
 
     #[test]
-    fn set_param_cambia_la_soglia_dal_vivo() {
-        // Un segnale a -40 dB passa con soglia -60, ma viene chiuso con soglia -30.
+    fn set_param_changes_threshold_live() {
+        // A signal at -40 dB passes with threshold -60, but is closed with threshold -30.
         let mut g = Gate::new(&GateParams::default(), SR);
         let mut buf = sine(220.0, 0.01, 9600);
         g.process(&mut buf);

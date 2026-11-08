@@ -1,4 +1,4 @@
-//! Riverbero Freeverb mono (task D3, vedi docs/PLAN.md §7).
+//! Mono Freeverb reverb (task D3, see docs/PLAN.md §7).
 
 use std::f32::consts::TAU;
 
@@ -9,14 +9,14 @@ use super::{Block, Smoothed};
 
 pub const REVERB_DESC: BlockDesc = BlockDesc {
     kind: "reverb",
-    label: "Riverbero",
+    label: "Reverb",
     category: Category::Time,
     params: &[
-        ParamDesc::number("room", "Stanza", 0.0, 1.0, 0.5, ""),
-        ParamDesc::number("damp", "Smorzamento", 0.0, 1.0, 0.5, ""),
+        ParamDesc::number("room", "Room", 0.0, 1.0, 0.5, ""),
+        ParamDesc::number("damp", "Damping", 0.0, 1.0, 0.5, ""),
         ParamDesc::number("mix", "Mix", 0.0, 1.0, 0.25, ""),
         ParamDesc::number("predelay_ms", "Pre-delay", 0.0, 100.0, 10.0, "ms"),
-        ParamDesc::log("width_hz", "Tono", 2000.0, 12000.0, 8000.0, "Hz"),
+        ParamDesc::log("width_hz", "Tone", 2000.0, 12000.0, 8000.0, "Hz"),
     ],
 };
 
@@ -26,14 +26,14 @@ const MIX: usize = 2;
 const PREDELAY: usize = 3;
 const WIDTH: usize = 4;
 
-/// Lunghezze originali di Freeverb a 44,1 kHz (campioni).
+/// Original Freeverb lengths at 44.1 kHz (samples).
 const COMB_LENGTHS: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
 const ALLPASS_LENGTHS: [usize; 4] = [556, 441, 341, 225];
 const SAMPLE_RATE_REF: f32 = 44100.0;
 
-/// Guadagno d'ingresso del ramo riverbero (come in Freeverb).
+/// Input gain of the reverb branch (as in Freeverb).
 const FIXED_GAIN: f32 = 0.015;
-/// Il ramo riverbero esce molto più piccolo del secco: come in Freeverb lo si scala di 3.
+/// The reverb branch comes out much quieter than the dry signal: as in Freeverb it is scaled by 3.
 const WET_SCALE: f32 = 3.0;
 const ALLPASS_FEEDBACK: f32 = 0.5;
 const PREDELAY_MAX_MS: f32 = 100.0;
@@ -43,7 +43,7 @@ fn scale_len(len: usize, sr: f32) -> usize {
     ((len as f32) * sr / SAMPLE_RATE_REF).round().max(1.0) as usize
 }
 
-/// Linea di pre-delay: come `DelayLine` (lettura frazionaria), ma azzerabile senza riallocare.
+/// Pre-delay line: like `DelayLine` (fractional reads), but can be cleared without reallocating.
 struct PreDelay {
     buf: Vec<f32>,
     write: usize,
@@ -60,7 +60,7 @@ impl PreDelay {
         self.write = (self.write + 1) % self.buf.len();
     }
 
-    /// Campione di `delay` campioni fa; va letto prima di `push` (ritardo minimo 1).
+    /// Sample from `delay` samples ago; must be read before `push` (minimum delay 1).
     #[inline]
     fn read(&self, delay: f32) -> f32 {
         let len = self.buf.len();
@@ -74,7 +74,7 @@ impl PreDelay {
     }
 }
 
-/// Filtro comb con passa-basso nella retroazione (smorzamento).
+/// Comb filter with a low-pass in the feedback (damping).
 struct Comb {
     buf: Vec<f32>,
     idx: usize,
@@ -98,7 +98,7 @@ impl Comb {
     }
 }
 
-/// Filtro allpass di diffusione.
+/// Diffusion allpass filter.
 struct Allpass {
     buf: Vec<f32>,
     idx: usize,
@@ -121,7 +121,7 @@ impl Allpass {
 
 pub fn build_reverb(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     let p = REVERB_DESC.params;
-    // Il pre-delay si alloca per il massimo (100 ms).
+    // The pre-delay is allocated for the maximum (100 ms).
     let mut reverb = Reverb {
         predelay: PreDelay::new((PREDELAY_MAX_MS * 0.001 * sr).ceil() as usize),
         pre: Smoothed::new(v.number(&p[PREDELAY]) * 0.001 * sr, SMOOTH_MS, sr),
@@ -140,11 +140,11 @@ pub fn build_reverb(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
 
 pub struct Reverb {
     predelay: PreDelay,
-    /// Pre-delay in campioni.
+    /// Pre-delay in samples.
     pre: Smoothed,
     combs: Vec<Comb>,
     allpasses: Vec<Allpass>,
-    /// Passa-basso finale (tono del riverbero).
+    /// Final low-pass (reverb tone).
     lp: f32,
     lp_coef: f32,
     sr: f32,
@@ -155,7 +155,7 @@ impl Block for Reverb {
     fn process(&mut self, buf: &mut [f32]) {
         for s in buf {
             let dry = *s;
-            // Lettura prima della scrittura: il ritardo minimo è di 1 campione.
+            // Read before write: the minimum delay is 1 sample.
             let early = self.predelay.read(self.pre.next());
             self.predelay.push(dry);
 
@@ -197,7 +197,7 @@ impl Block for Reverb {
     }
 
     fn reset(&mut self) {
-        // Riempie di zeri i buffer esistenti: nessuna riallocazione.
+        // Fills the existing buffers with zeros: no reallocation.
         self.predelay.buf.fill(0.0);
         for comb in &mut self.combs {
             comb.buf.fill(0.0);
@@ -228,7 +228,7 @@ mod tests {
         build_reverb(&v, SR).unwrap()
     }
 
-    /// Risposta a un impulso (mix = 1, quindi si sente solo il riverbero).
+    /// Impulse response (mix = 1, so only the reverb is heard).
     fn impulse_response(block: &mut dyn Block, secs: f32) -> Vec<f32> {
         let mut buf = vec![0.0; (secs * SR) as usize];
         buf[0] = 1.0;
@@ -241,27 +241,27 @@ mod tests {
     }
 
     #[test]
-    fn la_coda_dell_impulso_decade() {
+    fn impulse_tail_decays() {
         let mut block = build(0.5, 0.5, 1.0, 0.0, 8000.0);
         let out = impulse_response(block.as_mut(), 1.6);
         let early = energy(&out, 0.1, 0.6);
         let late = energy(&out, 1.0, 1.5);
-        assert!(early > 0.0, "nessuna coda");
-        assert!(late < early, "la coda non decade: tardi {late}, prima {early}");
+        assert!(early > 0.0, "no tail");
+        assert!(late < early, "the tail does not decay: late {late}, early {early}");
     }
 
     #[test]
-    fn mix_zero_e_il_segnale_secco() {
+    fn mix_zero_is_the_dry_signal() {
         let input: Vec<f32> = (0..4800).map(|i| 0.5 * (TAU * 220.0 * i as f32 / SR).sin()).collect();
         let mut block = build(0.5, 0.5, 0.0, 10.0, 8000.0);
         let mut out = input.clone();
         block.process(&mut out);
         let max_diff = input.iter().zip(&out).fold(0.0f32, |m, (a, b)| m.max((a - b).abs()));
-        assert!(max_diff < 1e-6, "differenza {max_diff}");
+        assert!(max_diff < 1e-6, "difference {max_diff}");
     }
 
     #[test]
-    fn rumore_a_zero_dbfs_non_produce_nan() {
+    fn full_scale_noise_produces_no_nan() {
         let mut seed: u32 = 12345;
         let mut buf: Vec<f32> = (0..(10.0 * SR) as usize)
             .map(|_| {
@@ -273,18 +273,18 @@ mod tests {
         for chunk in buf.chunks_mut(512) {
             block.process(chunk);
         }
-        assert!(buf.iter().all(|s| s.is_finite()), "NaN o infiniti");
+        assert!(buf.iter().all(|s| s.is_finite()), "NaN or infinite values");
         let peak = buf.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-        assert!(peak.is_finite(), "picco {peak}");
+        assert!(peak.is_finite(), "peak {peak}");
     }
 
     #[test]
-    fn set_param_room_allunga_la_coda() {
-        let mut corta = build(0.0, 0.5, 1.0, 0.0, 8000.0);
-        let mut cambiata = build(0.0, 0.5, 1.0, 0.0, 8000.0);
-        cambiata.set_param(ROOM, 1.0);
-        let e_corta = energy(&impulse_response(corta.as_mut(), 1.6), 1.0, 1.5);
-        let e_cambiata = energy(&impulse_response(cambiata.as_mut(), 1.6), 1.0, 1.5);
-        assert!(e_cambiata > 100.0 * e_corta, "room non cambia la coda: {e_corta} -> {e_cambiata}");
+    fn set_param_room_lengthens_tail() {
+        let mut short = build(0.0, 0.5, 1.0, 0.0, 8000.0);
+        let mut changed = build(0.0, 0.5, 1.0, 0.0, 8000.0);
+        changed.set_param(ROOM, 1.0);
+        let e_short = energy(&impulse_response(short.as_mut(), 1.6), 1.0, 1.5);
+        let e_changed = energy(&impulse_response(changed.as_mut(), 1.6), 1.0, 1.5);
+        assert!(e_changed > 100.0 * e_short, "room does not change the tail: {e_short} -> {e_changed}");
     }
 }

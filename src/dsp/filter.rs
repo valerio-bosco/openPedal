@@ -7,23 +7,23 @@ use super::Block;
 
 pub const FILTER_DESC: BlockDesc = BlockDesc {
     kind: "filter",
-    label: "Filtro / EQ",
+    label: "Filter / EQ",
     category: Category::Filter,
     params: &[
         ParamDesc::choice(
             "kind",
-            "Tipo",
+            "Type",
             &["lowpass", "highpass", "bandpass", "notch", "peak", "lowshelf", "highshelf"],
             0,
         ),
-        ParamDesc::log("freq", "Frequenza", 20.0, 20000.0, 1000.0, "Hz"),
+        ParamDesc::log("freq", "Frequency", 20.0, 20000.0, 1000.0, "Hz"),
         ParamDesc::log("q", "Q", 0.1, 20.0, 0.707, ""),
-        // Usato solo da peak, lowshelf e highshelf.
-        ParamDesc::number("gain_db", "Guadagno", -24.0, 24.0, 0.0, "dB"),
+        // Only used by peak, lowshelf and highshelf.
+        ParamDesc::number("gain_db", "Gain", -24.0, 24.0, 0.0, "dB"),
     ],
 };
 
-// Indici dei parametri in FILTER_DESC.
+// Parameter indices in FILTER_DESC.
 const KIND: usize = 0;
 const FREQ: usize = 1;
 const Q: usize = 2;
@@ -52,7 +52,7 @@ pub enum FilterKind {
 }
 
 impl FilterKind {
-    /// Nello stesso ordine delle scelte in FILTER_DESC.
+    /// Same order as the choices in FILTER_DESC.
     pub const ALL: [FilterKind; 7] = [
         FilterKind::Lowpass,
         FilterKind::Highpass,
@@ -69,7 +69,7 @@ pub struct FilterParams {
     pub kind: FilterKind,
     pub freq: f32,
     pub q: f32,
-    /// Usato solo da peak, lowshelf e highshelf.
+    /// Only used by peak, lowshelf and highshelf.
     pub gain_db: f32,
 }
 
@@ -79,7 +79,7 @@ impl Default for FilterParams {
     }
 }
 
-/// Coefficienti normalizzati (a0 = 1) del biquad.
+/// Normalized biquad coefficients (a0 = 1).
 #[derive(Debug, Clone, Copy)]
 struct Coefs {
     b0: f32,
@@ -89,11 +89,11 @@ struct Coefs {
     a2: f32,
 }
 
-/// Biquad (formule "Audio EQ Cookbook" di R. Bristow-Johnson),
-/// forma diretta II trasposta.
+/// Biquad ("Audio EQ Cookbook" formulas by R. Bristow-Johnson),
+/// transposed direct form II.
 pub struct Biquad {
-    /// Parametri chiesti da set_param e parametri effettivi, che li raggiungono
-    /// gradualmente: uno sweep della manopola non deve fare click.
+    /// Parameters requested by set_param and the effective parameters, which reach them
+    /// gradually: sweeping the knob must not click.
     target: FilterParams,
     current: FilterParams,
     glide: f32,
@@ -103,7 +103,7 @@ pub struct Biquad {
     z2: f32,
 }
 
-/// Ogni quanti campioni si ricalcolano i coefficienti durante uno sweep.
+/// Every how many samples the coefficients are recomputed during a sweep.
 const GLIDE_STEP: usize = 16;
 
 impl Biquad {
@@ -111,7 +111,7 @@ impl Biquad {
         Self {
             target: p.clone(),
             current: p.clone(),
-            // circa 20 ms per arrivare a destinazione
+            // about 20 ms to reach the target
             glide: (-(GLIDE_STEP as f32) / (0.02 * sr)).exp(),
             sr,
             c: coefficients(p, sr),
@@ -120,7 +120,7 @@ impl Biquad {
         }
     }
 
-    /// Avvicina i parametri effettivi a quelli chiesti; true se sono cambiati.
+    /// Moves the effective parameters toward the requested ones; true if they changed.
     fn glide(&mut self) -> bool {
         let (t, c, k) = (&self.target, &mut self.current, self.glide);
         if t.freq == c.freq && t.q == c.q && t.gain_db == c.gain_db {
@@ -132,7 +132,7 @@ impl Biquad {
             c.q = t.q;
             c.gain_db = t.gain_db;
         } else {
-            // la frequenza si muove in scala logaritmica, come la si sente
+            // frequency moves on a logarithmic scale, as it is heard
             c.freq = (t.freq.ln() + (c.freq.ln() - t.freq.ln()) * k).exp();
             c.q = t.q + (c.q - t.q) * k;
             c.gain_db = t.gain_db + (c.gain_db - t.gain_db) * k;
@@ -141,7 +141,7 @@ impl Biquad {
     }
 }
 
-/// Calcolo dei coefficienti: non alloca, quindi è sicuro anche in `set_param`.
+/// Coefficient computation: does not allocate, so it is also safe in `set_param`.
 fn coefficients(p: &FilterParams, sr: f32) -> Coefs {
     let freq = p.freq.clamp(10.0, sr * 0.45);
     let q = p.q.max(0.05);
@@ -208,7 +208,7 @@ impl Block for Biquad {
 
     fn set_param(&mut self, index: usize, value: f32) {
         match index {
-            // cambiare tipo è comunque un salto: lo si applica subito
+            // changing the type is a jump anyway: it is applied immediately
             KIND => {
                 let kind = FilterKind::ALL[(value as usize).min(FilterKind::ALL.len() - 1)];
                 self.target.kind = kind;
@@ -238,24 +238,24 @@ mod tests {
     }
 
     #[test]
-    fn set_param_cambia_la_frequenza_dal_vivo() {
+    fn set_param_changes_frequency_live() {
         let mut f = Biquad::new(&FilterParams { freq: 1000.0, ..Default::default() }, SR);
         let mut buf = sine(1000.0, 1.0, 0, 9600);
         f.process(&mut buf);
         let before = peak(&buf[4800..]);
-        assert!(before > 0.6, "con freq 1000 il seno a 1 kHz passa: {before}");
+        assert!(before > 0.6, "with freq 1000 the 1 kHz sine passes: {before}");
 
         f.set_param(FREQ, 200.0);
         let mut buf = sine(1000.0, 1.0, 9600, 9600);
         f.process(&mut buf);
         let after = peak(&buf[4800..]);
-        assert!(after < 0.1, "con freq 200 il seno a 1 kHz deve attenuarsi: {after}");
+        assert!(after < 0.1, "with freq 200 the 1 kHz sine must be attenuated: {after}");
     }
 
     #[test]
-    fn lo_sweep_della_frequenza_non_fa_salti() {
-        // Seno a 300 Hz in un passa-basso che scende di colpo da 8 kHz a 400 Hz:
-        // l'uscita deve cambiare gradualmente, senza discontinuità.
+    fn frequency_sweep_has_no_jumps() {
+        // 300 Hz sine through a low-pass that suddenly drops from 8 kHz to 400 Hz:
+        // the output must change gradually, without discontinuities.
         let mut f = Biquad::new(&FilterParams { freq: 8000.0, ..Default::default() }, SR);
         let n = 9600;
         let mut buf: Vec<f32> = (0..n).map(|i| (std::f32::consts::TAU * 300.0 * i as f32 / SR).sin() * 0.5).collect();
@@ -263,7 +263,7 @@ mod tests {
         f.set_param(FREQ, 400.0);
         f.process(&mut buf[4800..]);
         let max_step = buf.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
-        // la pendenza massima di un seno a 300 Hz di ampiezza 0,5 è circa 0,02 per campione
-        assert!(max_step < 0.03, "salto {max_step}");
+        // the maximum slope of a 300 Hz sine of amplitude 0.5 is about 0.02 per sample
+        assert!(max_step < 0.03, "jump {max_step}");
     }
 }

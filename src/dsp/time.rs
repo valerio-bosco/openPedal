@@ -11,23 +11,23 @@ pub const DELAY_DESC: BlockDesc = BlockDesc {
     label: "Delay",
     category: Category::Time,
     params: &[
-        ParamDesc::log("time_ms", "Tempo", 10.0, 2000.0, 350.0, "ms"),
-        ParamDesc::number("feedback", "Ripetizioni", 0.0, 0.98, 0.35, ""),
-        // 0 = solo segnale pulito, 1 = solo eco.
+        ParamDesc::log("time_ms", "Time", 10.0, 2000.0, 350.0, "ms"),
+        ParamDesc::number("feedback", "Feedback", 0.0, 0.98, 0.35, ""),
+        // 0 = dry signal only, 1 = echo only.
         ParamDesc::number("mix", "Mix", 0.0, 1.0, 0.3, ""),
-        // Le ripetizioni si scuriscono sopra questa frequenza (stile analogico).
-        ParamDesc::log("damp_hz", "Tono eco", 200.0, 20000.0, 5000.0, "Hz"),
+        // Repeats get darker above this frequency (analog style).
+        ParamDesc::log("damp_hz", "Echo tone", 200.0, 20000.0, 5000.0, "Hz"),
     ],
 };
 
-/// Memoria del delay: il massimo di `DELAY_DESC`.
+/// Delay memory: the maximum of `DELAY_DESC`.
 const DELAY_MAX_MS: f32 = 2000.0;
-/// Memoria del chorus: base + profondità non possono superarla.
+/// Chorus memory: base + depth cannot exceed it.
 const CHORUS_MAX_MS: f32 = 50.0;
-/// Tempo di avvicinamento dei parametri cambiati dal vivo che saltano (ritardi).
+/// Glide time for the live-changed parameters that jump (delays).
 const GLIDE_MS: f32 = 50.0;
 
-// Indici dei parametri in DELAY_DESC e CHORUS_DESC.
+// Parameter indices in DELAY_DESC and CHORUS_DESC.
 const DELAY_TIME: usize = 0;
 const DELAY_FEEDBACK: usize = 1;
 const DELAY_MIX: usize = 2;
@@ -54,10 +54,10 @@ pub const CHORUS_DESC: BlockDesc = BlockDesc {
     label: "Chorus",
     category: Category::Modulation,
     params: &[
-        ParamDesc::log("rate_hz", "Velocità", 0.05, 10.0, 0.8, "Hz"),
-        ParamDesc::number("base_ms", "Ritardo", 1.0, 30.0, 12.0, "ms"),
-        // Escursione della modulazione (limitata a meno di base_ms).
-        ParamDesc::number("depth_ms", "Profondità", 0.0, 15.0, 3.0, "ms"),
+        ParamDesc::log("rate_hz", "Rate", 0.05, 10.0, 0.8, "Hz"),
+        ParamDesc::number("base_ms", "Delay", 1.0, 30.0, 12.0, "ms"),
+        // Modulation excursion (limited to less than base_ms).
+        ParamDesc::number("depth_ms", "Depth", 0.0, 15.0, 3.0, "ms"),
         ParamDesc::number("mix", "Mix", 0.0, 1.0, 0.5, ""),
     ],
 };
@@ -73,7 +73,7 @@ pub fn build_chorus(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     Ok(Box::new(Chorus::new(&params, sr)))
 }
 
-/// Linea di ritardo circolare con lettura frazionaria (interpolazione lineare).
+/// Circular delay line with fractional reads (linear interpolation).
 pub struct DelayLine {
     buf: Vec<f32>,
     write: usize,
@@ -90,7 +90,7 @@ impl DelayLine {
         self.write = (self.write + 1) % self.buf.len();
     }
 
-    /// Legge il campione di `delay` campioni fa (1.0 = l'ultimo scritto).
+    /// Reads the sample from `delay` samples ago (1.0 = the last one written).
     #[inline]
     pub fn read(&self, delay: f32) -> f32 {
         let len = self.buf.len();
@@ -108,9 +108,9 @@ impl DelayLine {
 pub struct DelayParams {
     pub time_ms: f32,
     pub feedback: f32,
-    /// 0 = solo segnale pulito, 1 = solo eco.
+    /// 0 = dry signal only, 1 = echo only.
     pub mix: f32,
-    /// Le ripetizioni si scuriscono sopra questa frequenza (stile analogico).
+    /// Repeats get darker above this frequency (analog style).
     pub damp_hz: f32,
 }
 
@@ -123,8 +123,8 @@ impl Default for DelayParams {
 pub struct Delay {
     line: DelayLine,
     sr: f32,
-    /// Ritardo in campioni che si avvicina al valore richiesto con un glide.
-    /// Il glide è in f64: con f32 si fermerebbe a qualche campione dal bersaglio.
+    /// Delay in samples that approaches the requested value with a glide.
+    /// The glide is in f64: with f32 it would stop a few samples short of the target.
     delay_cur: f64,
     delay_target: f64,
     delay_coef: f64,
@@ -181,9 +181,9 @@ impl Block for Delay {
 #[derive(Debug, Clone)]
 pub struct ChorusParams {
     pub rate_hz: f32,
-    /// Ritardo centrale in ms.
+    /// Center delay in ms.
     pub base_ms: f32,
-    /// Escursione della modulazione in ms (deve essere minore di base_ms).
+    /// Modulation excursion in ms (must be less than base_ms).
     pub depth_ms: f32,
     pub mix: f32,
 }
@@ -198,17 +198,17 @@ pub struct Chorus {
     line: DelayLine,
     lfo: Lfo,
     sr: f32,
-    /// Valori richiesti (prima dei limiti), per ricalcolare i ritardi.
+    /// Requested values (before the limits), used to recompute the delays.
     base_ms: f32,
     depth_ms: f32,
-    /// Ritardi in campioni, con glide.
+    /// Delays in samples, with glide.
     base: Smoothed,
     depth: Smoothed,
     mix: Smoothed,
 }
 
-/// Ritardo centrale e profondità in campioni, limitati in modo che la somma
-/// stia nella memoria preallocata di `CHORUS_MAX_MS`.
+/// Center delay and depth in samples, limited so that their sum
+/// fits in the preallocated memory of `CHORUS_MAX_MS`.
 fn chorus_delays(base_ms: f32, depth_ms: f32, sr: f32) -> (f32, f32) {
     let base = base_ms.clamp(1.0, CHORUS_MAX_MS);
     let depth = depth_ms.clamp(0.0, (base * 0.95).min(CHORUS_MAX_MS - base));
@@ -271,8 +271,8 @@ mod tests {
     const SR: f32 = 48000.0;
 
     #[test]
-    fn set_param_cambia_il_tempo_del_delay() {
-        // Il tempo passa da 100 ms a 200 ms: dopo il glide l'eco arriva a 9600 campioni.
+    fn set_param_changes_delay_time() {
+        // The time goes from 100 ms to 200 ms: after the glide the echo arrives at 9600 samples.
         let p = DelayParams { time_ms: 100.0, feedback: 0.0, mix: 1.0, ..Default::default() };
         let mut d = Delay::new(&p, SR);
         d.set_param(DELAY_TIME, 200.0);
@@ -283,12 +283,12 @@ mod tests {
         buf[0] = 1.0;
         d.process(&mut buf);
         let echo_at = buf[1..].iter().position(|s| s.abs() > 0.1).unwrap() + 1;
-        assert!((9599..=9601).contains(&echo_at), "eco a {echo_at}");
+        assert!((9599..=9601).contains(&echo_at), "echo at {echo_at}");
     }
 
     #[test]
-    fn set_param_cambia_il_ritardo_del_chorus() {
-        // Senza modulazione il ritardo è la base: da 10 ms a 30 ms (1440 campioni).
+    fn set_param_changes_chorus_delay() {
+        // Without modulation the delay is the base: from 10 ms to 30 ms (1440 samples).
         let p = ChorusParams { base_ms: 10.0, depth_ms: 0.0, mix: 1.0, ..Default::default() };
         let mut c = Chorus::new(&p, SR);
         c.set_param(CHORUS_BASE, 30.0);
@@ -299,6 +299,6 @@ mod tests {
         buf[0] = 1.0;
         c.process(&mut buf);
         let echo_at = buf[1..].iter().position(|s| s.abs() > 0.5).unwrap() + 1;
-        assert!((1439..=1441).contains(&echo_at), "eco a {echo_at}");
+        assert!((1439..=1441).contains(&echo_at), "echo at {echo_at}");
     }
 }

@@ -10,14 +10,14 @@ pub const TREMOLO_DESC: BlockDesc = BlockDesc {
     label: "Tremolo",
     category: Category::Modulation,
     params: &[
-        ParamDesc::log("rate_hz", "Velocità", 0.1, 20.0, 5.0, "Hz"),
-        // 0 = nessun effetto, 1 = il volume scende fino a zero.
-        ParamDesc::number("depth", "Profondità", 0.0, 1.0, 0.5, ""),
-        ParamDesc::choice("wave", "Onda", &["sine", "triangle", "square"], 0),
+        ParamDesc::log("rate_hz", "Rate", 0.1, 20.0, 5.0, "Hz"),
+        // 0 = no effect, 1 = the volume drops to zero.
+        ParamDesc::number("depth", "Depth", 0.0, 1.0, 0.5, ""),
+        ParamDesc::choice("wave", "Wave", &["sine", "triangle", "square"], 0),
     ],
 };
 
-// Indici dei parametri in TREMOLO_DESC.
+// Parameter indices in TREMOLO_DESC.
 const RATE: usize = 0;
 const DEPTH: usize = 1;
 const WAVE: usize = 2;
@@ -36,11 +36,11 @@ pub enum Wave {
 }
 
 impl Wave {
-    /// Nello stesso ordine delle scelte in TREMOLO_DESC.
+    /// Same order as the choices in TREMOLO_DESC.
     pub const ALL: [Wave; 3] = [Wave::Sine, Wave::Triangle, Wave::Square];
 }
 
-/// Oscillatore lento (LFO), uscita in [-1, 1].
+/// Slow oscillator (LFO), output in [-1, 1].
 pub struct Lfo {
     phase: f32,
     inc: f32,
@@ -52,7 +52,7 @@ impl Lfo {
         Self { phase: 0.0, inc: rate_hz / sr, wave }
     }
 
-    /// Cambia la velocità senza riavviare la fase.
+    /// Changes the rate without restarting the phase.
     pub fn set_rate(&mut self, rate_hz: f32, sr: f32) {
         self.inc = rate_hz / sr;
     }
@@ -81,7 +81,7 @@ impl Lfo {
 #[derive(Debug, Clone)]
 pub struct TremoloParams {
     pub rate_hz: f32,
-    /// 0 = nessun effetto, 1 = il volume scende fino a zero.
+    /// 0 = no effect, 1 = the volume drops to zero.
     pub depth: f32,
     pub wave: Wave,
 }
@@ -97,7 +97,7 @@ pub struct Tremolo {
     lfo: Lfo,
     depth: f32,
     gain: f32,
-    // Smussa l'onda quadra per non avere click.
+    // Smooths the square wave to avoid clicks.
     smooth: f32,
 }
 
@@ -139,8 +139,8 @@ mod tests {
     const SR: f32 = 48000.0;
 
     #[test]
-    fn set_param_cambia_la_profondita_dal_vivo() {
-        // Con profondità 0 il volume resta a 1; alzandola, il tremolo scende quasi a zero.
+    fn set_param_changes_depth_live() {
+        // With depth 0 the volume stays at 1; raising it, the tremolo drops almost to zero.
         let mut t = Tremolo::new(&TremoloParams { depth: 0.0, ..Default::default() }, SR);
         let mut buf = vec![1.0; 4800];
         t.process(&mut buf);
@@ -150,6 +150,6 @@ mod tests {
         let mut buf = vec![1.0; 9600];
         t.process(&mut buf);
         let min = buf.iter().fold(f32::MAX, |m, &s| m.min(s));
-        assert!(min < 0.1, "minimo {min}");
+        assert!(min < 0.1, "minimum {min}");
     }
 }

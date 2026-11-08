@@ -1,9 +1,9 @@
-//! Tone stack da ampli: bassi, medi, alti interagenti (task D4, vedi docs/PLAN.md §7).
+//! Amp tone stack: interacting bass, mid and treble (task D4, see docs/PLAN.md §7).
 //!
-//! Modello TMB di D. T. Yeh (filtro analogico del 3° ordine), discretizzato con la
-//! trasformazione bilineare. I potenziometri dei medi e degli alti sono lineari,
-//! quello dei bassi ha una legge logaritmica approssimata (`l = bass²`).
-//! Il guadagno è normalizzato a 1 a 1 kHz con tutte le manopole a 0.5.
+//! TMB model by D. T. Yeh (3rd-order analog filter), discretized with the
+//! bilinear transform. The mid and treble pots are linear,
+//! the bass one has an approximated logarithmic law (`l = bass²`).
+//! The gain is normalized to 1 at 1 kHz with all knobs at 0.5.
 
 use std::f64::consts::TAU;
 
@@ -17,10 +17,10 @@ pub const TONESTACK_DESC: BlockDesc = BlockDesc {
     label: "Tone stack",
     category: Category::Amp,
     params: &[
-        ParamDesc::number("bass", "Bassi", 0.0, 1.0, 0.5, ""),
-        ParamDesc::number("mid", "Medi", 0.0, 1.0, 0.5, ""),
-        ParamDesc::number("treble", "Alti", 0.0, 1.0, 0.5, ""),
-        ParamDesc::choice("model", "Modello", &["fender", "marshall", "vox"], 0),
+        ParamDesc::number("bass", "Bass", 0.0, 1.0, 0.5, ""),
+        ParamDesc::number("mid", "Mid", 0.0, 1.0, 0.5, ""),
+        ParamDesc::number("treble", "Treble", 0.0, 1.0, 0.5, ""),
+        ParamDesc::choice("model", "Model", &["fender", "marshall", "vox"], 0),
     ],
 };
 
@@ -29,10 +29,10 @@ const MID: usize = 1;
 const TREBLE: usize = 2;
 const MODEL: usize = 3;
 
-/// Passo di ricalcolo dei coefficienti (campioni).
+/// Coefficient recomputation step (samples).
 const STEP: usize = 32;
 
-/// Componenti di un modello: R1 (alti), R2 (bassi), R3 (medi), R4, C1, C2, C3.
+/// Components of a model: R1 (treble), R2 (bass), R3 (mid), R4, C1, C2, C3.
 struct Components {
     r1: f64,
     r2: f64,
@@ -52,7 +52,7 @@ const MODELS: [Components; 3] = [
     Components { r1: 1e6, r2: 1e6, r3: 10e3, r4: 100e3, c1: 50e-12, c2: 22e-9, c3: 22e-9 },
 ];
 
-/// Coefficienti analogici H(s) = (b1 s + b2 s² + b3 s³) / (1 + a1 s + a2 s² + a3 s³).
+/// Analog coefficients H(s) = (b1 s + b2 s² + b3 s³) / (1 + a1 s + a2 s² + a3 s³).
 fn analog(c: &Components, l: f64, m: f64, t: f64) -> ([f64; 3], [f64; 3]) {
     let Components { r1, r2, r3, r4, c1, c2, c3 } = *c;
     let b1 = t * c1 * r1 + m * c3 * r3 + l * (c1 * r2 + c2 * r2) + (c1 * r3 + c2 * r3);
@@ -82,10 +82,10 @@ fn analog(c: &Components, l: f64, m: f64, t: f64) -> ([f64; 3], [f64; 3]) {
     ([b1, b2, b3], [a1, a2, a3])
 }
 
-/// Trasformazione bilineare s = 2 sr (1 - z⁻¹)/(1 + z⁻¹): ritorna (b[0..4], a[0..4]) con a[0] = 1.
+/// Bilinear transform s = 2 sr (1 - z⁻¹)/(1 + z⁻¹): returns (b[0..4], a[0..4]) with a[0] = 1.
 fn bilinear(b: [f64; 3], a: [f64; 3], sr: f64) -> ([f64; 4], [f64; 4]) {
     let k = 2.0 * sr;
-    // (1 - z⁻¹)^i (1 + z⁻¹)^(3-i) per i = 0..3, in potenze di z⁻¹
+    // (1 - z⁻¹)^i (1 + z⁻¹)^(3-i) for i = 0..3, in powers of z⁻¹
     const P: [[f64; 4]; 4] = [[1.0, 3.0, 3.0, 1.0], [1.0, 1.0, -1.0, -1.0], [1.0, -1.0, -1.0, 1.0], [1.0, -3.0, 3.0, -1.0]];
     let num = [0.0, b[0] * k, b[1] * k * k, b[2] * k * k * k];
     let den = [1.0, a[0] * k, a[1] * k * k, a[2] * k * k * k];
@@ -100,12 +100,12 @@ fn bilinear(b: [f64; 3], a: [f64; 3], sr: f64) -> ([f64; 4], [f64; 4]) {
     ([nb[0] / a0, nb[1] / a0, nb[2] / a0, nb[3] / a0], [1.0, da[1] / a0, da[2] / a0, da[3] / a0])
 }
 
-/// Valori dei potenziometri (bassi, medi, alti) per le posizioni delle manopole 0..1.
+/// Pot values (bass, mid, treble) for the knob positions 0..1.
 fn pots(bass: f64, mid: f64, treble: f64) -> (f64, f64, f64) {
     (bass * bass, mid, treble)
 }
 
-/// Modulo di H(s) analogico a `freq` (usato solo per normalizzare il guadagno).
+/// Magnitude of the analog H(s) at `freq` (only used to normalize the gain).
 fn analog_gain(c: &Components, l: f64, m: f64, t: f64, freq: f64) -> f64 {
     let (b, a) = analog(c, l, m, t);
     let w = TAU * freq;
@@ -140,7 +140,7 @@ pub fn build_tonestack(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
 pub struct ToneStack {
     sr: f64,
     model: usize,
-    /// valori attuali e obiettivo di bass, mid, treble (smussati a blocchi)
+    /// current and target values of bass, mid, treble (smoothed per chunk)
     cur: [f32; 3],
     target: [f32; 3],
     smooth: f64,
@@ -151,7 +151,7 @@ pub struct ToneStack {
 }
 
 impl ToneStack {
-    /// Cambio di modello: ricalcola la normalizzazione e i coefficienti.
+    /// Model change: recomputes the normalization and the coefficients.
     fn update_model(&mut self) {
         let c = &MODELS[self.model];
         let (l, m, t) = pots(0.5, 0.5, 0.5);
@@ -183,7 +183,7 @@ impl Block for ToneStack {
             }
             let (b, a) = (self.b, self.a);
             for s in chunk {
-                // forma trasposta II
+                // transposed direct form II
                 let x = *s as f64;
                 let y = b[0] * x + self.z[0];
                 self.z[0] = b[1] * x - a[1] * y + self.z[1];
@@ -229,7 +229,7 @@ mod tests {
         build_tonestack(&v, SR).unwrap()
     }
 
-    /// Guadagno in dB a `freq` misurato con un seno.
+    /// Gain in dB at `freq`, measured with a sine.
     fn gain_db(model: usize, bass: f32, mid: f32, treble: f32, freq: f32) -> f32 {
         let mut ts = make(model, bass, mid, treble);
         let n = 24000;
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn i_bassi_si_sentono() {
+    fn bass_is_audible() {
         for (model, name) in ["fender", "marshall", "vox"].iter().enumerate() {
             let low = gain_db(model, 0.0, 0.5, 0.5, 100.0);
             let high = gain_db(model, 1.0, 0.5, 0.5, 100.0);
@@ -250,15 +250,15 @@ mod tests {
     }
 
     #[test]
-    fn guadagno_normalizzato_a_1khz() {
+    fn gain_normalized_at_1khz() {
         for model in 0..3 {
             let g = gain_db(model, 0.5, 0.5, 0.5, 1000.0);
-            assert!(g.abs() < 0.3, "modello {model}: {g} dB");
+            assert!(g.abs() < 0.3, "model {model}: {g} dB");
         }
     }
 
     #[test]
-    fn gli_alti_si_sentono() {
+    fn treble_is_audible() {
         let low = gain_db(0, 0.5, 0.5, 0.0, 5000.0);
         let high = gain_db(0, 0.5, 0.5, 1.0, 5000.0);
         println!("fender: 5 kHz treble=0 {low:.1} dB, treble=1 {high:.1} dB");
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn stabile_per_ogni_combinazione() {
+    fn stable_for_every_combination() {
         let vals = [0.0, 0.5, 1.0];
         for model in 0..3 {
             for &b in &vals {
@@ -277,7 +277,7 @@ mod tests {
                         ts.process(&mut buf);
                         let tail = buf[90000..].iter().fold(0.0f32, |mx, s| mx.max(s.abs()));
                         assert!(buf.iter().all(|s| s.is_finite()), "{model} {b} {m} {t}");
-                        assert!(tail < 1e-4, "non decade: {model} {b} {m} {t} coda {tail}");
+                        assert!(tail < 1e-4, "does not decay: {model} {b} {m} {t} tail {tail}");
                     }
                 }
             }
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn cambio_dal_vivo_senza_salti() {
+    fn live_change_without_jumps() {
         let mut ts = make(0, 0.5, 0.5, 0.5);
         let mut buf: Vec<f32> = (0..9600).map(|i| 0.3 * (std::f32::consts::TAU * 220.0 * i as f32 / SR).sin()).collect();
         let (a, b) = buf.split_at_mut(4800);
@@ -297,6 +297,6 @@ mod tests {
         for w in buf[4000..].windows(2) {
             jump = jump.max((w[1] - w[0]).abs());
         }
-        assert!(jump < 0.2, "salto {jump}");
+        assert!(jump < 0.2, "jump {jump}");
     }
 }

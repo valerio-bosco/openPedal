@@ -1,5 +1,5 @@
-//! Drive: saturazione tramite waveshaper. Esempio di riferimento di un blocco
-//! migrato al catalogo, con parametri modificabili dal vivo.
+//! Drive: saturation via a waveshaper. Reference example of a block
+//! migrated to the catalog, with parameters that can be changed live.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -14,14 +14,14 @@ pub const DRIVE_DESC: BlockDesc = BlockDesc {
     label: "Drive",
     category: Category::Drive,
     params: &[
-        // soft: tanh, tipo overdrive · hard: taglio netto, tipo diodi · asym: armoniche pari,
-        // "valvolare" · fuzz: compressione estrema · fold: l'onda si ripiega, suono sintetico
-        ParamDesc::choice("shape", "Curva", &["soft", "hard", "asym", "fuzz", "fold"], 0),
+        // soft: tanh, overdrive-like · hard: hard clip, diode-like · asym: even harmonics,
+        // "tube-like" · fuzz: extreme compression · fold: the wave folds back, synthetic sound
+        ParamDesc::choice("shape", "Shape", &["soft", "hard", "asym", "fuzz", "fold"], 0),
         ParamDesc::number("gain_db", "Gain", 0.0, 60.0, 12.0, "dB"),
-        ParamDesc::number("level_db", "Livello", -40.0, 12.0, -6.0, "dB"),
-        ParamDesc::number("bias", "Asimmetria", 0.0, 1.0, 0.2, ""),
-        // eco = 1x, alta = 4x di oversampling (meno aliasing, ~0.55 ms di latenza).
-        ParamDesc::choice("quality", "Qualità", &["eco", "alta"], 1),
+        ParamDesc::number("level_db", "Level", -40.0, 12.0, -6.0, "dB"),
+        ParamDesc::number("bias", "Bias", 0.0, 1.0, 0.2, ""),
+        // eco = 1x, alta = 4x oversampling (less aliasing, ~0.55 ms of latency).
+        ParamDesc::choice("quality", "Quality", &["eco", "alta"], 1),
     ],
 };
 
@@ -71,7 +71,7 @@ pub struct Drive {
     bias_offset: f32,
     os: Oversampler4,
     hq: bool,
-    // DC blocker: le curve asimmetriche spostano il segnale dallo zero.
+    // DC blocker: asymmetric curves shift the signal away from zero.
     dc_x: f32,
     dc_y: f32,
     dc_r: f32,
@@ -98,7 +98,7 @@ fn shape_fn(shape: Shape, bias: f32, bias_offset: f32, x: f32) -> f32 {
 impl Block for Drive {
     fn process(&mut self, buf: &mut [f32]) {
         if self.hq {
-            // guadagno a frequenza base, curva a 4x, poi di nuovo a frequenza base
+            // gain at the base rate, curve at 4x, then back to the base rate
             for s in buf.iter_mut() {
                 *s *= self.pre.next();
             }
@@ -157,7 +157,7 @@ mod tests {
 
     const SR: f32 = 48000.0;
 
-    /// Energia (somma dei quadrati dei coefficienti DFT) sotto `fmax`, escluso DC.
+    /// Energy (sum of squared DFT coefficients) below `fmax`, excluding DC.
     fn energy_below(buf: &[f32], fmax: f32) -> f64 {
         let n = buf.len();
         let kmax = (fmax / SR * n as f32) as usize;
@@ -181,7 +181,7 @@ mod tests {
         v.set("quality", Value::Number(quality as f32));
         let mut d = build_drive(&v, SR).unwrap();
         let n = 4800;
-        // 5 kHz = 500 periodi esatti in 4800 campioni (nessuna dispersione spettrale)
+        // 5 kHz = exactly 500 periods in 4800 samples (no spectral leakage)
         let mut buf: Vec<f32> = (0..2 * n).map(|i| 0.5 * (std::f32::consts::TAU * 5000.0 * i as f32 / SR).sin()).collect();
         d.process(&mut buf);
         buf[n..].to_vec()
@@ -194,7 +194,7 @@ mod tests {
             let alta = energy_below(&render(shape, 1), 4000.0);
             let db = 10.0 * (eco / alta.max(1e-30)).log10();
             println!("aliasing {name}: eco/alta = {db:.1} dB");
-            assert!(db >= 20.0, "{name}: solo {db:.1} dB");
+            assert!(db >= 20.0, "{name}: only {db:.1} dB");
         }
     }
 

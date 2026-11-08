@@ -1,5 +1,5 @@
-//! Descrizione dei parametri dei blocchi: è ciò che permette all'interfaccia di
-//! generare le manopole da sola e ai file di essere validati.
+//! Description of the block parameters: this is what lets the interface generate
+//! the knobs by itself and lets the files be validated.
 
 use std::collections::BTreeMap;
 
@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ParamKind {
-    /// Valore numerico. `log` = la manopola si muove in scala logaritmica;
-    /// `step` > 0 = valori a scatti (es. 1.0 per gli interi).
+    /// Numeric value. `log` = the knob moves on a logarithmic scale;
+    /// `step` > 0 = stepped values (e.g. 1.0 for integers).
     Number { min: f32, max: f32, default: f32, unit: &'static str, log: bool, step: f32 },
-    /// Scelta tra opzioni; il valore è l'indice dell'opzione (come f32).
+    /// Choice among options; the value is the option index (as f32).
     Choice { options: &'static [&'static str], default: usize },
-    /// Percorso di un file; cambiarlo richiede di ricostruire il blocco.
+    /// File path; changing it requires rebuilding the block.
     File { extensions: &'static [&'static str] },
 }
 
@@ -47,7 +47,7 @@ impl ParamDesc {
         Self { id, label, kind: ParamKind::File { extensions } }
     }
 
-    /// Porta un valore numerico nell'intervallo valido (le scelte diventano un indice valido).
+    /// Clamps a numeric value into the valid range (choices become a valid index).
     pub fn clamp(&self, value: f32) -> f32 {
         match self.kind {
             ParamKind::Number { min, max, step, .. } => {
@@ -100,9 +100,9 @@ impl Category {
 
 #[derive(Debug, Serialize)]
 pub struct BlockDesc {
-    /// Identificatore usato nei file (`type = "drive"`).
+    /// Identifier used in files (`type = "drive"`).
     pub kind: &'static str,
-    /// Nome mostrato nell'interfaccia.
+    /// Name shown in the interface.
     pub label: &'static str,
     pub category: Category,
     pub params: &'static [ParamDesc],
@@ -114,7 +114,7 @@ impl BlockDesc {
     }
 }
 
-/// Un valore come arriva da un file TOML o dalla UI.
+/// A value as it arrives from a TOML file or from the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
@@ -122,7 +122,7 @@ pub enum Value {
     Text(String),
 }
 
-/// I parametri di un nodo: id -> valore. Quelli mancanti valgono il default.
+/// The parameters of a node: id -> value. Missing ones take the default.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ParamValues(pub BTreeMap<String, Value>);
@@ -136,7 +136,7 @@ impl ParamValues {
         self.0.get(id)
     }
 
-    /// Valore numerico limitato all'intervallo; default se manca.
+    /// Numeric value clamped to the range; default if missing.
     pub fn number(&self, desc: &ParamDesc) -> f32 {
         match (self.0.get(desc.id), desc.kind) {
             (Some(Value::Number(v)), _) => desc.clamp(*v),
@@ -145,7 +145,7 @@ impl ParamValues {
         }
     }
 
-    /// Indice dell'opzione scelta: accetta il nome ("asym") o l'indice (2).
+    /// Index of the chosen option: accepts the name ("asym") or the index (2).
     pub fn choice(&self, desc: &ParamDesc) -> usize {
         let ParamKind::Choice { options, default } = desc.kind else { return 0 };
         match self.0.get(desc.id) {
@@ -162,24 +162,24 @@ impl ParamValues {
         }
     }
 
-    /// Controlla nomi e tipi: un refuso in un preset deve essere un errore chiaro.
+    /// Checks names and types: a typo in a preset must be a clear error.
     pub fn validate(&self, block: &BlockDesc) -> Result<()> {
         for (id, value) in &self.0 {
             let Some(desc) = block.params.iter().find(|p| p.id == id) else {
                 let valid: Vec<_> = block.params.iter().map(|p| p.id).collect();
-                bail!("'{}' non ha il parametro '{id}' (parametri validi: {})", block.kind, valid.join(", "));
+                bail!("'{}' has no parameter '{id}' (valid parameters: {})", block.kind, valid.join(", "));
             };
             match (desc.kind, value) {
                 (ParamKind::Number { .. }, Value::Number(_)) | (ParamKind::File { .. }, Value::Text(_)) => {}
                 (ParamKind::Choice { options, .. }, Value::Text(name)) => {
                     if !options.contains(&name.as_str()) {
-                        bail!("'{}.{id}' non può valere \"{name}\" (scelte: {})", block.kind, options.join(", "));
+                        bail!("'{}.{id}' cannot be \"{name}\" (choices: {})", block.kind, options.join(", "));
                     }
                 }
                 (ParamKind::Choice { .. }, Value::Number(_)) => {}
-                (ParamKind::Number { .. }, Value::Text(_)) => bail!("'{}.{id}' deve essere un numero", block.kind),
+                (ParamKind::Number { .. }, Value::Text(_)) => bail!("'{}.{id}' must be a number", block.kind),
                 (ParamKind::File { .. }, Value::Number(_)) => {
-                    bail!("'{}.{id}' deve essere un percorso tra virgolette", block.kind)
+                    bail!("'{}.{id}' must be a quoted path", block.kind)
                 }
             }
         }

@@ -1,8 +1,8 @@
-//! Blocchi DSP, catalogo e catena lineare (preset v1).
+//! DSP blocks, catalog and linear chain (v1 presets).
 //!
-//! Regola d'oro: `Block::process` e `Block::set_param` girano nel thread realtime.
-//! Niente allocazioni, niente lock, niente I/O. Tutto ciò che serve (buffer,
-//! coefficienti) si prepara nella funzione `build_*`, fuori dal thread audio.
+//! Golden rule: `Block::process` and `Block::set_param` run on the realtime thread.
+//! No allocations, no locks, no I/O. Everything that is needed (buffers,
+//! coefficients) is prepared in the `build_*` functions, outside the audio thread.
 
 mod cab;
 mod compressor;
@@ -21,31 +21,31 @@ use serde::Deserialize;
 
 pub use params::{BlockDesc, ParamKind, ParamValues, Value};
 
-/// Un'unità di elaborazione: lavora in-place su un blocco di campioni mono.
+/// A processing unit: works in-place on a block of mono samples.
 pub trait Block: Send {
     fn process(&mut self, buf: &mut [f32]);
 
-    /// Cambia un parametro dal vivo. `index` è la posizione in `BlockDesc::params`,
-    /// `value` è già limitato all'intervallo (per le scelte: l'indice dell'opzione).
-    /// Chiamato dal thread audio: niente allocazioni; le variazioni brusche vanno
-    /// smussate (circa 10-20 ms) per non sentire click.
-    /// Il default non fa niente: il parametro cambierà alla prossima ricostruzione.
+    /// Changes a parameter live. `index` is the position in `BlockDesc::params`,
+    /// `value` is already clamped to the range (for choices: the option index).
+    /// Called from the audio thread: no allocations; abrupt changes must be
+    /// smoothed (about 10-20 ms) to avoid clicks.
+    /// The default does nothing: the parameter changes on the next rebuild.
     fn set_param(&mut self, _index: usize, _value: f32) {}
 
-    /// Azzera lo stato interno (code di delay e riverbero, inviluppi...).
-    #[allow(dead_code)] // previsto per un futuro comando "silenzia tutto"; implementato dai blocchi
+    /// Resets the internal state (delay and reverb tails, envelopes...).
+    #[allow(dead_code)] // planned for a future "mute all" command; implemented by the blocks
     fn reset(&mut self) {}
 }
 
 pub type BuildFn = fn(&ParamValues, f32) -> Result<Box<dyn Block>>;
 
-/// Una voce del catalogo: come si descrive un blocco e come lo si costruisce.
+/// A catalog entry: how a block is described and how it is built.
 pub struct Entry {
     pub desc: &'static BlockDesc,
     pub build: BuildFn,
 }
 
-/// Tutti i blocchi base. Registrare un blocco nuovo = aggiungere una riga qui.
+/// All built-in blocks. Registering a new block = adding a line here.
 static CATALOG: &[Entry] = &[
     Entry { desc: &dynamics::GAIN_DESC, build: dynamics::build_gain },
     Entry { desc: &dynamics::GATE_DESC, build: dynamics::build_gate },
@@ -68,17 +68,17 @@ pub fn find(kind: &str) -> Option<&'static Entry> {
     CATALOG.iter().find(|e| e.desc.kind == kind)
 }
 
-/// Valida i parametri e costruisce il blocco `kind`.
+/// Validates the parameters and builds the `kind` block.
 pub fn build_block(kind: &str, values: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
     let Some(entry) = find(kind) else {
         let valid: Vec<_> = CATALOG.iter().map(|e| e.desc.kind).collect();
-        bail!("blocco sconosciuto '{kind}' (blocchi validi: {})", valid.join(", "));
+        bail!("unknown block '{kind}' (valid blocks: {})", valid.join(", "));
     };
     values.validate(entry.desc)?;
-    (entry.build)(values, sr).with_context(|| format!("blocco '{kind}'"))
+    (entry.build)(values, sr).with_context(|| format!("block '{kind}'"))
 }
 
-/// Un blocco di un preset v1: `type` più i suoi parametri.
+/// A block of a v1 preset: `type` plus its parameters.
 #[derive(Deserialize, Debug, Clone)]
 pub struct BlockEntry {
     #[serde(rename = "type")]
@@ -87,13 +87,13 @@ pub struct BlockEntry {
     pub params: ParamValues,
 }
 
-/// Preset v1: nome, volume finale e lista ordinata di blocchi.
+/// v1 preset: name, output volume and ordered list of blocks.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Preset {
     #[serde(default = "default_name")]
     pub name: String,
-    /// Volume finale in dB, applicato dopo tutta la catena.
+    /// Output volume in dB, applied after the whole chain.
     #[serde(default)]
     pub output_db: f32,
     #[serde(default, rename = "block")]
@@ -101,11 +101,11 @@ pub struct Preset {
 }
 
 fn default_name() -> String {
-    "senza nome".into()
+    "unnamed".into()
 }
 
-/// La vecchia catena lineare: resta solo come riferimento nei test
-/// (i preset v1 devono suonare identici convertiti in grafo).
+/// The old linear chain: kept only as a reference in the tests
+/// (v1 presets must sound identical when converted to a graph).
 #[cfg(test)]
 pub struct Chain {
     blocks: Vec<Box<dyn Block>>,
@@ -114,13 +114,13 @@ pub struct Chain {
 
 #[cfg(test)]
 impl Chain {
-    /// Prepara la catena (fuori dal thread audio): può leggere file, quindi può fallire.
+    /// Builds the chain (off the audio thread): it may read files, so it can fail.
     pub fn build(preset: &Preset, sr: f32) -> Result<Chain> {
         let blocks = preset
             .blocks
             .iter()
             .enumerate()
-            .map(|(i, b)| build_block(&b.kind, &b.params, sr).with_context(|| format!("blocco n. {}", i + 1)))
+            .map(|(i, b)| build_block(&b.kind, &b.params, sr).with_context(|| format!("block #{}", i + 1)))
             .collect::<Result<_>>()?;
         Ok(Chain { blocks, out_gain: db_to_lin(preset.output_db) })
     }
@@ -143,7 +143,7 @@ pub fn lin_to_db(lin: f32) -> f32 {
     20.0 * lin.max(1e-9).log10()
 }
 
-/// Coefficiente di uno smoothing a un polo con costante di tempo `ms`.
+/// Coefficient of a one-pole smoothing with time constant `ms`.
 pub fn one_pole_coef(ms: f32, sr: f32) -> f32 {
     if ms <= 0.0 {
         0.0
@@ -152,7 +152,7 @@ pub fn one_pole_coef(ms: f32, sr: f32) -> f32 {
     }
 }
 
-/// Valore che si muove dolcemente verso un obiettivo: per i parametri cambiati dal vivo.
+/// Value that glides smoothly toward a target: for parameters changed live.
 #[derive(Debug, Clone, Copy)]
 pub struct Smoothed {
     pub value: f32,
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn i_preset_inclusi_sono_validi() {
+    fn bundled_presets_are_valid() {
         for entry in std::fs::read_dir("presets").unwrap() {
             let path = entry.unwrap().path();
             let text = std::fs::read_to_string(&path).unwrap();
@@ -202,21 +202,21 @@ mod tests {
     }
 
     #[test]
-    fn un_parametro_sbagliato_e_un_errore() {
+    fn wrong_parameter_is_an_error() {
         let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\ngain = 3\n").unwrap();
-        let err = Chain::build(&p, SR).err().expect("il refuso `gain` (invece di gain_db) deve essere segnalato");
+        let err = Chain::build(&p, SR).err().expect("the typo `gain` (instead of gain_db) must be reported");
         assert!(format!("{err:#}").contains("gain_db"), "{err:#}");
     }
 
     #[test]
-    fn una_scelta_sbagliata_e_un_errore() {
-        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\nshape = \"tubo\"\n").unwrap();
+    fn wrong_choice_is_an_error() {
+        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\nshape = \"tube\"\n").unwrap();
         assert!(Chain::build(&p, SR).is_err());
     }
 
     #[test]
-    fn i_default_del_catalogo_sono_validi() {
-        // Ogni blocco si costruisce con i soli default e non produce NaN.
+    fn catalog_defaults_are_valid() {
+        // Every block builds with defaults only and produces no NaN.
         for entry in catalog() {
             let mut block = (entry.build)(&ParamValues::default(), SR).unwrap();
             let mut buf = sine(220.0, 0.5, 4800);
@@ -231,12 +231,12 @@ mod tests {
                 block.set_param(i, v);
             }
             block.process(&mut buf);
-            assert!(buf.iter().all(|s| s.is_finite()), "{} dopo set_param", entry.desc.kind);
+            assert!(buf.iter().all(|s| s.is_finite()), "{} after set_param", entry.desc.kind);
         }
     }
 
     #[test]
-    fn lowpass_taglia_gli_alti() {
+    fn lowpass_cuts_highs() {
         let mut c = chain("[[block]]\ntype = \"filter\"\nkind = \"lowpass\"\nfreq = 1000\n");
         let mut low = sine(100.0, 1.0, 9600);
         let mut high = sine(10000.0, 1.0, 9600);
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn drive_resta_limitato() {
+    fn drive_stays_bounded() {
         for shape in ["soft", "hard", "asym", "fuzz", "fold"] {
             let mut c = chain(&format!(
                 "[[block]]\ntype = \"drive\"\nshape = \"{shape}\"\ngain_db = 40\nlevel_db = 0\n"
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn gate_chiude_il_fruscio_e_lascia_passare_le_note() {
+    fn gate_closes_on_noise_and_passes_notes() {
         let mut c = chain("[[block]]\ntype = \"gate\"\nthreshold_db = -50\n");
         let mut noise = sine(3000.0, 0.001, 24000); // -60 dB
         c.process(&mut noise);
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_ripete_dopo_il_tempo_giusto() {
+    fn delay_repeats_after_the_right_time() {
         let mut c = chain("[[block]]\ntype = \"delay\"\ntime_ms = 100\nfeedback = 0\nmix = 0.5\n");
         let mut buf = vec![0.0; 9600];
         buf[0] = 1.0;

@@ -1,16 +1,16 @@
-//! Oversampling 4x con due stadi 2x a filtri half-band polifase (task D4).
-//! Usato dal drive attorno al waveshaper per ridurre l'aliasing.
+//! 4x oversampling with two 2x stages of polyphase half-band filters (task D4).
+//! Used by the drive around the waveshaper to reduce aliasing.
 //!
-//! Ogni stadio è un FIR half-band (finestra di Kaiser): metà dei coefficienti
-//! è zero e il centrale vale 0.5, quindi una fase polifase è un puro ritardo.
-//! Latenza totale a 48 kHz: 27 + 4.5 = 31.5 campioni (circa 0.55 ms).
+//! Each stage is a half-band FIR (Kaiser window): half of the coefficients
+//! are zero and the center one is 0.5, so one polyphase branch is a pure delay.
+//! Total latency at 48 kHz: 27 + 4.5 = 31.5 samples (about 0.55 ms).
 
 use std::f64::consts::PI;
 
-/// Campioni elaborati per volta (i buffer interni sono di questa dimensione).
+/// Samples processed at a time (the internal buffers have this size).
 const CHUNK: usize = 256;
-/// Lunghezza dei FIR: 4m+3. Il primo stadio lavora a 96 kHz con una banda di
-/// transizione stretta (20-28 kHz), il secondo a 192 kHz e può essere corto.
+/// FIR length: 4m+3. The first stage works at 96 kHz with a narrow
+/// transition band (20-28 kHz), the second at 192 kHz and can be short.
 const TAPS1: usize = 55;
 const TAPS2: usize = 19;
 const BETA1: f64 = 6.5;
@@ -30,7 +30,7 @@ fn bessel_i0(x: f64) -> f64 {
     sum
 }
 
-/// Coefficienti pari h[2i] (senza il centrale) di un half-band con guadagno 1 in continua.
+/// Even coefficients h[2i] (without the center one) of a half-band with unity DC gain.
 fn halfband_taps(n: usize, beta: f64) -> Vec<f32> {
     let c = (n - 1) / 2;
     let i0b = bessel_i0(beta);
@@ -42,11 +42,11 @@ fn halfband_taps(n: usize, beta: f64) -> Vec<f32> {
             sinc * bessel_i0(beta * (1.0 - r * r).max(0.0).sqrt()) / i0b
         })
         .collect();
-    // I coefficienti non nulli sono le posizioni pari (il centrale è dispari).
+    // The non-zero coefficients are the even positions (the center one is odd).
     (0..=(n - 1) / 2).map(|i| h[2 * i] as f32).collect()
 }
 
-/// Memoria circolare a finestra contigua: `s()[i]` è il campione di i passi fa.
+/// Circular buffer with a contiguous window: `s()[i]` is the sample from i steps ago.
 struct Ring {
     buf: Vec<f32>,
     pos: usize,
@@ -80,10 +80,10 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-/// Stadio 2x in salita (interpolatore) e in discesa (decimatore).
+/// 2x stage for upsampling (interpolator) and downsampling (decimator).
 struct HalfBand {
     h: Vec<f32>,
-    /// ritardo del ramo centrale
+    /// delay of the center branch
     center: usize,
     up: Ring,
     dn_even: Ring,
@@ -97,7 +97,7 @@ impl HalfBand {
         Self { h, center: (n - 1) / 2, up: Ring::new(len), dn_even: Ring::new(len), dn_odd: Ring::new(len) }
     }
 
-    /// `input.len()` campioni -> `2 * input.len()` campioni.
+    /// `input.len()` samples -> `2 * input.len()` samples.
     fn upsample(&mut self, input: &[f32], out: &mut [f32]) {
         let d = (self.center - 1) / 2;
         for (i, &x) in input.iter().enumerate() {
@@ -108,7 +108,7 @@ impl HalfBand {
         }
     }
 
-    /// `2 * out.len()` campioni -> `out.len()` campioni.
+    /// `2 * out.len()` samples -> `out.len()` samples.
     fn downsample(&mut self, input: &[f32], out: &mut [f32]) {
         let d = (self.center + 1).div_ceil(2);
         for (i, o) in out.iter_mut().enumerate() {
@@ -125,7 +125,7 @@ impl HalfBand {
     }
 }
 
-/// Oversampler 4x: `process` applica una funzione non lineare a frequenza quadrupla.
+/// 4x oversampler: `process` applies a non-linear function at four times the rate.
 pub struct Oversampler4 {
     s1: HalfBand,
     s2: HalfBand,
@@ -143,13 +143,13 @@ impl Oversampler4 {
         }
     }
 
-    /// Latenza introdotta, in campioni alla frequenza base.
-    #[allow(dead_code)] // servirà per compensare la latenza tra rami paralleli del grafo
+    /// Introduced latency, in samples at the base rate.
+    #[allow(dead_code)] // will be needed to compensate the latency between parallel branches of the graph
     pub fn latency() -> f32 {
         (TAPS1 - 1) as f32 / 2.0 + (TAPS2 - 1) as f32 / 4.0
     }
 
-    /// Elabora `buf` in-place (qualsiasi lunghezza, senza allocare).
+    /// Processes `buf` in-place (any length, without allocating).
     pub fn process(&mut self, buf: &mut [f32], mut f: impl FnMut(f32) -> f32) {
         for chunk in buf.chunks_mut(CHUNK) {
             let n = chunk.len();
@@ -179,7 +179,7 @@ impl Default for Oversampler4 {
 mod tests {
     use super::*;
 
-    /// Modulo (dB) della risposta del FIR half-band completo alla pulsazione normalizzata `w`.
+    /// Magnitude (dB) of the full half-band FIR response at the normalized frequency `f_norm`.
     fn mag_db(n: usize, beta: f64, f_norm: f64) -> f64 {
         let hs = halfband_taps(n, beta);
         let c = (n - 1) / 2;
@@ -195,13 +195,13 @@ mod tests {
 
     #[test]
     fn halfband_stopband() {
-        // stadio 1 (fs = 96 kHz): banda passante fino a 20 kHz, bloccata da 28 kHz
+        // stage 1 (fs = 96 kHz): passband up to 20 kHz, stopband from 28 kHz
         assert!(mag_db(TAPS1, BETA1, 20_000.0 / 96_000.0).abs() < 0.1);
         let worst = (0..200).map(|i| mag_db(TAPS1, BETA1, (28_000.0 + i as f64 * 100.0) / 96_000.0)).fold(-200.0, f64::max);
-        assert!(worst < -60.0, "stadio 1: {worst} dB");
-        // stadio 2 (fs = 192 kHz): bloccata da 76 kHz
+        assert!(worst < -60.0, "stage 1: {worst} dB");
+        // stage 2 (fs = 192 kHz): stopband from 76 kHz
         let worst2 = (0..200).map(|i| mag_db(TAPS2, BETA2, (76_000.0 + i as f64 * 100.0) / 192_000.0)).fold(-200.0, f64::max);
-        assert!(worst2 < -60.0, "stadio 2: {worst2} dB");
+        assert!(worst2 < -60.0, "stage 2: {worst2} dB");
         assert!(mag_db(TAPS2, BETA2, 20_000.0 / 192_000.0).abs() < 0.1);
     }
 
@@ -212,15 +212,15 @@ mod tests {
         let mut buf: Vec<f32> = (0..n).map(|i| (std::f32::consts::TAU * 1000.0 * i as f32 / 48000.0).sin()).collect();
         let orig = buf.clone();
         os.process(&mut buf, |x| x);
-        let lat = Oversampler4::latency() as usize + 1; // 26.5 -> ricerca locale
+        let lat = Oversampler4::latency() as usize + 1; // 26.5 -> local search
         let mut best = f32::MAX;
         for d in (lat - 3)..(lat + 3) {
             let e: f32 = (200..n).map(|i| (buf[i] - orig[i - d]).abs()).fold(0.0, f32::max);
             best = best.min(e);
         }
-        // latenza frazionaria: confronto in ampiezza
+        // fractional latency: compare the amplitude
         let amp = buf[500..].iter().fold(0.0f32, |m, v| m.max(v.abs()));
-        assert!((amp - 1.0).abs() < 0.02, "ampiezza {amp}");
+        assert!((amp - 1.0).abs() < 0.02, "amplitude {amp}");
         assert!(best < 0.5);
     }
 
