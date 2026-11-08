@@ -65,3 +65,15 @@ Parameter `id`s, block `kind`s and choice option names end up in users' preset f
 ## Adding a composite pedal
 
 No code needed: build it in the UI (*Create pedal*) or write `pedals/<id>.toml` (see `pedals/cab-4x12.toml` and `docs/PLAN.md` §5.3).
+
+## Golden renders
+
+`tests/golden.rs` renders every tracked preset (`presets/*.toml`, except names starting with `test`) over a deterministic synthetic guitar signal (1.5 s, 48 kHz, blocks of 128) and compares the result with `tests/golden/<preset>.f32` (raw little-endian f32, mono; max abs diff 1e-5). It also checks that the output is finite and not silent.
+
+If a sound change is intended, regenerate the references and commit them with the change:
+
+```
+OPENPEDAL_BLESS=1 cargo test --test golden
+```
+
+Never bless to make an unexpected failure go away: refactors must not change the audio.

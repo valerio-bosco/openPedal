@@ -1,5 +1,7 @@
 # openPedal
 
+[![CI](https://github.com/valerio-bosco/openPedal/actions/workflows/ci.yml/badge.svg)](https://github.com/valerio-bosco/openPedal/actions/workflows/ci.yml)
+
 Real-time guitar effects without a DAW: guitar → audio interface → openPedal → headphones/speakers.
 You build your sound as a **graph of pedals** in a node editor (or in TOML files), and you can create new composite pedals from existing ones.
 
