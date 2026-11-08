@@ -1,11 +1,10 @@
-//! Motore audio: un client JACK (servito da PipeWire su Linux) con un ingresso
-//! mono e due uscite. Il callback realtime esegue il piano (grafo compilato)
-//! corrente. Piani nuovi e cambi di parametro arrivano da un'unica coda
-//! lock-free, quindi in ordine; i piani dismessi tornano indietro per essere
-//! deallocati fuori dal thread audio.
+//! Audio engine: a JACK client (served by PipeWire on Linux) with one mono input
+//! and two outputs. The realtime callback runs the current plan (compiled graph).
+//! New plans and parameter changes arrive through a single lock-free queue,
+//! so in order; retired plans are sent back to be deallocated outside the audio
+//! thread.
 //!
-//! Un piano nuovo entra con una dissolvenza incrociata di 20 ms: per questo
-//! tempo girano entrambi i piani.
+//! A new plan comes in with a 20 ms crossfade: both plans run during that time.
 
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -18,23 +17,23 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::graph::exec::MAX_BLOCK;
 use crate::graph::{ParamChange, Plan};
 
-/// Durata della dissolvenza tra due piani.
+/// Duration of the fade between two plans.
 const FADE_SECONDS: f32 = 0.02;
 
-/// Valori misurati nel thread audio e letti dall'interfaccia.
+/// Values measured in the audio thread and read by the interface.
 #[derive(Default)]
 pub struct Meters {
     in_peak: AtomicU32,
     out_peak: AtomicU32,
-    /// Carico massimo del callback, in millesimi del tempo disponibile.
+    /// Maximum callback load, in thousandths of the available time.
     load_permille: AtomicU32,
     pub xruns: AtomicUsize,
-    /// Dimensione del buffer dell'ultimo ciclo: PipeWire può cambiarla al volo.
+    /// Buffer size of the last cycle: PipeWire can change it on the fly.
     pub buffer_size: AtomicU32,
 }
 
 impl Meters {
-    /// Restituisce (picco ingresso, picco uscita, carico 0..1) e azzera.
+    /// Returns (input peak, output peak, load 0..1) and resets them.
     pub fn take(&self) -> (f32, f32, f32) {
         (
             f32::from_bits(self.in_peak.swap(0, Ordering::Relaxed)),
@@ -45,31 +44,31 @@ impl Meters {
 }
 
 fn store_max(cell: &AtomicU32, v: f32) {
-    // Vale solo per f32 positivi, per i quali l'ordine dei bit coincide.
+    // Only valid for positive f32 values, for which bit order matches numeric order.
     cell.fetch_max(v.to_bits(), Ordering::Relaxed);
 }
 
 
-/// Messaggio verso il thread audio. L'ordine di arrivo conta: un cambio di parametro
-/// riguarda il piano che era l'ultimo arrivato quando è stato mandato.
+/// Message to the audio thread. Arrival order matters: a parameter change
+/// applies to the plan that was the latest to arrive when it was sent.
 enum Msg {
     Plan(Box<Plan>),
-    #[allow(dead_code)] // inviato da `Engine::set_param`, che userà l'integrazione (I2)
+    #[allow(dead_code)] // sent by `Engine::set_param`, which the integration (I2) will use
     Param(ParamChange),
 }
 
 struct Fade {
     old: Box<Plan>,
-    /// Campioni di dissolvenza già eseguiti.
+    /// Fade samples already processed.
     pos: usize,
 }
 
-/// Esegue il piano corrente e gestisce la dissolvenza. Non dipende da JACK, quindi si prova nei test.
+/// Runs the current plan and handles the fade. Does not depend on JACK, so it is tested in unit tests.
 struct Runner {
     plan: Box<Plan>,
     fade: Option<Fade>,
     fade_len: usize,
-    /// Uscita del piano vecchio durante la dissolvenza (preallocata).
+    /// Output of the old plan during the fade (preallocated).
     scratch: Vec<f32>,
     incoming: Consumer<Msg>,
     trash: Producer<Box<Plan>>,
@@ -81,8 +80,8 @@ impl Runner {
         Runner { plan, fade: None, fade_len, scratch: vec![0.0; MAX_BLOCK], incoming, trash }
     }
 
-    /// Legge i messaggi. Un piano nuovo aspetta la fine della dissolvenza in corso
-    /// (e con lui i messaggi che lo seguono).
+    /// Reads messages. A new plan waits for the current fade to end
+    /// (and with it, the messages that follow it).
     fn poll(&mut self) {
         loop {
             if self.fade.is_some() && matches!(self.incoming.peek(), Ok(Msg::Plan(_))) {
@@ -119,8 +118,8 @@ impl Runner {
             fade.pos += n;
             if fade.pos >= self.fade_len {
                 if let Some(done) = self.fade.take() {
-                    // Se la coda fosse piena il piano verrebbe liberato qui: non succede,
-                    // perché il thread principale la svuota di continuo.
+                    // If the queue were full, the plan would be freed here: that never happens,
+                    // because the main thread drains it continuously.
                     let _ = self.trash.push(done.old);
                 }
             }
@@ -135,7 +134,7 @@ struct Processor {
     runner: Runner,
     meters: Arc<Meters>,
     sample_rate: f32,
-    /// Registrazione opzionale: campioni interleaved (pulito, elaborato).
+    /// Optional recording: interleaved samples (dry, processed).
     record: Option<Producer<f32>>,
 }
 
@@ -149,7 +148,7 @@ impl jack::ProcessHandler for Processor {
 
         self.runner.run(input, out);
 
-        // Protezione per orecchie e casse: niente NaN e niente oltre 0 dBFS.
+        // Protection for ears and speakers: no NaN and nothing above 0 dBFS.
         let mut peak = 0.0f32;
         for s in out.iter_mut() {
             if !s.is_finite() {
@@ -162,7 +161,7 @@ impl jack::ProcessHandler for Processor {
         self.out_r.as_mut_slice(ps).copy_from_slice(out);
 
         if let Some(rec) = &mut self.record {
-            // Se il thread di scrittura non tiene il passo si perdono campioni, mai il tempo reale.
+            // If the writer thread cannot keep up, samples are dropped, never real time.
             for (dry, wet) in input.iter().zip(out.iter()) {
                 let _ = rec.push(*dry);
                 let _ = rec.push(*wet);
@@ -188,16 +187,16 @@ impl jack::NotificationHandler for Notifications {
     }
 }
 
-/// Le porte JACK delle schede audio, filtrate per direzione.
+/// The JACK ports of the audio cards, filtered by direction.
 pub fn hardware_ports(client: &Client, capture: bool) -> Vec<String> {
-    // Visto da JACK, ciò che la scheda "cattura" è una porta di uscita.
+    // Seen from JACK, what the card "captures" is an output port.
     let flags = if capture { PortFlags::IS_OUTPUT } else { PortFlags::IS_INPUT };
     client.ports(None, Some("32 bit float mono audio"), flags | PortFlags::IS_PHYSICAL)
 }
 
 pub fn open_client(name: &str) -> Result<Client> {
     let (client, _status) = Client::new(name, ClientOptions::NO_START_SERVER)
-        .context("impossibile collegarsi a JACK/PipeWire (sei dentro `nix develop`?)")?;
+        .context("cannot connect to JACK/PipeWire (are you inside `nix develop`?)")?;
     Ok(client)
 }
 
@@ -210,7 +209,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Avvia il motore e collega le porte che corrispondono alle regex.
+    /// Starts the engine and connects the ports matching the regexes.
     pub fn start(
         client: Client,
         plan: Plan,
@@ -227,11 +226,11 @@ impl Engine {
 
         let sources = client.ports(Some(input_pattern), None, PortFlags::IS_OUTPUT);
         let Some(source) = sources.first().cloned() else {
-            bail!("nessuna porta di ingresso corrisponde a '{input_pattern}' (prova `openpedal ports`)");
+            bail!("no input port matches '{input_pattern}' (try `openpedal ports`)");
         };
         let sinks = client.ports(Some(output_pattern), None, PortFlags::IS_INPUT);
         if sinks.is_empty() {
-            bail!("nessuna porta di uscita corrisponde a '{output_pattern}' (prova `openpedal ports`)");
+            bail!("no output port matches '{output_pattern}' (try `openpedal ports`)");
         }
 
         let (to_audio, incoming) = RingBuffer::new(1024);
@@ -251,33 +250,33 @@ impl Engine {
 
         let c = active.as_client();
         c.connect_ports_by_name(&source, &my_in)
-            .with_context(|| format!("collegamento {source} -> {my_in}"))?;
-        // Una sola uscita trovata (es. casse mono): ci mandiamo il canale sinistro.
+            .with_context(|| format!("connecting {source} -> {my_in}"))?;
+        // Only one output found (e.g. mono speakers): we send it the left channel.
         for (i, sink) in sinks.iter().take(2).enumerate() {
             let from = &my_out[i.min(1)];
             c.connect_ports_by_name(from, sink)
-                .with_context(|| format!("collegamento {from} -> {sink}"))?;
+                .with_context(|| format!("connecting {from} -> {sink}"))?;
         }
-        eprintln!("  ingresso: {source}");
+        eprintln!("  input:  {source}");
         for sink in sinks.iter().take(2) {
-            eprintln!("  uscita:   {sink}");
+            eprintln!("  output: {sink}");
         }
 
         Ok(Engine { _active: active, to_audio, from_audio, meters, sample_rate })
     }
 
-    /// Manda un nuovo piano al thread audio, che lo introduce con una dissolvenza di 20 ms.
+    /// Sends a new plan to the audio thread, which introduces it with a 20 ms fade.
     pub fn swap_plan(&mut self, plan: Plan) -> Result<()> {
-        self.to_audio.push(Msg::Plan(Box::new(plan))).map_err(|_| anyhow::anyhow!("coda verso il thread audio piena"))
+        self.to_audio.push(Msg::Plan(Box::new(plan))).map_err(|_| anyhow::anyhow!("queue towards the audio thread is full"))
     }
 
-    /// Cambia un parametro del piano più recente (indici da `NodeMap::resolve`).
-    #[allow(dead_code)] // lo userà l'integrazione (I2)
+    /// Changes a parameter of the most recent plan (indices from `NodeMap::resolve`).
+    #[allow(dead_code)] // the integration (I2) will use it
     pub fn set_param(&mut self, change: ParamChange) -> Result<()> {
-        self.to_audio.push(Msg::Param(change)).map_err(|_| anyhow::anyhow!("coda verso il thread audio piena"))
+        self.to_audio.push(Msg::Param(change)).map_err(|_| anyhow::anyhow!("queue towards the audio thread is full"))
     }
 
-    /// Libera i piani dismessi dal thread audio. Va chiamato regolarmente.
+    /// Frees the retired plans returned by the audio thread. Must be called regularly.
     pub fn collect_garbage(&mut self) {
         while self.from_audio.pop().is_ok() {}
     }
@@ -310,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn la_dissolvenza_non_produce_salti() {
+    fn crossfade_produces_no_jumps() {
         let (mut r, mut tx, mut garbage) = runner(plan(0.0));
         let mut all = Vec::new();
         for b in 0..200 {
@@ -323,21 +322,21 @@ mod tests {
             all.extend(out);
         }
         let max_jump = all.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
-        assert!(max_jump < 0.1, "salto di {max_jump}");
-        // Prima 0 dB, dopo la dissolvenza -20 dB.
+        assert!(max_jump < 0.1, "jump of {max_jump}");
+        // Before the fade: 0 dB; after it: -20 dB.
         let expected = 0.8 * crate::dsp::db_to_lin(-20.0);
         assert!((peak(&all[all.len() - 200..]) - expected).abs() < 0.01);
-        // Il piano vecchio torna indietro per essere liberato fuori dal thread audio.
+        // The old plan is sent back to be freed outside the audio thread.
         assert!(garbage.pop().is_ok());
     }
 
     #[test]
-    fn i_cambi_arrivano_in_ordine_rispetto_ai_piani() {
+    fn changes_arrive_in_order_relative_to_plans() {
         let (mut r, mut tx, _g) = runner(plan(0.0));
         let g = parse_graph("name = \"p\"\n[[block]]\ntype = \"gain\"\n").unwrap();
         let (new, map) = compile(&g, &[], SR).unwrap();
         tx.push(Msg::Plan(Box::new(new))).ok().unwrap();
-        // Subito dopo il piano: va al piano nuovo, anche se la dissolvenza è in corso.
+        // Right after the plan: it goes to the new plan, even if the fade is in progress.
         let c = map.resolve("gain1", "db", -40.0).unwrap().unwrap();
         tx.push(Msg::Param(c)).ok().unwrap();
         let mut out = vec![0.0; 64];

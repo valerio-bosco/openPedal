@@ -1,4 +1,4 @@
-//! Rotte HTTP, WebSocket e gestione dei messaggi (protocollo: docs/PLAN.md §5.4).
+//! HTTP routes, WebSocket and message handling (protocol: docs/PLAN.md §5.4).
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use crate::graph::load::read_graph;
 pub struct ServerOptions {
     pub port: u16,
     pub open_browser: bool,
-    /// true = ascolta su tutte le interfacce (per il telefono).
+    /// true = listen on all interfaces (for the phone).
     pub lan: bool,
     pub presets_dir: PathBuf,
     pub pedals_dir: PathBuf,
@@ -37,30 +37,30 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/ws", get(ws_handler)).fallback(assets::serve).with_state(state)
 }
 
-/// Avvia il server e non ritorna finché non arriva Ctrl+C o SIGTERM.
+/// Starts the server; does not return until Ctrl+C or SIGTERM arrives.
 pub fn run(engine: Arc<dyn EngineHandle>, opts: ServerOptions) -> Result<()> {
-    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().context("impossibile avviare tokio")?;
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().context("cannot start tokio")?;
     rt.block_on(async move {
         let ip = if opts.lan { Ipv4Addr::UNSPECIFIED } else { Ipv4Addr::LOCALHOST };
         let listener = tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(ip), opts.port))
             .await
-            .with_context(|| format!("impossibile ascoltare sulla porta {} (forse è già in uso: prova --port)", opts.port))?;
+            .with_context(|| format!("cannot listen on port {} (it may already be in use: try --port)", opts.port))?;
         let port = listener.local_addr()?.port();
         let local_url = format!("http://127.0.0.1:{port}");
-        eprintln!("openPedal: interfaccia su {local_url}");
+        eprintln!("openPedal: interface at {local_url}");
         if opts.lan {
             match lan_address() {
-                Some(addr) => eprintln!("  dal telefono (stessa rete): http://{addr}:{port}"),
-                None => eprintln!("  in ascolto su tutte le interfacce, porta {port}"),
+                Some(addr) => eprintln!("  from the phone (same network): http://{addr}:{port}"),
+                None => eprintln!("  listening on all interfaces, port {port}"),
             }
         }
         if opts.open_browser {
             if let Err(e) = webbrowser::open(&local_url) {
-                eprintln!("  impossibile aprire il browser ({e}): apri l'indirizzo a mano");
+                eprintln!("  cannot open the browser ({e}): open the address by hand");
             }
         }
         let state = Arc::new(AppState { engine, presets_dir: opts.presets_dir, pedals_dir: opts.pedals_dir });
-        axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await.context("errore del server")
+        axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await.context("server error")
     })
 }
 
@@ -79,14 +79,14 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-/// Indirizzo della macchina sulla rete locale (nessun pacchetto viene inviato).
+/// The machine's address on the local network (no packet is sent).
 fn lan_address() -> Option<IpAddr> {
     let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     sock.connect("192.0.2.1:9").ok()?;
     Some(sock.local_addr().ok()?.ip())
 }
 
-/// Rifiuta i WebSocket aperti da pagine di altri siti (il server può scrivere file).
+/// Rejects WebSockets opened from pages on other sites (the server can write files).
 fn same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else { return true };
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or_default();
@@ -96,7 +96,7 @@ fn same_origin(headers: &HeaderMap) -> bool {
 
 async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(state): State<Arc<AppState>>) -> Response {
     if !same_origin(&headers) {
-        return (StatusCode::FORBIDDEN, "origine non consentita").into_response();
+        return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
     ws.on_upgrade(move |socket| client_loop(socket, state))
 }
@@ -120,7 +120,7 @@ async fn client_loop(socket: WebSocket, state: Arc<AppState>) {
                 let replies = match incoming {
                     Some(Ok(Message::Text(text))) => match serde_json::from_str::<ClientMsg>(&text) {
                         Ok(msg) => handle_message(&state, msg),
-                        Err(e) => vec![error(format!("messaggio non valido: {e}"), None)],
+                        Err(e) => vec![error(format!("invalid message: {e}"), None)],
                     },
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(_)) => continue,
@@ -140,7 +140,7 @@ fn error(message: String, node: Option<String>) -> ServerMsg {
 }
 
 fn error_from(e: anyhow::Error) -> ServerMsg {
-    // Se l'errore viene dal grafo e riguarda un nodo, l'interfaccia lo evidenzia.
+    // If the error comes from the graph and concerns a node, the interface highlights it.
     let node = e.chain().find_map(|c| c.downcast_ref::<crate::graph::GraphError>()).and_then(|g| g.node.clone());
     error(format!("{e:#}"), node)
 }
@@ -155,7 +155,7 @@ pub fn state_msg(state: &AppState) -> ServerMsg {
     })
 }
 
-/// Elabora un messaggio del client e restituisce le risposte per quel client.
+/// Handles a client message and returns the replies for that client.
 pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
     let result: Result<Vec<ServerMsg>> = (|| match msg {
         ClientMsg::Hello => Ok(vec![state_msg(state)]),
@@ -170,8 +170,8 @@ pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
         ClientMsg::LoadPreset { name } => {
             let path = files::file_path(&state.presets_dir, &name)?;
             let mut graph = read_graph(&path)?;
-            // L'interfaccia riconosce il preset dal nome: deve essere quello del file
-            // (i preset v1 hanno nomi come "Clean" per il file clean.toml).
+            // The interface recognizes the preset by its name: it must be the file's name
+            // (v1 presets have names like "Clean" for the file clean.toml).
             graph.name = name;
             state.engine.set_graph(graph)?;
             Ok(vec![state_msg(state)])
@@ -207,7 +207,7 @@ mod tests {
     use crate::server::mock::{default_graph, MockEngine};
     use std::path::Path;
 
-    /// Cartella temporanea unica per test.
+    /// Unique temporary folder for a test.
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("openpedal-test-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -229,17 +229,17 @@ mod tests {
     }
 
     fn pedal() -> PedalFile {
-        toml::from_str("name = \"Prova\"\ncategory = \"drive\"\n").unwrap()
+        toml::from_str("name = \"Test\"\ncategory = \"drive\"\n").unwrap()
     }
 
     #[test]
-    fn hello_risponde_con_state_come_le_fixture() {
+    fn hello_replies_with_state_like_the_fixtures() {
         let (state, _, root) = app("hello");
         let replies = handle_message(&state, ClientMsg::Hello);
         let json = serde_json::to_value(&replies[0]).unwrap();
         let fixture: serde_json::Value = serde_json::from_str(include_str!("../../ui/src/fixtures/state.json")).unwrap();
         assert_eq!(json["type"], "state");
-        // Stesse chiavi di primo livello e catalogo vero.
+        // Same top-level keys, and the real catalog.
         let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(keys(&json), keys(&fixture));
         assert_eq!(keys(&json["audio"]), keys(&fixture["audio"]));
@@ -250,13 +250,13 @@ mod tests {
     }
 
     #[test]
-    fn set_param_arriva_al_motore() {
+    fn set_param_reaches_the_engine() {
         let (state, engine, root) = app("param");
         let mut g = default_graph();
         g.nodes[1].kind = "drive".into();
         g.nodes[1].id = "dist".into();
         g.edges[0].to = "dist".into();
-        // Il grafo del mock ha bisogno di un output: lo aggiungiamo.
+        // The mock graph needs an output: we add one.
         g.nodes.push(crate::graph::model::NodeSpec { id: "out".into(), kind: "output".into(), pos: [440.0, 0.0], params: Default::default() });
         g.edges.push(crate::graph::model::EdgeSpec { from: "dist".into(), to: "out".into() });
         assert!(handle_message(&state, ClientMsg::SetGraph { graph: g }).is_empty());
@@ -264,22 +264,22 @@ mod tests {
         let r = handle_message(&state, ClientMsg::SetParam { node: "dist".into(), param: "gain_db".into(), value: 18.0 });
         assert!(r.is_empty());
         assert_eq!(dist(&engine.graph(), "dist"), Some(Value::Number(18.0)));
-        // Una scelta si manda come indice e si salva come nome.
+        // A choice is sent as an index and saved as a name.
         handle_message(&state, ClientMsg::SetParam { node: "dist".into(), param: "shape".into(), value: 1.0 });
         let shape = engine.graph().nodes.iter().find(|n| n.id == "dist").unwrap().params.get("shape").cloned();
         assert!(matches!(shape, Some(Value::Text(_))));
-        // Nodo inesistente: errore in italiano.
+        // Nonexistent node: error message in English.
         let r = handle_message(&state, ClientMsg::SetParam { node: "boh".into(), param: "x".into(), value: 0.0 });
-        assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("non esiste")));
+        assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("does not exist")));
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn nomi_pericolosi_rifiutati() {
+    fn dangerous_names_are_rejected() {
         let (state, _, root) = app("nomi");
         for bad in ["../x", "a/b", "", "a.b", "..", "x y", "\\x"] {
             let r = handle_message(&state, ClientMsg::SavePreset { name: bad.into(), graph: default_graph() });
-            assert!(matches!(r[0], ServerMsg::Error { .. }), "{bad:?} doveva essere rifiutato");
+            assert!(matches!(r[0], ServerMsg::Error { .. }), "{bad:?} must be rejected");
             let r = handle_message(&state, ClientMsg::SavePedal { id: bad.into(), pedal: pedal() });
             assert!(matches!(r[0], ServerMsg::Error { .. }));
             let r = handle_message(&state, ClientMsg::DeletePreset { name: bad.into() });
@@ -295,37 +295,37 @@ mod tests {
     }
 
     #[test]
-    fn salva_carica_preset_e_pedali() {
+    fn save_load_preset_and_pedals() {
         let (state, _, root) = app("file");
-        let r = handle_message(&state, ClientMsg::SavePreset { name: "mio-suono".into(), graph: default_graph() });
-        let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
-        assert_eq!(s.presets, vec!["mio-suono".to_string()]);
-        // il nome del grafo salvato è quello del file
+        let r = handle_message(&state, ClientMsg::SavePreset { name: "my-sound".into(), graph: default_graph() });
+        let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
+        assert_eq!(s.presets, vec!["my-sound".to_string()]);
+        // the saved graph's name is the file's name
         assert_eq!(
-            read_graph(Path::new(&state.presets_dir.join("mio-suono.toml"))).unwrap(),
-            crate::graph::model::GraphFile { name: "mio-suono".into(), ..default_graph() }
+            read_graph(Path::new(&state.presets_dir.join("my-sound.toml"))).unwrap(),
+            crate::graph::model::GraphFile { name: "my-sound".into(), ..default_graph() }
         );
-        let r = handle_message(&state, ClientMsg::LoadPreset { name: "mio-suono".into() });
+        let r = handle_message(&state, ClientMsg::LoadPreset { name: "my-sound".into() });
         assert!(matches!(r[0], ServerMsg::State(_)));
-        let r = handle_message(&state, ClientMsg::LoadPreset { name: "inesistente".into() });
+        let r = handle_message(&state, ClientMsg::LoadPreset { name: "nonexistent".into() });
         assert!(matches!(r[0], ServerMsg::Error { .. }));
-        let r = handle_message(&state, ClientMsg::DeletePreset { name: "mio-suono".into() });
-        let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
-        assert!(s.presets.is_empty() && !state.presets_dir.join("mio-suono.toml").exists());
-        let r = handle_message(&state, ClientMsg::DeletePreset { name: "mio-suono".into() });
-        assert!(matches!(r[0], ServerMsg::Error { .. }), "cancellare un preset che non c'è è un errore");
+        let r = handle_message(&state, ClientMsg::DeletePreset { name: "my-sound".into() });
+        let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
+        assert!(s.presets.is_empty() && !state.presets_dir.join("my-sound.toml").exists());
+        let r = handle_message(&state, ClientMsg::DeletePreset { name: "my-sound".into() });
+        assert!(matches!(r[0], ServerMsg::Error { .. }), "deleting a preset that does not exist is an error");
 
-        let r = handle_message(&state, ClientMsg::SavePedal { id: "prova".into(), pedal: pedal() });
-        let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
-        assert!(s.catalog.iter().any(|c| c.kind == "pedal:prova"));
-        let r = handle_message(&state, ClientMsg::DeletePedal { id: "prova".into() });
-        let ServerMsg::State(s) = &r[0] else { panic!("atteso state") };
-        assert!(!s.catalog.iter().any(|c| c.kind == "pedal:prova"));
+        let r = handle_message(&state, ClientMsg::SavePedal { id: "test".into(), pedal: pedal() });
+        let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
+        assert!(s.catalog.iter().any(|c| c.kind == "pedal:test"));
+        let r = handle_message(&state, ClientMsg::DeletePedal { id: "test".into() });
+        let ServerMsg::State(s) = &r[0] else { panic!("expected state") };
+        assert!(!s.catalog.iter().any(|c| c.kind == "pedal:test"));
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn origine_estranea_rifiutata() {
+    fn foreign_origin_is_rejected() {
         let mut h = HeaderMap::new();
         h.insert(header::HOST, "127.0.0.1:7777".parse().unwrap());
         assert!(same_origin(&h));
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn websocket_vero_hello_e_meters() {
+    async fn real_websocket_hello_and_meters() {
         use tokio_tungstenite::tungstenite::Message as M;
         let (state, _, root) = app("ws");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -359,7 +359,7 @@ mod tests {
             }
         }
         assert!(got_state && got_meters);
-        ws.send(M::text("non json")).await.unwrap();
+        ws.send(M::text("not json")).await.unwrap();
         loop {
             let Some(Ok(M::Text(t))) = ws.next().await else { continue };
             if t.contains("\"error\"") {

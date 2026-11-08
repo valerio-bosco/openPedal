@@ -1,8 +1,8 @@
-//! Server HTTP + WebSocket dell'interfaccia (task B1, vedi docs/PLAN.md §7).
+//! HTTP + WebSocket server for the interface (task B1, see docs/PLAN.md §7).
 //!
-//! Il server non conosce il motore audio: parla solo con un `EngineHandle`.
-//! Così si sviluppa e si testa con un motore finto (MockEngine), e l'integrazione
-//! collega quello vero.
+//! The server does not know about the audio engine: it only talks to an `EngineHandle`.
+//! So it can be developed and tested with a fake engine (MockEngine), and the integration
+//! plugs in the real one.
 
 mod app;
 mod assets;
@@ -17,21 +17,21 @@ use anyhow::Result;
 use crate::graph::model::{CatalogItem, GraphFile};
 use protocol::{AudioInfo, MetersMsg};
 
-/// Ciò che il server può chiedere al motore. Tutti i metodi sono chiamati da
-/// thread normali (mai da quello audio) e devono rispondere in fretta.
-/// La lettura e scrittura dei file di preset e pedali la fa il server.
+/// What the server can ask of the engine. All methods are called from
+/// normal threads (never from the audio one) and must respond quickly.
+/// The server itself reads and writes the preset and pedal files.
 pub trait EngineHandle: Send + Sync + 'static {
-    /// Blocchi base, nodi speciali e pedali composti caricati.
+    /// Loaded base blocks, special nodes and composite pedals.
     fn catalog(&self) -> Vec<CatalogItem>;
-    /// Il grafo che sta suonando adesso.
+    /// The graph currently playing.
     fn graph(&self) -> GraphFile;
     fn audio(&self) -> AudioInfo;
     fn meters(&self) -> MetersMsg;
-    /// Compila e mette in funzione un grafo. In caso di errore resta quello vecchio;
-    /// il messaggio è in italiano e, se possibile, nomina il nodo colpevole.
+    /// Compiles and starts a graph. On error the old one stays;
+    /// the message is in English and, if possible, names the offending node.
     fn set_graph(&self, graph: GraphFile) -> Result<()>;
-    /// Cambio dal vivo di un parametro (aggiorna anche il grafo restituito da `graph`).
+    /// Live change of a parameter (also updates the graph returned by `graph`).
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()>;
-    /// Da chiamare dopo aver scritto o cancellato file in pedals/.
+    /// To be called after writing or deleting files in pedals/.
     fn reload_pedals(&self) -> Result<()>;
 }

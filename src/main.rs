@@ -19,33 +19,33 @@ use graph::model::GraphFile;
 use graph::{NodeMap, Plan};
 
 const USAGE: &str = "\
-openPedal - effetti per chitarra in tempo reale
+openPedal - real-time guitar effects
 
-uso:
+usage:
   openpedal [PRESET] [--in REGEX] [--out REGEX] [--buffer N]
-                                                  suona con un preset (default: presets/clean.toml)
+                                                  play with a preset (default: presets/clean.toml)
   openpedal ui [--port 7777] [--no-browser] [--lan]
-                                                  interfaccia web (editor a nodi) nel browser
-  openpedal ports                                 elenca le porte audio delle schede
-  openpedal check PRESET...                       controlla i preset senza aprire l'audio
-  openpedal render PRESET IN.wav OUT.wav          applica un preset a una registrazione (canale 1 = pulito)
+                                                  web interface (node editor) in the browser
+  openpedal ports                                 list the audio ports of the sound cards
+  openpedal check PRESET...                       check presets without opening the audio
+  openpedal render PRESET IN.wav OUT.wav          apply a preset to a recording (channel 1 = dry)
 
-opzioni di registrazione (mentre suoni):
-  --record FILE.wav    salva pulito (sinistra) ed elaborato (destra)
-  --seconds N          durata della registrazione (default 20)
+recording options (while playing):
+  --record FILE.wav    save dry (left) and processed (right)
+  --seconds N          recording length (default 20)
 
-Il preset viene ricaricato automaticamente ogni volta che salvi il file.
-Ingresso e uscita si impostano in openpedal.toml oppure con --in / --out.";
+The preset is reloaded automatically every time you save the file.
+Input and output are set in openpedal.toml or with --in / --out.";
 
-/// Impostazioni del dispositivo (openpedal.toml).
+/// Device settings (openpedal.toml).
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Config {
-    /// Regex sul nome della porta da cui arriva la chitarra.
+    /// Regex matching the name of the port the guitar comes from.
     input: String,
-    /// Regex sulle porte di uscita (si usano le prime due: sinistra e destra).
+    /// Regex matching the output ports (the first two are used: left and right).
     output: String,
-    /// Campioni per ciclo chiesti a PipeWire: meno = meno latenza, ma più rischio di crepitii.
+    /// Samples per cycle requested from PipeWire: fewer = less latency, but more risk of crackling.
     buffer: u32,
 }
 
@@ -57,15 +57,15 @@ impl Default for Config {
 
 fn load_config() -> Result<Config> {
     match fs::read_to_string("openpedal.toml") {
-        Ok(text) => toml::from_str(&text).context("errore in openpedal.toml"),
+        Ok(text) => toml::from_str(&text).context("error in openpedal.toml"),
         Err(_) => Ok(Config::default()),
     }
 }
 
-/// Cartella dei pedali composti.
+/// Folder of composite pedals.
 const PEDALS_DIR: &str = "pedals";
 
-/// Legge un preset (v1 o v2) e i pedali, e compila il grafo.
+/// Reads a preset (v1 or v2) and the pedals, and compiles the graph.
 fn load_plan(path: &Path, sr: f32) -> Result<(GraphFile, Plan, NodeMap)> {
     let graph = graph::load::read_graph(path)?;
     let pedals = graph::load::read_pedals(Path::new(PEDALS_DIR))?;
@@ -73,7 +73,7 @@ fn load_plan(path: &Path, sr: f32) -> Result<(GraphFile, Plan, NodeMap)> {
     Ok((graph, plan, map))
 }
 
-/// Ultima modifica tra il preset e i pedali: serve a ricaricare quando cambia uno dei due.
+/// Latest modification time between the preset and the pedals: used to reload when either changes.
 fn watch_stamp(preset: &Path) -> (Option<SystemTime>, Option<SystemTime>) {
     let pedals = fs::read_dir(PEDALS_DIR)
         .into_iter()
@@ -90,7 +90,7 @@ fn modified(path: &Path) -> Option<SystemTime> {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("\nerrore: {e:#}");
+        eprintln!("\nerror: {e:#}");
         std::process::exit(1);
     }
 }
@@ -111,19 +111,19 @@ fn run() -> Result<()> {
             "ports" => return list_ports(),
             "catalog" => return print_catalog(),
             "ui" => return run_ui(args.collect()),
-            "dev-fixtures" => return write_fixtures(&PathBuf::from(args.next().context("uso: dev-fixtures CARTELLA")?)),
+            "dev-fixtures" => return write_fixtures(&PathBuf::from(args.next().context("usage: dev-fixtures DIR")?)),
             "check" => return check_presets(args.map(PathBuf::from).collect()),
-            "--in" => config.input = args.next().context("--in vuole una regex")?,
-            "--out" => config.output = args.next().context("--out vuole una regex")?,
-            "--record" => record = Some(PathBuf::from(args.next().context("--record vuole un file")?)),
+            "--in" => config.input = args.next().context("--in needs a regex")?,
+            "--out" => config.output = args.next().context("--out needs a regex")?,
+            "--record" => record = Some(PathBuf::from(args.next().context("--record needs a file")?)),
             "--buffer" => {
-                config.buffer = args.next().context("--buffer vuole un numero")?.parse().context("--buffer vuole un numero")?
+                config.buffer = args.next().context("--buffer needs a number")?.parse().context("--buffer needs a number")?
             }
             "--seconds" => {
-                seconds = args.next().context("--seconds vuole un numero")?.parse().context("--seconds vuole un numero")?
+                seconds = args.next().context("--seconds needs a number")?.parse().context("--seconds needs a number")?
             }
             "render" => {
-                let mut next = || args.next().map(PathBuf::from).context("uso: render PRESET IN.wav OUT.wav");
+                let mut next = || args.next().map(PathBuf::from).context("usage: render PRESET IN.wav OUT.wav");
                 return render(&next()?, &next()?, &next()?);
             }
             _ => preset_path = PathBuf::from(arg),
@@ -133,7 +133,7 @@ fn run() -> Result<()> {
     play(&config, &preset_path, record.map(|path| (path, seconds)))
 }
 
-/// `openpedal ui`: server dell'interfaccia web (per ora con il motore finto).
+/// `openpedal ui`: web interface server (for now with the fake engine).
 fn run_ui(args: Vec<String>) -> Result<()> {
     let mut port = 7777u16;
     let mut open_browser = true;
@@ -144,16 +144,16 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--port" => port = args.next().context("--port vuole un numero")?.parse().context("--port vuole un numero")?,
+            "--port" => port = args.next().context("--port needs a number")?.parse().context("--port needs a number")?,
             "--no-browser" => open_browser = false,
             "--lan" => lan = true,
             "--no-audio" => audio = false,
-            "--in" => config.input = args.next().context("--in vuole una regex")?,
-            "--out" => config.output = args.next().context("--out vuole una regex")?,
+            "--in" => config.input = args.next().context("--in needs a regex")?,
+            "--out" => config.output = args.next().context("--out needs a regex")?,
             "--buffer" => {
-                config.buffer = args.next().context("--buffer vuole un numero")?.parse().context("--buffer vuole un numero")?
+                config.buffer = args.next().context("--buffer needs a number")?.parse().context("--buffer needs a number")?
             }
-            a if a.starts_with("--") => anyhow::bail!("opzione sconosciuta per ui: {arg}"),
+            a if a.starts_with("--") => anyhow::bail!("unknown option for ui: {arg}"),
             _ => preset_path = PathBuf::from(arg),
         }
     }
@@ -161,14 +161,14 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     let pedals_dir = PathBuf::from("pedals");
     let graph = match graph::load::read_graph(&preset_path) {
         Ok(mut g) => {
-            // come per load_preset: il nome è quello del file, così l'interfaccia lo riconosce
+            // as in load_preset: the name is the file's name, so the interface recognizes it
             if let Some(stem) = preset_path.file_stem().and_then(|s| s.to_str()) {
                 g.name = stem.to_string();
             }
             g
         }
         Err(e) => {
-            eprintln!("{e:#}: parto da un grafo vuoto");
+            eprintln!("{e:#}: starting from an empty graph");
             server::mock::default_graph()
         }
     };
@@ -177,7 +177,7 @@ fn run_ui(args: Vec<String>) -> Result<()> {
         match start_live(&config, graph.clone(), &pedals_dir) {
             Ok(live) => live,
             Err(e) => {
-                eprintln!("audio non disponibile ({e:#}): solo editor, senza suono");
+                eprintln!("audio unavailable ({e:#}): editor only, no sound");
                 std::sync::Arc::new(server::mock::MockEngine::new(&pedals_dir, graph))
             }
         }
@@ -187,7 +187,7 @@ fn run_ui(args: Vec<String>) -> Result<()> {
     server::run(engine, server::ServerOptions { port, open_browser, lan, presets_dir, pedals_dir })
 }
 
-/// Avvia il motore audio vero con il grafo iniziale.
+/// Starts the real audio engine with the initial graph.
 fn start_live(config: &Config, graph: GraphFile, pedals_dir: &Path) -> Result<std::sync::Arc<live::LiveEngine>> {
     std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
     let client = engine::open_client("openPedal")?;
@@ -199,14 +199,14 @@ fn start_live(config: &Config, graph: GraphFile, pedals_dir: &Path) -> Result<st
     Ok(live::LiveEngine::new(engine, map, graph, pedals, pedals_dir.to_path_buf()))
 }
 
-/// Il catalogo in JSON, come lo riceve l'interfaccia.
+/// The catalog in JSON, as the interface receives it.
 fn print_catalog() -> Result<()> {
     let pedals = graph::load::read_pedals(Path::new("pedals"))?;
     println!("{}", serde_json::to_string_pretty(&graph::model::catalog_items(&pedals))?);
     Ok(())
 }
 
-/// Genera gli esempi JSON del protocollo per lo sviluppo dell'interfaccia.
+/// Generates the protocol's JSON examples for developing the interface.
 fn write_fixtures(dir: &Path) -> Result<()> {
     use server::protocol::{AudioInfo, ClientMsg, MetersMsg, ServerMsg, StateMsg};
 
@@ -215,7 +215,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     let catalog = graph::model::catalog_items(&pedals);
     let graph = graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml"))?;
     let write = |name: &str, json: String| -> Result<()> {
-        fs::write(dir.join(name), json + "\n").with_context(|| format!("scrittura di {name}"))
+        fs::write(dir.join(name), json + "\n").with_context(|| format!("writing {name}"))
     };
 
     write("catalog.json", serde_json::to_string_pretty(&catalog)?)?;
@@ -229,10 +229,10 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     write("state.json", serde_json::to_string_pretty(&state)?)?;
     let meters = ServerMsg::Meters(MetersMsg { in_db: -18.5, out_db: -12.0, dsp: 0.02, xruns: 0 });
     write("meters.json", serde_json::to_string_pretty(&meters)?)?;
-    let error = ServerMsg::Error { message: "il grafo contiene un ciclo: dist -> room -> dist".into(), node: Some("room".into()) };
+    let error = ServerMsg::Error { message: "the graph contains a cycle: dist -> room -> dist".into(), node: Some("room".into()) };
     write("error.json", serde_json::to_string_pretty(&error)?)?;
 
-    let (_, pedal) = pedals.first().context("serve almeno un pedale in pedals/")?.clone();
+    let (_, pedal) = pedals.first().context("need at least one pedal in pedals/")?.clone();
     let client = vec![
         ClientMsg::Hello,
         ClientMsg::SetParam { node: "dist".into(), param: "gain_db".into(), value: 18.0 },
@@ -245,17 +245,17 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::DeletePedal { id: "vecchio-pedale".into() },
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
-    println!("fixture scritte in {}", dir.display());
+    println!("fixtures written to {}", dir.display());
     Ok(())
 }
 
 fn list_ports() -> Result<()> {
     let client = engine::open_client("openPedal-ports")?;
-    println!("ingressi (da usare con --in):");
+    println!("inputs (use with --in):");
     for p in engine::hardware_ports(&client, true) {
         println!("  {p}");
     }
-    println!("uscite (da usare con --out):");
+    println!("outputs (use with --out):");
     for p in engine::hardware_ports(&client, false) {
         println!("  {p}");
     }
@@ -273,17 +273,17 @@ fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
             }
         }
     }
-    anyhow::ensure!(ok, "alcuni preset non sono validi");
+    anyhow::ensure!(ok, "some presets are not valid");
     Ok(())
 }
 
-/// Elabora il primo canale di un WAV e salva pulito (sinistra) ed elaborato (destra).
+/// Processes the first channel of a WAV and saves dry (left) and processed (right).
 fn render(preset_path: &Path, input: &Path, output: &Path) -> Result<()> {
     let data = wav::read(input)?;
     let (graph, mut plan, _) = load_plan(preset_path, data.sample_rate as f32)?;
     let dry = &data.channels[0];
     let mut wet = dry.clone();
-    // A blocchi da 64 come dal vivo, così il risultato è identico.
+    // In blocks of 64, as in live use, so the result is identical.
     for block in wet.chunks_mut(64) {
         plan.process(block);
         for s in block.iter_mut() {
@@ -300,7 +300,7 @@ fn render(preset_path: &Path, input: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Scrive su disco i campioni registrati dal thread audio, poi chiude il file.
+/// Writes to disk the samples recorded by the audio thread, then closes the file.
 fn spawn_recorder(path: PathBuf, seconds: f32, sample_rate: u32, mut rx: rtrb::Consumer<f32>) -> Result<()> {
     let mut writer = wav::WavWriter::create(&path, 2, sample_rate)?;
     let total = (seconds * sample_rate as f32) as usize * 2;
@@ -318,16 +318,16 @@ fn spawn_recorder(path: PathBuf, seconds: f32, sample_rate: u32, mut rx: rtrb::C
             }
         }
         match writer.finish() {
-            Ok(()) => eprintln!("\r\x1b[2Kregistrazione salvata: {}", path.display()),
-            Err(e) => eprintln!("\r\x1b[2Kerrore nel salvare la registrazione: {e}"),
+            Ok(()) => eprintln!("\r\x1b[2Krecording saved: {}", path.display()),
+            Err(e) => eprintln!("\r\x1b[2Kerror saving the recording: {e}"),
         }
-        // Qui `rx` viene chiuso: il thread audio smette di riempire la coda.
+        // `rx` is dropped here: the audio thread stops filling the queue.
     });
     Ok(())
 }
 
 fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> Result<()> {
-    // PipeWire legge questa variabile quando il client si collega.
+    // PipeWire reads this variable when the client connects.
     std::env::set_var("PIPEWIRE_QUANTUM", format!("{}/48000", config.buffer));
     let client = engine::open_client("openPedal")?;
     let sr = client.sample_rate() as f32;
@@ -336,17 +336,17 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
     eprintln!("openPedal");
     let recorder = match record {
         Some((path, seconds)) => {
-            // 4 secondi di margine: il disco può avere pause, il thread audio no.
+            // 4 seconds of headroom: the disk may stall, the audio thread cannot.
             let (tx, rx) = rtrb::RingBuffer::new(sr as usize * 2 * 4);
             spawn_recorder(path.clone(), seconds, sr as u32, rx)?;
-            eprintln!("  registro {seconds} s in {}", path.display());
+            eprintln!("  recording {seconds} s to {}", path.display());
             Some(tx)
         }
         None => None,
     };
     let mut engine = Engine::start(client, plan, &config.input, &config.output, recorder)?;
     eprintln!("  {} Hz", engine.sample_rate);
-    eprintln!("  preset: \"{}\" ({} nodi) - salva il file per ricaricarlo, Ctrl+C per uscire\n", graph.name, graph.nodes.len());
+    eprintln!("  preset: \"{}\" ({} nodes) - save the file to reload it, Ctrl+C to quit\n", graph.name, graph.nodes.len());
 
     let mut last_stamp = watch_stamp(preset_path);
     let mut tick = 0u32;
@@ -361,11 +361,11 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
                 last_stamp = stamp;
                 match load_plan(preset_path, engine.sample_rate) {
                     Ok((g, plan, _)) => match engine.swap_plan(plan) {
-                        Ok(()) => eprintln!("\r\x1b[2Kricaricato \"{}\" ({} nodi)", g.name, g.nodes.len()),
-                        Err(e) => eprintln!("\r\x1b[2K{e:#} - resta attivo il preset precedente"),
+                        Ok(()) => eprintln!("\r\x1b[2Kreloaded \"{}\" ({} nodes)", g.name, g.nodes.len()),
+                        Err(e) => eprintln!("\r\x1b[2K{e:#} - the previous preset stays active"),
                     },
-                    // Un errore di battitura non deve interrompere il suono: resta il preset vecchio.
-                    Err(e) => eprintln!("\r\x1b[2K{e:#} - resta attivo il preset precedente"),
+                    // A typo must not interrupt the sound: the old preset stays.
+                    Err(e) => eprintln!("\r\x1b[2K{e:#} - the previous preset stays active"),
                 }
             }
         }
@@ -387,7 +387,7 @@ fn play(config: &Config, preset_path: &Path, record: Option<(PathBuf, f32)>) -> 
     }
 }
 
-/// Barra da -60 a 0 dBFS; diventa "!" quando si arriva al clip.
+/// Bar from -60 to 0 dBFS; becomes "!" when it reaches clipping.
 fn meter_bar(peak: f32) -> String {
     const WIDTH: usize = 20;
     let db = lin_to_db(peak).clamp(-60.0, 0.0);

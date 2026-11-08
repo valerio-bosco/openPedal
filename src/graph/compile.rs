@@ -1,7 +1,7 @@
-//! Compilatore: espande i pedali composti, controlla il grafo, lo ordina e
-//! costruisce il `Plan`. Gira nel thread di controllo (può allocare e leggere file).
+//! Compiler: expands composite pedals, checks the graph, sorts it and
+//! builds the `Plan`. Runs on the control thread (it can allocate and read files).
 
-// L'API di traduzione dei parametri la userà l'integrazione (I2, `EngineHandle`).
+// The parameter translation API will be used by the integration (I2, `EngineHandle`).
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -13,8 +13,8 @@ use super::exec::{Op, OutGain, Plan, Step};
 use super::model::*;
 use crate::dsp::{self, db_to_lin, BlockDesc, Entry, ParamKind, ParamValues, Smoothed, Value};
 
-/// Errore del grafo, con il nodo (di primo livello) a cui si riferisce, se c'è:
-/// l'interfaccia lo può evidenziare (`anyhow::Error::downcast_ref::<GraphError>()`).
+/// Graph error, with the (top-level) node it refers to, if any:
+/// the interface can highlight it (`anyhow::Error::downcast_ref::<GraphError>()`).
 #[derive(Debug, Clone)]
 pub struct GraphError {
     pub message: String,
@@ -33,7 +33,7 @@ fn err(node: Option<&str>, message: impl Into<String>) -> anyhow::Error {
     GraphError { message: message.into(), node: node.map(String::from) }.into()
 }
 
-/// Un cambio di parametro già tradotto in indici del `Plan`, pronto per il thread audio.
+/// A parameter change already translated into `Plan` indices, ready for the audio thread.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamChange {
     pub step: usize,
@@ -41,8 +41,8 @@ pub struct ParamChange {
     pub value: f32,
 }
 
-/// Dove va a finire una manopola esposta: il parametro di un blocco, attraverso
-/// uno o più livelli di mappatura 0..1 -> min..max (più livelli se i pedali sono annidati).
+/// Where an exposed knob ends up: the parameter of a block, through
+/// one or more 0..1 -> min..max mapping levels (more levels if pedals are nested).
 #[derive(Debug, Clone)]
 struct Binding {
     flat: usize,
@@ -58,45 +58,45 @@ impl Binding {
 }
 
 enum Slot {
-    /// Nodo che corrisponde a un solo blocco (compresi `input` e `output`).
+    /// Node that corresponds to a single block (including `input` and `output`).
     Block { flat: usize, desc: &'static BlockDesc },
     Pedal { knobs: BTreeMap<String, Binding> },
 }
 
-/// Traduce (id del nodo, id del parametro) negli indici per `Plan::set_param`.
-/// La tiene il thread di controllo; è valida solo per il `Plan` con cui è stata creata.
+/// Translates (node id, parameter id) into indices for `Plan::set_param`.
+/// Kept by the control thread; only valid for the `Plan` it was created with.
 pub struct NodeMap {
     slots: HashMap<String, Slot>,
-    /// Nodo piatto -> passo del piano (None = scartato perché non porta all'uscita).
+    /// Flat node -> plan step (None = discarded because it does not lead to the output).
     flat_to_step: Vec<Option<usize>>,
 }
 
 impl NodeMap {
-    /// `Ok(None)`: il nodo esiste ma non è nel piano (non è collegato tra chitarra e uscita),
-    /// quindi non c'è niente da cambiare. Errore: nodo o parametro inesistente, o parametro
-    /// che richiede di ricostruire il grafo (un file).
-    /// Per i pedali composti `param` è l'etichetta della manopola e `value` va da 0 a 1.
+    /// `Ok(None)`: the node exists but is not in the plan (it is not wired between guitar and output),
+    /// so there is nothing to change. Error: node or parameter does not exist, or a parameter
+    /// that requires rebuilding the graph (a file).
+    /// For composite pedals `param` is the knob label and `value` goes from 0 to 1.
     pub fn resolve(&self, node: &str, param: &str, value: f32) -> Result<Option<ParamChange>> {
         let Some(slot) = self.slots.get(node) else {
-            return Err(err(Some(node), format!("il nodo '{node}' non esiste")));
+            return Err(err(Some(node), format!("node '{node}' does not exist")));
         };
         let (flat, index, value) = match slot {
             Slot::Block { flat, desc } => {
                 let Some(index) = desc.param_index(param) else {
                     let valid: Vec<_> = desc.params.iter().map(|p| p.id).collect();
-                    let msg = format!("il nodo '{node}' ({}) non ha il parametro '{param}' (validi: {})", desc.kind, valid.join(", "));
+                    let msg = format!("node '{node}' ({}) has no parameter '{param}' (valid: {})", desc.kind, valid.join(", "));
                     return Err(err(Some(node), msg));
                 };
                 let pd = &desc.params[index];
                 if let ParamKind::File { .. } = pd.kind {
-                    return Err(err(Some(node), format!("'{node}.{param}' si cambia ricostruendo il grafo")));
+                    return Err(err(Some(node), format!("'{node}.{param}' can only be changed by rebuilding the graph")));
                 }
                 (*flat, index, pd.clamp(value))
             }
             Slot::Pedal { knobs } => {
                 let Some(b) = knobs.get(param) else {
                     let valid: Vec<_> = knobs.keys().map(String::as_str).collect();
-                    let msg = format!("il pedale '{node}' non ha la manopola '{param}' (manopole: {})", valid.join(", "));
+                    let msg = format!("pedal '{node}' has no knob '{param}' (knobs: {})", valid.join(", "));
                     return Err(err(Some(node), msg));
                 };
                 (b.flat, b.param, b.desc.params[b.param].clamp(b.apply(value)))
@@ -116,13 +116,13 @@ enum FlatKind {
 }
 
 struct FlatNode {
-    /// Percorso leggibile: "speaker/c" per un nodo dentro un pedale.
+    /// Readable path: "speaker/c" for a node inside a pedal.
     path: String,
     kind: FlatKind,
     params: ParamValues,
 }
 
-/// Come ci si collega a un nodo di un livello: i cavi entrano in `entry` e partono da `exit`.
+/// How a level is wired to its nodes: cables enter at `entry` and leave from `exit`.
 struct Expanded {
     entry: usize,
     exit: usize,
@@ -141,9 +141,9 @@ impl Expander<'_> {
         self.nodes.len() - 1
     }
 
-    /// Espande un livello (il grafo principale o il corpo di un pedale).
-    /// `implicit` = giunzioni `pedal_in`/`pedal_out`, solo dentro i pedali.
-    /// `top` = nodo di primo livello da segnalare negli errori.
+    /// Expands a level (the main graph or the body of a pedal).
+    /// `implicit` = `pedal_in`/`pedal_out` junctions, only inside pedals.
+    /// `top` = top-level node to report in errors.
     fn body(
         &mut self,
         nodes: &[NodeSpec],
@@ -162,16 +162,16 @@ impl Expander<'_> {
         for spec in nodes {
             let node = top.or(Some(spec.id.as_str()));
             if spec.id.is_empty() {
-                return Err(err(node, "un nodo ha l'id vuoto"));
+                return Err(err(node, "a node has an empty id"));
             }
             if map.contains_key(&spec.id) {
-                return Err(err(node, format!("l'id '{}' è usato da più nodi (o è riservato)", spec.id)));
+                return Err(err(node, format!("the id '{}' is used by more than one node (or is reserved)", spec.id)));
             }
             kinds.insert(&spec.id, &spec.kind);
             let path = if prefix.is_empty() { spec.id.clone() } else { format!("{prefix}/{}", spec.id) };
             let exp = match spec.kind.as_str() {
                 INPUT | OUTPUT if top.is_some() || implicit.is_some() => {
-                    return Err(err(node, format!("'{}' non può stare dentro un pedale composto", spec.kind)));
+                    return Err(err(node, format!("'{}' cannot be inside a composite pedal", spec.kind)));
                 }
                 INPUT => self.leaf(path, FlatKind::Input, &INPUT_DESC, spec)?,
                 OUTPUT => self.leaf(path, FlatKind::Output, &OUTPUT_DESC, spec)?,
@@ -181,7 +181,7 @@ impl Expander<'_> {
                 kind => {
                     let Some(entry) = dsp::find(kind) else {
                         let valid: Vec<_> = dsp::catalog().iter().map(|e| e.desc.kind).collect();
-                        let msg = format!("il nodo '{}' ha un tipo sconosciuto '{kind}' (tipi validi: {})", spec.id, valid.join(", "));
+                        let msg = format!("node '{}' has an unknown type '{kind}' (valid types: {})", spec.id, valid.join(", "));
                         return Err(err(node, msg));
                     };
                     self.leaf(path, FlatKind::Block(entry), entry.desc, spec)?
@@ -193,19 +193,19 @@ impl Expander<'_> {
         let mut seen = HashSet::new();
         for e in edges {
             let node = top.or(Some(e.from.as_str()));
-            let missing = |id: &str| err(node, format!("il cavo {} -> {} usa il nodo '{id}', che non esiste", e.from, e.to));
+            let missing = |id: &str| err(node, format!("cable {} -> {} uses node '{id}', which does not exist", e.from, e.to));
             let from = map.get(&e.from).ok_or_else(|| missing(&e.from))?;
             let to = map.get(&e.to).ok_or_else(|| missing(&e.to))?;
             let from_is_sink = e.from == PEDAL_OUT || kinds.get(e.from.as_str()) == Some(&OUTPUT);
             let to_is_source = e.to == PEDAL_IN || kinds.get(e.to.as_str()) == Some(&INPUT);
             if from_is_sink {
-                return Err(err(node, format!("dall'uscita '{}' non possono partire cavi", e.from)));
+                return Err(err(node, format!("cables cannot leave output '{}'", e.from)));
             }
             if to_is_source {
-                return Err(err(node, format!("nell'ingresso '{}' non possono arrivare cavi", e.to)));
+                return Err(err(node, format!("cables cannot arrive at input '{}'", e.to)));
             }
             if !seen.insert((e.from.as_str(), e.to.as_str())) {
-                return Err(err(node, format!("il cavo {} -> {} è ripetuto", e.from, e.to)));
+                return Err(err(node, format!("cable {} -> {} is repeated", e.from, e.to)));
             }
             self.edges.push((from.exit, to.entry));
         }
@@ -218,37 +218,37 @@ impl Expander<'_> {
         Ok(Expanded { entry: i, exit: i, knobs: BTreeMap::new() })
     }
 
-    /// Espande un nodo `pedal:<id>`: le manopole impostano i parametri interni.
+    /// Expands a `pedal:<id>` node: the knobs set the internal parameters.
     fn pedal(&mut self, id: &str, spec: &NodeSpec, path: &str, top: &str, stack: &mut Vec<String>) -> Result<Expanded> {
         if stack.iter().any(|s| s == id) {
             let chain: Vec<_> = stack.iter().map(String::as_str).chain([id]).collect();
-            return Err(err(Some(top), format!("il pedale '{id}' contiene se stesso: {}", chain.join(" -> "))));
+            return Err(err(Some(top), format!("pedal '{id}' contains itself: {}", chain.join(" -> "))));
         }
         let pedals = self.pedals;
         let Some((_, pedal)) = pedals.iter().find(|(pid, _)| pid == id) else {
-            return Err(err(Some(top), format!("il pedale '{id}' non esiste (manca pedals/{id}.toml)")));
+            return Err(err(Some(top), format!("pedal '{id}' does not exist (missing pedals/{id}.toml)")));
         };
 
         for name in spec.params.0.keys() {
             if !pedal.knobs.iter().any(|k| &k.label == name) {
                 let valid: Vec<_> = pedal.knobs.iter().map(|k| k.label.as_str()).collect();
-                let msg = format!("il pedale '{id}' non ha la manopola '{name}' (manopole: {})", valid.join(", "));
+                let msg = format!("pedal '{id}' has no knob '{name}' (knobs: {})", valid.join(", "));
                 return Err(err(Some(top), msg));
             }
         }
 
-        // Le manopole scrivono il proprio valore nel parametro interno prima di costruire.
+        // The knobs write their value into the internal parameter before building.
         let mut inner = pedal.nodes.clone();
         for k in &pedal.knobs {
             let (target, param) = k.target.split_once('.').ok_or_else(|| {
-                err(Some(top), format!("pedale '{id}', manopola '{}': il target '{}' deve essere 'nodo.parametro'", k.label, k.target))
+                err(Some(top), format!("pedal '{id}', knob '{}': target '{}' must be 'node.parameter'", k.label, k.target))
             })?;
             let Some(node) = inner.iter_mut().find(|n| n.id == target) else {
-                return Err(err(Some(top), format!("pedale '{id}', manopola '{}': il nodo '{target}' non esiste", k.label)));
+                return Err(err(Some(top), format!("pedal '{id}', knob '{}': node '{target}' does not exist", k.label)));
             };
             let v = match spec.params.get(&k.label) {
                 Some(Value::Number(v)) => *v,
-                Some(Value::Text(_)) => return Err(err(Some(top), format!("la manopola '{}' deve essere un numero", k.label))),
+                Some(Value::Text(_)) => return Err(err(Some(top), format!("the knob '{}' must be a number", k.label))),
                 None => k.default,
             };
             node.params.set(param, Value::Number(k.min + (k.max - k.min) * v.clamp(0.0, 1.0)));
@@ -259,29 +259,29 @@ impl Expander<'_> {
         stack.push(id.to_string());
         let map = self.body(&inner, &pedal.edges, path, Some(top), stack, Some((pin, pout)));
         stack.pop();
-        let map = map.with_context(|| format!("pedale '{id}'"))?;
+        let map = map.with_context(|| format!("pedal '{id}'"))?;
 
         let mut knobs = BTreeMap::new();
         for k in &pedal.knobs {
-            let (target, param) = k.target.split_once('.').expect("già controllato");
+            let (target, param) = k.target.split_once('.').expect("already checked");
             let exp = &map[target];
             let level = (k.min, k.max);
             let binding = match &self.nodes[exp.entry].kind {
                 FlatKind::Block(entry) => {
                     let Some(index) = entry.desc.param_index(param) else {
-                        let msg = format!("pedale '{id}', manopola '{}': '{target}' ({}) non ha il parametro '{param}'", k.label, entry.desc.kind);
+                        let msg = format!("pedal '{id}', knob '{}': '{target}' ({}) has no parameter '{param}'", k.label, entry.desc.kind);
                         return Err(err(Some(top), msg));
                     };
                     if !matches!(entry.desc.params[index].kind, ParamKind::Number { .. }) {
-                        let msg = format!("pedale '{id}', manopola '{}': '{}' non è numerico", k.label, k.target);
+                        let msg = format!("pedal '{id}', knob '{}': '{}' is not numeric", k.label, k.target);
                         return Err(err(Some(top), msg));
                     }
                     Binding { flat: exp.entry, desc: entry.desc, param: index, levels: vec![level] }
                 }
-                // Target = un altro pedale: `param` è una sua manopola, già verificata in `body`.
+                // Target = another pedal: `param` is one of its knobs, already checked in `body`.
                 _ => {
                     let Some(inner_binding) = exp.knobs.get(param) else {
-                        return Err(err(Some(top), format!("pedale '{id}', manopola '{}': '{target}' non ha la manopola '{param}'", k.label)));
+                        return Err(err(Some(top), format!("pedal '{id}', knob '{}': '{target}' has no knob '{param}'", k.label)));
                     };
                     let mut levels = vec![level];
                     levels.extend(&inner_binding.levels);
@@ -296,9 +296,9 @@ impl Expander<'_> {
 
 // ---------- compilazione ----------
 
-/// Compila un grafo (con i pedali composti disponibili) in un `Plan` e nella `NodeMap`
-/// per tradurre i cambi di parametro. Può leggere file (cab) e fallire: non va chiamata
-/// dal thread audio.
+/// Compiles a graph (with the available composite pedals) into a `Plan` and a `NodeMap`
+/// that translates parameter changes. It can read files (cab) and fail: it must not be called
+/// from the audio thread.
 pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Result<(Plan, NodeMap)> {
     let mut ex = Expander { pedals, nodes: Vec::new(), edges: Vec::new() };
     let top = ex.body(&graph.nodes, &graph.edges, "", None, &mut Vec::new(), None)?;
@@ -308,10 +308,10 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
     let outputs: Vec<_> = (0..nodes.len()).filter(|&i| matches!(nodes[i].kind, FlatKind::Output)).collect();
     match (inputs.len(), outputs.len()) {
         (1, 1) => {}
-        (0, _) => bail!("manca il nodo 'input' (la chitarra)"),
-        (_, 0) => bail!("manca il nodo 'output' (l'ampli)"),
-        (n, 1) if n > 1 => bail!("il grafo ha {n} nodi 'input': ne serve uno solo"),
-        (_, n) => bail!("il grafo ha {n} nodi 'output': ne serve uno solo"),
+        (0, _) => bail!("the 'input' node (the guitar) is missing"),
+        (_, 0) => bail!("the 'output' node (the amp) is missing"),
+        (n, 1) if n > 1 => bail!("the graph has {n} 'input' nodes: only one is needed"),
+        (_, n) => bail!("the graph has {n} 'output' nodes: only one is needed"),
     }
     let (input, output) = (inputs[0], outputs[0]);
 
@@ -325,7 +325,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
         indeg[b] += 1;
     }
 
-    // Ordinamento topologico (Kahn); ciò che resta fuori fa parte di un ciclo o ne dipende.
+    // Topological sort (Kahn); whatever is left over is part of a cycle or depends on one.
     let mut order = Vec::with_capacity(n);
     let mut left = indeg.clone();
     let mut ready: Vec<usize> = (0..n).filter(|&i| left[i] == 0).collect();
@@ -343,7 +343,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
         return Err(cycle_error(&nodes, &pred, &left));
     }
 
-    // Si tiene ciò che è raggiungibile dalla chitarra e porta all'uscita (l'uscita resta sempre).
+    // Keep what is reachable from the guitar and leads to the output (the output is always kept).
     let from_input = reach(input, &succ);
     let to_output = reach(output, &pred);
     let keep = |i: usize| i == output || (from_input[i] && to_output[i]);
@@ -361,7 +361,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
             }
             FlatKind::Block(entry) => {
                 let block = dsp::build_block(entry.desc.kind, &node.params, sr)
-                    .map_err(|e| err(Some(&top_of(&node.path)), format!("nodo '{}': {e:#}", node.path)))?;
+                    .map_err(|e| err(Some(&top_of(&node.path)), format!("node '{}': {e:#}", node.path)))?;
                 Op::Block(block)
             }
         };
@@ -389,7 +389,7 @@ fn top_of(path: &str) -> String {
     path.split('/').next().unwrap_or(path).to_string()
 }
 
-/// Nodi raggiungibili da `start` seguendo `next`.
+/// Nodes reachable from `start` by following `next`.
 fn reach(start: usize, next: &[Vec<usize>]) -> Vec<bool> {
     let mut seen = vec![false; next.len()];
     let mut stack = vec![start];
@@ -405,14 +405,14 @@ fn reach(start: usize, next: &[Vec<usize>]) -> Vec<bool> {
     seen
 }
 
-/// Trova un ciclo tra i nodi che l'ordinamento non ha potuto sistemare, per descriverlo.
+/// Finds a cycle among the nodes the sort could not place, in order to describe it.
 fn cycle_error(nodes: &[FlatNode], pred: &[Vec<usize>], left: &[usize]) -> anyhow::Error {
-    // Ogni nodo rimasto ha un predecessore rimasto: risalendo si finisce in un ciclo.
-    let start = (0..nodes.len()).find(|&i| left[i] > 0).expect("c'è un nodo rimasto");
+    // Every remaining node has a remaining predecessor: walking back always ends in a cycle.
+    let start = (0..nodes.len()).find(|&i| left[i] > 0).expect("a remaining node exists");
     let mut path = vec![start];
     let cycle = loop {
         let cur = *path.last().unwrap();
-        let prev = *pred[cur].iter().find(|&&p| left[p] > 0).expect("predecessore rimasto");
+        let prev = *pred[cur].iter().find(|&&p| left[p] > 0).expect("remaining predecessor");
         if let Some(pos) = path.iter().position(|&p| p == prev) {
             let mut c = path[pos..].to_vec();
             c.reverse();
@@ -425,7 +425,7 @@ fn cycle_error(nodes: &[FlatNode], pred: &[Vec<usize>], left: &[usize]) -> anyho
         names = cycle.iter().map(|&i| nodes[i].path.clone()).collect();
     }
     names.push(names[0].clone());
-    err(Some(&top_of(&names[0])), format!("il grafo contiene un ciclo: {}", names.join(" -> ")))
+    err(Some(&top_of(&names[0])), format!("the graph contains a cycle: {}", names.join(" -> ")))
 }
 
 #[cfg(test)]
@@ -437,7 +437,7 @@ mod tests {
 
     const SR: f32 = 48000.0;
 
-    /// Segnale deterministico: un seno più un po' di rumore.
+    /// Deterministic signal: a sine plus a bit of noise.
     fn signal(n: usize) -> Vec<f32> {
         let mut seed = 12345u32;
         (0..n)
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn i_preset_v1_suonano_come_la_vecchia_catena() {
+    fn v1_presets_sound_like_the_old_chain() {
         let input = signal(48000);
         let mut count = 0;
         for entry in std::fs::read_dir("presets").unwrap() {
@@ -485,14 +485,14 @@ mod tests {
             let (mut plan, _) = compile(&crate::graph::load::read_graph(&path).unwrap(), &[], SR).unwrap();
             let new = run(&mut plan, &input);
             let same = old.iter().zip(&new).all(|(a, b)| a.to_bits() == b.to_bits());
-            assert!(same, "{} suona diverso", path.display());
+            assert!(same, "{} sounds different", path.display());
             count += 1;
         }
         assert!(count >= 5);
     }
 
     #[test]
-    fn il_grafo_di_esempio_suona() {
+    fn example_graph_makes_sound() {
         let pedals = read_pedals(Path::new("pedals")).unwrap();
         let g = crate::graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml")).unwrap();
         let (mut plan, _) = compile(&g, &pedals, SR).unwrap();
@@ -502,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn fan_in_somma_e_fan_out_copia() {
+    fn fan_in_sums_and_fan_out_copies() {
         let g = r#"
 name = "p"
 [[node]]
@@ -542,7 +542,7 @@ to = "out"
     }
 
     #[test]
-    fn un_ciclo_e_rifiutato() {
+    fn a_cycle_is_rejected() {
         let g = r#"
 name = "p"
 [[node]]
@@ -572,7 +572,7 @@ to = "out"
 "#;
         let e = build(g, &[]).err().unwrap();
         let msg = format!("{e:#}");
-        assert!(msg.contains("ciclo") && (msg.contains("a -> b -> a") || msg.contains("b -> a -> b")), "{msg}");
+        assert!(msg.contains("cycle") && (msg.contains("a -> b -> a") || msg.contains("b -> a -> b")), "{msg}");
         let ge = e.downcast_ref::<GraphError>().unwrap();
         assert!(ge.node.is_some());
     }
@@ -640,15 +640,15 @@ to = "out"
 "#;
 
     #[test]
-    fn un_pedale_annidato_viene_espanso_e_le_knob_funzionano_dal_vivo() {
+    fn nested_pedal_is_expanded_and_knobs_work_live() {
         let (mut plan, map) = build(USE_OUTER, &nested_pedals()).unwrap();
         let input = signal(9600);
-        // Master = 1 -> Level interno 0 -> -20 dB.
+        // Master = 1 -> internal Level 0 -> -20 dB.
         let out = run(&mut plan, &input);
         let expected = crate::dsp::db_to_lin(-20.0);
         assert!((out[5000] - input[5000] * expected).abs() < 1e-5);
 
-        // Dal vivo: Master = 0 -> Level interno 1 -> 0 dB.
+        // Live: Master = 0 -> internal Level 1 -> 0 dB.
         let change = map.resolve("p", "Master", 0.0).unwrap().unwrap();
         assert_eq!(change.value, 0.0);
         plan.set_param(change.step, change.param, change.value);
@@ -658,17 +658,17 @@ to = "out"
     }
 
     #[test]
-    fn la_manopola_senza_valore_usa_il_default() {
+    fn knob_without_value_uses_default() {
         let g = USE_OUTER.replace("params = { Master = 1 }\n", "");
         let (mut plan, _) = build(&g, &nested_pedals()).unwrap();
         let input = signal(9600);
         let out = run(&mut plan, &input);
-        // Master = 0 (default dell'esterno) -> Level 1 -> 0 dB.
+        // Master = 0 (outer default) -> Level 1 -> 0 dB.
         assert!((out[5000] - input[5000]).abs() < 1e-5);
     }
 
     #[test]
-    fn un_pedale_ricorsivo_e_rifiutato() {
+    fn recursive_pedal_is_rejected() {
         let a = pedal("name = \"A\"\n[[node]]\nid = \"x\"\ntype = \"pedal:b\"\n[[edge]]\nfrom = \"pedal_in\"\nto = \"x\"\n[[edge]]\nfrom = \"x\"\nto = \"pedal_out\"\n");
         let b = pedal("name = \"B\"\n[[node]]\nid = \"y\"\ntype = \"pedal:a\"\n[[edge]]\nfrom = \"pedal_in\"\nto = \"y\"\n[[edge]]\nfrom = \"y\"\nto = \"pedal_out\"\n");
         let g = USE_OUTER.replace("pedal:outer", "pedal:a").replace("params = { Master = 1 }\n", "");
@@ -677,7 +677,7 @@ to = "out"
     }
 
     #[test]
-    fn la_knob_della_cassa_mappa_su_high_hz() {
+    fn cab_knob_maps_to_high_hz() {
         let pedals = read_pedals(Path::new("pedals")).unwrap();
         let g = crate::graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml")).unwrap();
         let (_, map) = compile(&g, &pedals, SR).unwrap();
@@ -685,15 +685,15 @@ to = "out"
         let index = dsp::find("cab").unwrap().desc.param_index("high_hz").unwrap();
         assert_eq!(c.param, index);
         assert!((c.value - 5250.0).abs() < 0.01);
-        assert!(map.resolve("speaker", "Inesistente", 0.5).is_err());
-        assert!(map.resolve("nessuno", "x", 0.5).is_err());
-        // Un blocco normale: parametro per id, valore limitato all'intervallo.
+        assert!(map.resolve("speaker", "Missing", 0.5).is_err());
+        assert!(map.resolve("nobody", "x", 0.5).is_err());
+        // A normal block: parameter by id, value clamped to the range.
         let c = map.resolve("dist", "gain_db", 1000.0).unwrap().unwrap();
         assert!(c.value < 1000.0);
     }
 
     #[test]
-    fn il_volume_dell_uscita_cambia_dal_vivo_e_i_nodi_scollegati_si_ignorano() {
+    fn output_volume_changes_live_and_unconnected_nodes_are_ignored() {
         let g = r#"
 name = "p"
 [[node]]
@@ -718,22 +718,22 @@ to = "out"
     }
 
     #[test]
-    fn errori_chiari() {
+    fn clear_errors() {
         let base = "name = \"p\"\n[[node]]\nid = \"in\"\ntype = \"input\"\n[[node]]\nid = \"out\"\ntype = \"output\"\n";
         let msg = |extra: &str| format!("{:#}", build(&format!("{base}{extra}"), &[]).err().expect(extra));
-        assert!(msg("[[node]]\nid = \"in2\"\ntype = \"input\"\n").contains("2 nodi 'input'"));
-        assert!(msg("[[node]]\nid = \"x\"\ntype = \"tubo\"\n").contains("tipo sconosciuto"));
-        assert!(msg("[[edge]]\nfrom = \"in\"\nto = \"fantasma\"\n").contains("fantasma"));
-        assert!(msg("[[node]]\nid = \"in\"\ntype = \"gain\"\n").contains("più nodi"));
+        assert!(msg("[[node]]\nid = \"in2\"\ntype = \"input\"\n").contains("2 'input' nodes"));
+        assert!(msg("[[node]]\nid = \"x\"\ntype = \"tubo\"\n").contains("unknown type"));
+        assert!(msg("[[edge]]\nfrom = \"in\"\nto = \"ghost\"\n").contains("ghost"));
+        assert!(msg("[[node]]\nid = \"in\"\ntype = \"gain\"\n").contains("more than one node"));
         assert!(msg("[[node]]\nid = \"x\"\ntype = \"gain\"\nparams = { gain = 3 }\n").contains("db"));
-        assert!(msg("[[node]]\nid = \"x\"\ntype = \"pedal:nonesiste\"\n").contains("nonesiste"));
-        assert!(msg("[[edge]]\nfrom = \"out\"\nto = \"in\"\n").contains("non possono"));
+        assert!(msg("[[node]]\nid = \"x\"\ntype = \"pedal:nonexistent\"\n").contains("nonexistent"));
+        assert!(msg("[[edge]]\nfrom = \"out\"\nto = \"in\"\n").contains("cannot"));
         let senza_uscita = "name = \"p\"\n[[node]]\nid = \"in\"\ntype = \"input\"\n";
         assert!(build(senza_uscita, &[]).is_err());
     }
 
     #[test]
-    fn senza_percorso_non_esce_suono() {
+    fn no_path_means_no_sound() {
         let g = "name = \"p\"\n[[node]]\nid = \"in\"\ntype = \"input\"\n[[node]]\nid = \"out\"\ntype = \"output\"\n";
         let (mut plan, _) = build(g, &[]).unwrap();
         let out = run(&mut plan, &signal(480));
@@ -741,7 +741,7 @@ to = "out"
     }
 
     #[test]
-    fn buffer_lunghi_si_elaborano_a_pezzi() {
+    fn long_buffers_are_processed_in_pieces() {
         let g = "name = \"p\"\n[[block]]\ntype = \"gain\"\ndb = -6\n";
         let (mut plan, _) = build(g, &[]).unwrap();
         let input = signal(20000);

@@ -1,5 +1,5 @@
-//! Messaggi WebSocket tra interfaccia e openPedal (contratto: docs/PLAN.md §5.4).
-//! Gli esempi JSON in ui/src/fixtures/ sono generati da questi tipi
+//! WebSocket messages between the interface and openPedal (contract: docs/PLAN.md §5.4).
+//! The JSON examples in ui/src/fixtures/ are generated from these types
 //! (`openpedal dev-fixtures ui/src/fixtures`).
 
 use std::collections::BTreeMap;
@@ -8,36 +8,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::model::{CatalogItem, GraphFile, PedalFile};
 
-/// Dal client (interfaccia) al server.
+/// From the client (interface) to the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMsg {
-    /// Il server risponde con `state`.
+    /// The server replies with `state`.
     Hello,
-    /// Cambio dal vivo di un parametro, senza ricostruire il grafo.
-    /// Per le scelte `value` è l'indice dell'opzione.
+    /// Live change of a parameter, without rebuilding the graph.
+    /// For choices, `value` is the option index.
     SetParam { node: String, param: String, value: f32 },
-    /// Nuovo grafo (struttura cambiata): ricompilato e sostituito con una dissolvenza.
+    /// New graph (structure changed): recompiled and swapped in with a fade.
     SetGraph { graph: GraphFile },
     LoadPreset { name: String },
     SavePreset { name: String, graph: GraphFile },
-    /// Cancella presets/<name>.toml; il grafo che sta suonando non cambia.
+    /// Deletes presets/<name>.toml; the graph currently playing does not change.
     DeletePreset { name: String },
-    /// Scrive pedals/<id>.toml; il server poi rimanda `state` con il catalogo aggiornato.
+    /// Writes pedals/<id>.toml; the server then sends `state` back with the updated catalog.
     SavePedal { id: String, pedal: PedalFile },
     DeletePedal { id: String },
 }
 
-/// Dal server al client.
+/// From the server to the client.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
     State(StateMsg),
     Meters(MetersMsg),
     Error {
-        /// In italiano, da mostrare all'utente.
+        /// In English, to show to the user.
         message: String,
-        /// Il nodo a cui si riferisce l'errore, se c'è.
+        /// The node the error refers to, if any.
         #[serde(skip_serializing_if = "Option::is_none")]
         node: Option<String>,
     },
@@ -47,9 +47,9 @@ pub enum ServerMsg {
 pub struct StateMsg {
     pub catalog: Vec<CatalogItem>,
     pub graph: GraphFile,
-    /// Nomi dei preset disponibili (file in presets/ senza estensione).
+    /// Names of the available presets (files in presets/ without extension).
     pub presets: Vec<String>,
-    /// Contenuto dei pedali composti (id -> pedale), per poterli aprire e modificare.
+    /// Content of the composite pedals (id -> pedal), so they can be opened and edited.
     pub pedals: BTreeMap<String, PedalFile>,
     pub audio: AudioInfo,
 }
@@ -58,16 +58,16 @@ pub struct StateMsg {
 pub struct AudioInfo {
     pub sample_rate: u32,
     pub buffer: u32,
-    /// false = nessuna scheda audio collegata (modalità solo editor).
+    /// false = no audio card connected (editor-only mode).
     pub running: bool,
 }
 
-/// Inviato circa 20 volte al secondo.
+/// Sent about 20 times per second.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct MetersMsg {
     pub in_db: f32,
     pub out_db: f32,
-    /// Carico del thread audio, 0..1 (1 = tempo esaurito).
+    /// Load of the audio thread, 0..1 (1 = out of time).
     pub dsp: f32,
     pub xruns: u64,
 }

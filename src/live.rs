@@ -1,5 +1,5 @@
-//! Il motore audio vero dietro l'interfaccia: implementa `EngineHandle` usando
-//! il grafo compilato (`graph::compile`) e il motore JACK (`engine::Engine`).
+//! The real audio engine behind the interface: implements `EngineHandle` using
+//! the compiled graph (`graph::compile`) and the JACK engine (`engine::Engine`).
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -22,8 +22,8 @@ struct Inner {
     map: NodeMap,
     graph: GraphFile,
     pedals: Vec<(String, PedalFile)>,
-    /// Un parametro che non si può cambiare dal vivo è stato modificato:
-    /// il grafo va ricostruito (lo fa il thread di servizio, al massimo ogni 100 ms).
+    /// A parameter that cannot be changed live has been modified:
+    /// the graph must be rebuilt (the service thread does it, at most every 100 ms).
     rebuild: bool,
 }
 
@@ -37,8 +37,8 @@ impl Inner {
     }
 }
 
-/// true se il parametro (di un blocco o, attraverso le manopole, di un pedale composto)
-/// non può cambiare dal vivo e richiede di ricostruire il blocco.
+/// true if the parameter (of a block, or through the knobs, of a composite pedal)
+/// cannot change live and requires rebuilding the block.
 fn needs_rebuild(kind: &str, param: &str, pedals: &[(String, PedalFile)], depth: usize) -> bool {
     if let Some(id) = kind.strip_prefix(PEDAL_PREFIX) {
         let Some((_, pedal)) = pedals.iter().find(|(p, _)| p == id) else { return false };
@@ -47,7 +47,7 @@ fn needs_rebuild(kind: &str, param: &str, pedals: &[(String, PedalFile)], depth:
         let Some(spec) = pedal.nodes.iter().find(|n| n.id == node) else { return false };
         return depth < 8 && needs_rebuild(&spec.kind, inner_param, pedals, depth + 1);
     }
-    // La cassa procedurale rigenera l'IR: solo il livello cambia dal vivo.
+    // The procedural cabinet regenerates the IR: only the level changes live.
     kind == "cab" && param != "level_db"
 }
 
@@ -59,8 +59,8 @@ pub struct LiveEngine {
 }
 
 impl LiveEngine {
-    /// Prende in carico un motore già avviato con il piano compilato da `graph`
-    /// (`map` è la sua NodeMap) e avvia il thread che libera i piani dismessi.
+    /// Takes over an engine already started with the plan compiled from `graph`
+    /// (`map` is its NodeMap) and starts the thread that frees the retired plans.
     pub fn new(engine: Engine, map: NodeMap, graph: GraphFile, pedals: Vec<(String, PedalFile)>, pedals_dir: PathBuf) -> Arc<Self> {
         let live = Arc::new(Self {
             meters: engine.meters.clone(),
@@ -69,7 +69,7 @@ impl LiveEngine {
             pedals_dir,
         });
 
-        // I piani vecchi tornano dal thread audio e vanno liberati qui, non là.
+        // Old plans come back from the audio thread and must be freed here, not there.
         let weak = Arc::downgrade(&live);
         thread::spawn(move || {
             while let Some(live) = weak.upgrade() {
@@ -77,7 +77,7 @@ impl LiveEngine {
                 inner.engine.collect_garbage();
                 if inner.rebuild {
                     if let Err(e) = inner.rebuild_now(live.sample_rate) {
-                        eprintln!("ricostruzione del grafo fallita: {e:#}");
+                        eprintln!("graph rebuild failed: {e:#}");
                     }
                 }
                 drop(inner);
@@ -89,7 +89,7 @@ impl LiveEngine {
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
-        // Un panic in un altro thread non deve spegnere l'audio dell'interfaccia.
+        // A panic in another thread must not silence the interface's audio.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -128,18 +128,18 @@ impl EngineHandle for LiveEngine {
 
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()> {
         let mut inner = self.lock();
-        // Ok(None): il nodo esiste ma non è collegato; il valore va solo salvato nel grafo.
+        // Ok(None): the node exists but is not connected; the value is only saved in the graph.
         if let Some(change) = inner.map.resolve(node, param, value)? {
             inner.engine.set_param(change)?;
         }
-        let spec = inner.graph.nodes.iter_mut().find(|n| n.id == node).ok_or_else(|| anyhow!("il nodo '{node}' non esiste"))?;
+        let spec = inner.graph.nodes.iter_mut().find(|n| n.id == node).ok_or_else(|| anyhow!("node '{node}' does not exist"))?;
         let stored = if spec.kind.starts_with(PEDAL_PREFIX) {
             Value::Number(value.clamp(0.0, 1.0))
         } else {
-            let desc = if spec.kind == OUTPUT { &OUTPUT_DESC } else { dsp::find(&spec.kind).map(|e| e.desc).ok_or_else(|| anyhow!("tipo '{}' sconosciuto", spec.kind))? };
-            let p = desc.params.iter().find(|p| p.id == param).ok_or_else(|| anyhow!("'{}' non ha il parametro '{param}'", spec.kind))?;
+            let desc = if spec.kind == OUTPUT { &OUTPUT_DESC } else { dsp::find(&spec.kind).map(|e| e.desc).ok_or_else(|| anyhow!("unknown type '{}'", spec.kind))? };
+            let p = desc.params.iter().find(|p| p.id == param).ok_or_else(|| anyhow!("'{}' has no parameter '{param}'", spec.kind))?;
             match p.kind {
-                // Nei file le scelte si salvano per nome, come le scrive una persona.
+                // In files, choices are saved by name, as a person would write them.
                 ParamKind::Choice { options, .. } => Value::Text(options[p.clamp(value) as usize].to_string()),
                 _ => Value::Number(p.clamp(value)),
             }
@@ -155,7 +155,7 @@ impl EngineHandle for LiveEngine {
     fn reload_pedals(&self) -> Result<()> {
         let pedals = graph::load::read_pedals(&self.pedals_dir)?;
         let mut inner = self.lock();
-        // Un pedale modificato può cambiare il grafo che sta suonando: lo si ricompila.
+        // A modified pedal can change the graph that is playing: it gets recompiled.
         let old = std::mem::replace(&mut inner.pedals, pedals);
         if let Err(e) = inner.rebuild_now(self.sample_rate) {
             inner.pedals = old;
@@ -174,13 +174,13 @@ mod tests {
     }
 
     #[test]
-    fn la_cassa_procedurale_si_ricostruisce() {
+    fn procedural_cab_is_rebuilt() {
         let p = pedals();
         assert!(needs_rebuild("cab", "high_hz", &p, 0));
         assert!(!needs_rebuild("cab", "level_db", &p, 0));
         assert!(!needs_rebuild("drive", "gain_db", &p, 0));
-        // la manopola "Brightness" del pedale punta a c.high_hz di una cassa
+        // the pedal's "Brightness" knob points to c.high_hz of a cabinet
         assert!(needs_rebuild("pedal:cab-4x12", "Brightness", &p, 0));
-        assert!(!needs_rebuild("pedal:inesistente", "x", &p, 0));
+        assert!(!needs_rebuild("pedal:missing", "x", &p, 0));
     }
 }

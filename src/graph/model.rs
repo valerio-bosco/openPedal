@@ -1,17 +1,17 @@
-//! Tipi del grafo (preset v2) e dei pedali composti: il formato dei file TOML
-//! e dei messaggi JSON verso l'interfaccia. Contratto: vedi docs/PLAN.md §5.3.
+//! Graph types (v2 presets) and composite pedals: the format of the TOML files
+//! and of the JSON messages to the interface. Contract: see docs/PLAN.md §5.3.
 
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::params::{BlockDesc, Category, ParamDesc, ParamKind, ParamValues};
 
-/// Tipo del nodo di ingresso (la chitarra): uno per grafo, senza ingressi.
+/// Type of the input node (the guitar): one per graph, with no inputs.
 pub const INPUT: &str = "input";
-/// Tipo del nodo di uscita ("Ampli"): uno per grafo; il suono è ciò che arriva qui.
+/// Type of the output node ("Ampli" in the UI): one per graph; the sound is what arrives here.
 pub const OUTPUT: &str = "output";
-/// Prefisso del tipo di un nodo che usa un pedale composto: "pedal:<id>".
+/// Type prefix of a node that uses a composite pedal: "pedal:<id>".
 pub const PEDAL_PREFIX: &str = "pedal:";
-/// Nodi impliciti dentro un pedale composto.
+/// Implicit nodes inside a composite pedal.
 pub const PEDAL_IN: &str = "pedal_in";
 pub const PEDAL_OUT: &str = "pedal_out";
 
@@ -27,12 +27,12 @@ pub const OUTPUT_DESC: BlockDesc = BlockDesc {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodeSpec {
-    /// Identificatore unico nel grafo (lettere, cifre, `_`, `-`).
+    /// Unique identifier in the graph (letters, digits, `_`, `-`).
     pub id: String,
-    /// Tipo: un blocco del catalogo, `input`, `output` oppure `pedal:<id>`.
+    /// Type: a catalog block, `input`, `output` or `pedal:<id>`.
     #[serde(rename = "type")]
     pub kind: String,
-    /// Posizione nell'editor; ignorata dal motore.
+    /// Position in the editor; ignored by the engine.
     #[serde(default)]
     pub pos: [f32; 2],
     #[serde(default)]
@@ -46,7 +46,7 @@ pub struct EdgeSpec {
     pub to: String,
 }
 
-/// Un preset v2: grafo di nodi collegati.
+/// A v2 preset: a graph of connected nodes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphFile {
@@ -63,17 +63,17 @@ fn version_2() -> u32 {
     2
 }
 
-/// Manopola esposta da un pedale composto: valore 0..1 mappato su un parametro interno.
+/// Knob exposed by a composite pedal: a 0..1 value mapped onto an internal parameter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KnobSpec {
     pub label: String,
-    /// "<id nodo interno>.<id parametro>", es. "c.high_hz".
+    /// "<internal node id>.<parameter id>", e.g. "c.high_hz".
     pub target: String,
-    /// Valori del parametro interno quando la manopola è a 0 e a 1.
+    /// Internal parameter values when the knob is at 0 and at 1.
     pub min: f32,
     pub max: f32,
-    /// Posizione iniziale della manopola, 0..1.
+    /// Initial knob position, 0..1.
     #[serde(default = "half")]
     pub default: f32,
 }
@@ -82,7 +82,7 @@ fn half() -> f32 {
     0.5
 }
 
-/// Un pedale composto (file `pedals/<id>.toml`).
+/// A composite pedal (file `pedals/<id>.toml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PedalFile {
@@ -103,14 +103,14 @@ fn utility() -> String {
     "utility".into()
 }
 
-/// Una voce del catalogo come la vede l'interfaccia (blocchi base, io e pedali).
+/// A catalog entry as the interface sees it (base blocks, input/output and pedals).
 #[derive(Debug, Clone, Serialize)]
 pub struct CatalogItem {
     pub kind: String,
     pub label: String,
     pub category: Category,
     pub params: Vec<ParamDesc>,
-    /// true = pedale composto (`pedal:<id>`), modificabile e cancellabile dall'interfaccia.
+    /// true = composite pedal (`pedal:<id>`), editable and deletable from the interface.
     pub composite: bool,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub description: String,
@@ -128,14 +128,14 @@ impl CatalogItem {
         }
     }
 
-    /// Le manopole esposte di un pedale diventano parametri 0..1 con l'etichetta come id.
+    /// The knobs exposed by a pedal become 0..1 parameters, with the label as the id.
     pub fn from_pedal(id: &str, pedal: &PedalFile) -> Self {
         let params = pedal
             .knobs
             .iter()
             .map(|k| {
-                // I ParamDesc vogliono stringhe statiche: le etichette dei pedali vivono
-                // quanto il catalogo, che si ricarica raramente.
+                // ParamDesc needs static strings: pedal labels live
+                // as long as the catalog, which is reloaded rarely.
                 let label: &'static str = Box::leak(k.label.clone().into_boxed_str());
                 ParamDesc {
                     id: label,
@@ -155,7 +155,7 @@ impl CatalogItem {
     }
 }
 
-/// Catalogo completo: nodi speciali, blocchi base e pedali composti.
+/// Full catalog: special nodes, base blocks and composite pedals.
 pub fn catalog_items(pedals: &[(String, PedalFile)]) -> Vec<CatalogItem> {
     let mut items = vec![CatalogItem::from_desc(&INPUT_DESC), CatalogItem::from_desc(&OUTPUT_DESC)];
     items.extend(crate::dsp::catalog().iter().map(|e| CatalogItem::from_desc(e.desc)));

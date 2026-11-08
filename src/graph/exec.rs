@@ -1,31 +1,31 @@
-//! Esecutore del grafo compilato. Tutto ciò che serve (buffer, blocchi) è
-//! preparato da `compile`: `process` e `set_param` non allocano.
+//! Executor of the compiled graph. Everything it needs (buffers, blocks) is
+//! prepared by `compile`: `process` and `set_param` do not allocate.
 
 use crate::dsp::{db_to_lin, Block, Smoothed};
 
-/// Campioni per nodo: i buffer più lunghi si elaborano a pezzi.
+/// Samples per node: longer buffers are processed in pieces.
 pub const MAX_BLOCK: usize = 8192;
 
 pub(super) struct OutGain(pub Smoothed);
 
 pub(super) enum Op {
-    /// Il segnale della chitarra.
+    /// The guitar signal.
     Input,
-    /// Somma i propri ingressi e basta (ingresso e uscita dei pedali composti).
+    /// Just sums its own inputs (input and output of composite pedals).
     Pass,
     Block(Box<dyn Block>),
-    /// L'uscita: somma gli ingressi e applica il volume.
+    /// The output: sums the inputs and applies the volume.
     Output(OutGain),
 }
 
 pub(super) struct Step {
     pub op: Op,
-    /// Indici di passi precedenti (e quindi dei loro buffer). Un indice ripetuto si somma due volte.
+    /// Indices of earlier steps (and thus of their buffers). A repeated index is summed twice.
     pub inputs: Box<[usize]>,
 }
 
-/// Il grafo pronto per il thread audio, in ordine topologico: il passo `i`
-/// scrive nel buffer `i`; l'ultimo passo è sempre l'uscita.
+/// The graph ready for the audio thread, in topological order: step `i`
+/// writes into buffer `i`; the last step is always the output.
 pub struct Plan {
     steps: Vec<Step>,
     bufs: Vec<Vec<f32>>,
@@ -37,7 +37,7 @@ impl Plan {
         Plan { steps, bufs }
     }
 
-    /// Elabora `buf` sul posto: entra la chitarra, esce il suono dell'uscita.
+    /// Processes `buf` in place: the guitar goes in, the output sound comes out.
     pub fn process(&mut self, buf: &mut [f32]) {
         let Plan { steps, bufs } = self;
         for chunk in buf.chunks_mut(MAX_BLOCK) {
@@ -83,18 +83,18 @@ impl Plan {
         }
     }
 
-    /// Cambia un parametro dal vivo. `step` e `param` arrivano da `NodeMap::resolve`.
-    /// Indici fuori intervallo vengono ignorati.
+    /// Changes a parameter live. `step` and `param` come from `NodeMap::resolve`.
+    /// Out-of-range indices are ignored.
     pub fn set_param(&mut self, step: usize, param: usize, value: f32) {
         match self.steps.get_mut(step).map(|s| &mut s.op) {
             Some(Op::Block(b)) => b.set_param(param, value),
-            // Unico parametro dell'uscita: volume_db.
+            // The output's only parameter: volume_db.
             Some(Op::Output(g)) if param == 0 => g.0.target = db_to_lin(value),
             _ => {}
         }
     }
 
-    /// Numero di passi (nodi attivi, compresi ingresso, uscita e giunzioni dei pedali).
+    /// Number of steps (active nodes, including input, output and pedal junctions).
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.steps.len()
