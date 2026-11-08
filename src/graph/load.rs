@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn v2_resta_v2() {
-        let g = parse_graph(&std::fs::read_to_string("docs/esempi/crunch-grafo.toml").unwrap()).unwrap();
+        let g = parse_graph(&std::fs::read_to_string("docs/examples/crunch-graph.toml").unwrap()).unwrap();
         assert_eq!(g.nodes.len(), 6);
     }
 

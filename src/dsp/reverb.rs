@@ -1,4 +1,4 @@
-//! Riverbero Freeverb mono (task D3, vedi docs/PIANO.md §7).
+//! Riverbero Freeverb mono (task D3, vedi docs/PLAN.md §7).
 
 use std::f32::consts::TAU;
 

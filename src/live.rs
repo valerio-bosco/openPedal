@@ -179,8 +179,8 @@ mod tests {
         assert!(needs_rebuild("cab", "high_hz", &p, 0));
         assert!(!needs_rebuild("cab", "level_db", &p, 0));
         assert!(!needs_rebuild("drive", "gain_db", &p, 0));
-        // la manopola "Brillantezza" del pedale punta a c.high_hz di una cassa
-        assert!(needs_rebuild("pedal:cassa-4x12", "Brillantezza", &p, 0));
+        // la manopola "Brightness" del pedale punta a c.high_hz di una cassa
+        assert!(needs_rebuild("pedal:cab-4x12", "Brightness", &p, 0));
         assert!(!needs_rebuild("pedal:inesistente", "x", &p, 0));
     }
 }

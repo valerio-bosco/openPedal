@@ -1,4 +1,4 @@
-//! Server HTTP + WebSocket dell'interfaccia (task B1, vedi docs/PIANO.md §7).
+//! Server HTTP + WebSocket dell'interfaccia (task B1, vedi docs/PLAN.md §7).
 //!
 //! Il server non conosce il motore audio: parla solo con un `EngineHandle`.
 //! Così si sviluppa e si testa con un motore finto (MockEngine), e l'integrazione

@@ -1,5 +1,5 @@
 //! Grafo di pedali: modello (contratto, fase 0), caricamento, compilazione ed
-//! esecuzione (task A1, vedi docs/PIANO.md §7).
+//! esecuzione (task A1, vedi docs/PLAN.md §7).
 
 pub mod compile;
 pub mod exec;

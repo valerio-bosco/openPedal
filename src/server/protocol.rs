@@ -1,4 +1,4 @@
-//! Messaggi WebSocket tra interfaccia e openPedal (contratto: docs/PIANO.md §5.4).
+//! Messaggi WebSocket tra interfaccia e openPedal (contratto: docs/PLAN.md §5.4).
 //! Gli esempi JSON in ui/src/fixtures/ sono generati da questi tipi
 //! (`openpedal dev-fixtures ui/src/fixtures`).
 

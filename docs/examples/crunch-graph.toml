@@ -21,9 +21,9 @@ params = { shape = "asym", gain_db = 12, level_db = -4, bias = 0.15 }
 
 [[node]]
 id = "speaker"
-type = "pedal:cassa-4x12"
+type = "pedal:cab-4x12"
 pos = [660, 120]
-params = { Brillantezza = 0.4 }
+params = { Brightness = 0.4 }
 
 [[node]]
 id = "room"

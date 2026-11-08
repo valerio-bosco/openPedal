@@ -1,7 +1,7 @@
-# Pedale composto: una cassa 4x12 con due manopole esposte.
-name = "Cassa 4x12"
+# Composite pedal: a 4x12 cab with two exposed knobs.
+name = "4x12 Cab"
 category = "amp"
-description = "Cassa chiusa da rock: bassi con pugno, medi scavati."
+description = "Closed-back rock cab: punchy lows, scooped mids."
 
 [[node]]
 id = "c"
@@ -17,14 +17,14 @@ from = "c"
 to = "pedal_out"
 
 [[knob]]
-label = "Brillantezza"
+label = "Brightness"
 target = "c.high_hz"
 min = 3500
 max = 7000
 default = 0.4
 
 [[knob]]
-label = "Medi"
+label = "Mids"
 target = "c.mid_db"
 min = -10
 max = 6

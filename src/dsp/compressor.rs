@@ -1,4 +1,4 @@
-//! Compressore feed-forward (task D2, vedi docs/PIANO.md §7).
+//! Compressore feed-forward (task D2, vedi docs/PLAN.md §7).
 
 use anyhow::Result;
 

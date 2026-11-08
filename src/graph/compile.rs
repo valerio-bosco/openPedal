@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn il_grafo_di_esempio_suona() {
         let pedals = read_pedals(Path::new("pedals")).unwrap();
-        let g = crate::graph::load::read_graph(Path::new("docs/esempi/crunch-grafo.toml")).unwrap();
+        let g = crate::graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml")).unwrap();
         let (mut plan, _) = compile(&g, &pedals, SR).unwrap();
         let out = run(&mut plan, &signal(24000));
         assert!(out.iter().all(|s| s.is_finite()));
@@ -679,9 +679,9 @@ to = "out"
     #[test]
     fn la_knob_della_cassa_mappa_su_high_hz() {
         let pedals = read_pedals(Path::new("pedals")).unwrap();
-        let g = crate::graph::load::read_graph(Path::new("docs/esempi/crunch-grafo.toml")).unwrap();
+        let g = crate::graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml")).unwrap();
         let (_, map) = compile(&g, &pedals, SR).unwrap();
-        let c = map.resolve("speaker", "Brillantezza", 0.5).unwrap().unwrap();
+        let c = map.resolve("speaker", "Brightness", 0.5).unwrap().unwrap();
         let index = dsp::find("cab").unwrap().desc.param_index("high_hz").unwrap();
         assert_eq!(c.param, index);
         assert!((c.value - 5250.0).abs() < 0.01);

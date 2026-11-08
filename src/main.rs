@@ -213,7 +213,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
     let pedals = graph::load::read_pedals(Path::new("pedals"))?;
     let catalog = graph::model::catalog_items(&pedals);
-    let graph = graph::load::read_graph(Path::new("docs/esempi/crunch-grafo.toml"))?;
+    let graph = graph::load::read_graph(Path::new("docs/examples/crunch-graph.toml"))?;
     let write = |name: &str, json: String| -> Result<()> {
         fs::write(dir.join(name), json + "\n").with_context(|| format!("scrittura di {name}"))
     };
@@ -222,7 +222,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     let state = ServerMsg::State(StateMsg {
         catalog,
         graph: graph.clone(),
-        presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-grafo".into()],
+        presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-graph".into()],
         pedals: pedals.iter().cloned().collect(),
         audio: AudioInfo { sample_rate: 48000, buffer: 96, running: true },
     });
@@ -240,7 +240,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::SetGraph { graph: graph.clone() },
         ClientMsg::LoadPreset { name: "clean".into() },
         ClientMsg::SavePreset { name: "mio-suono".into(), graph },
-        ClientMsg::SavePedal { id: "cassa-4x12".into(), pedal },
+        ClientMsg::SavePedal { id: "cab-4x12".into(), pedal },
         ClientMsg::DeletePreset { name: "vecchio-suono".into() },
         ClientMsg::DeletePedal { id: "vecchio-pedale".into() },
     ];

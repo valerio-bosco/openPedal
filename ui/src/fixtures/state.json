@@ -701,13 +701,13 @@
       "composite": false
     },
     {
-      "kind": "pedal:cassa-4x12",
-      "label": "Cassa 4x12",
+      "kind": "pedal:cab-4x12",
+      "label": "4x12 Cab",
       "category": "amp",
       "params": [
         {
-          "id": "Brillantezza",
-          "label": "Brillantezza",
+          "id": "Brightness",
+          "label": "Brightness",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -717,8 +717,8 @@
           "step": 0.0
         },
         {
-          "id": "Medi",
-          "label": "Medi",
+          "id": "Mids",
+          "label": "Mids",
           "kind": "number",
           "min": 0.0,
           "max": 1.0,
@@ -729,7 +729,7 @@
         }
       ],
       "composite": true,
-      "description": "Cassa chiusa da rock: bassi con pugno, medi scavati."
+      "description": "Closed-back rock cab: punchy lows, scooped mids."
     }
   ],
   "graph": {
@@ -772,13 +772,13 @@
       },
       {
         "id": "speaker",
-        "type": "pedal:cassa-4x12",
+        "type": "pedal:cab-4x12",
         "pos": [
           660.0,
           120.0
         ],
         "params": {
-          "Brillantezza": 0.4
+          "Brightness": 0.4
         }
       },
       {
@@ -836,13 +836,13 @@
     "ambient",
     "clean",
     "crunch",
-    "crunch-grafo"
+    "crunch-graph"
   ],
   "pedals": {
-    "cassa-4x12": {
-      "name": "Cassa 4x12",
+    "cab-4x12": {
+      "name": "4x12 Cab",
       "category": "amp",
-      "description": "Cassa chiusa da rock: bassi con pugno, medi scavati.",
+      "description": "Closed-back rock cab: punchy lows, scooped mids.",
       "node": [
         {
           "id": "c",
@@ -874,14 +874,14 @@
       ],
       "knob": [
         {
-          "label": "Brillantezza",
+          "label": "Brightness",
           "target": "c.high_hz",
           "min": 3500.0,
           "max": 7000.0,
           "default": 0.4
         },
         {
-          "label": "Medi",
+          "label": "Mids",
           "target": "c.mid_db",
           "min": -10.0,
           "max": 6.0,

@@ -1,4 +1,4 @@
-//! Tone stack da ampli: bassi, medi, alti interagenti (task D4, vedi docs/PIANO.md §7).
+//! Tone stack da ampli: bassi, medi, alti interagenti (task D4, vedi docs/PLAN.md §7).
 //!
 //! Modello TMB di D. T. Yeh (filtro analogico del 3° ordine), discretizzato con la
 //! trasformazione bilineare. I potenziometri dei medi e degli alti sono lineari,

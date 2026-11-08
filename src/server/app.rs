@@ -1,4 +1,4 @@
-//! Rotte HTTP, WebSocket e gestione dei messaggi (protocollo: docs/PIANO.md §5.4).
+//! Rotte HTTP, WebSocket e gestione dei messaggi (protocollo: docs/PLAN.md §5.4).
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;

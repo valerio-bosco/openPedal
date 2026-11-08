@@ -1,4 +1,4 @@
-// Tipi del protocollo tra interfaccia e openPedal (contratto: docs/PIANO.md §5.4).
+// Tipi del protocollo tra interfaccia e openPedal (contratto: docs/PLAN.md §5.4).
 // Rispecchiano src/server/protocol.rs e src/graph/model.rs. Gli esempi reali stanno
 // in ./fixtures/*.json, generati con `openpedal dev-fixtures ui/src/fixtures`.
 
@@ -30,7 +30,7 @@ export type ParamDesc = { id: string; label: string } & (
 );
 
 export interface CatalogItem {
-  /** Il `type` dei nodi: "drive", "input", "pedal:cassa-4x12"... */
+  /** Il `type` dei nodi: "drive", "input", "pedal:cab-4x12"... */
   kind: string;
   label: string;
   category: Category;

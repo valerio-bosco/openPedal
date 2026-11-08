@@ -1,5 +1,5 @@
 //! Tipi del grafo (preset v2) e dei pedali composti: il formato dei file TOML
-//! e dei messaggi JSON verso l'interfaccia. Contratto: vedi docs/PIANO.md §5.3.
+//! e dei messaggi JSON verso l'interfaccia. Contratto: vedi docs/PLAN.md §5.3.
 
 use serde::{Deserialize, Serialize};
 

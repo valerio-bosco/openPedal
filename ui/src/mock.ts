@@ -90,7 +90,7 @@ export class MockServer {
         this.graph = msg.graph;
         break;
       case "load_preset": {
-        const known = msg.name === "crunch-grafo" || msg.name === base.graph.name;
+        const known = msg.name === "crunch-graph" || msg.name === base.graph.name;
         this.graph = known
           ? structuredClone(base.graph)
           : {
