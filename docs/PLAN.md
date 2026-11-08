@@ -337,3 +337,28 @@ sending `set_graph`.
 | N2 | Sonnet | `ios/Sources/**`, `ios/Package.swift`, `ios/Info.plist` | native SwiftUI app per §10.1 against contract §10.2 (codes `bypass`/`protocol` before N1 lands) |
 | N3 | Haiku | `tools/release.sh`, `cliff.toml`, `CHANGELOG.md`, `ios/CHANGELOG.md`, `docs/RELEASING.md` | release tooling per §10.3 |
 | – | Opus | integration | merge, iPad build and install, first tags |
+
+## 11. Restructuring (decided 2026-11-08)
+
+Architecture map and findings: artifact "openPedal Architecture Map". Decisions by the user:
+
+1. **Cargo workspace.** Split the single crate into `crates/{dsp,graph,engine,protocol,library,server,ffi}`;
+   desktop binary + web UI move to `apps/desktop`, the iPad app to `apps/ios`; presets/pedals/IRs to `content/`.
+   Dependencies go one way: dsp ← graph ← engine; protocol ← server; library ← server; ffi → server + engine.
+2. **One protocol source.** The Rust types in `crates/protocol` are the source; TypeScript and Swift types are
+   generated (typeshare). The JSON fixtures stay as contract tests.
+3. **File compatibility.** Saved presets and pedals stay readable forever; new formats get an automatic migration
+   (as v1 → v2 today). Files are always written in the latest format.
+4. **Branches.** `master` always green; short-lived `feat/*` / `fix/*` branches deleted after merge; tags
+   `desktop-v*` / `ios-v*`; CI must pass before merging.
+5. **Thin clients.** Chain edits (move, add, remove a pedal) and undo/redo move into the core as protocol
+   messages; desktop and iPad only send commands and render state. The server broadcasts state to every client.
+
+Phases (each ends with green tests and unchanged audio renders):
+
+| Phase | Work | Who |
+|---|---|---|
+| 1 | Safety net: golden renders of every preset, CI (tests, clippy, UI build) | 1 Sonnet |
+| 2 | Move files into the workspace, no behaviour change | 1 agent, sequential |
+| 3 | Effect/Control/Route in graph · protocol codegen · library crate + broadcast · core chain edits + undo · web UI split · iOS on generated types · legacy cleanup | Sonnet swarm + Haiku, Opus integrates |
+| 4 | Agnostic (custom) pedals on top of Effect/Route | to be designed |
