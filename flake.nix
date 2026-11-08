@@ -27,6 +27,7 @@
           pkg-config
           qpwgraph # to see the audio connections
           nodejs # only needed to develop the UI (ui/); not needed to run openPedal
+          git-cliff # changelogs, used by tools/release.sh
         ];
         # libjack2 is only needed to build (headers and jack.pc); at runtime
         # PipeWire's libjack wins thanks to LD_LIBRARY_PATH, like `pw-jack` does.
