@@ -1,0 +1,5 @@
+{
+  "type": "error",
+  "message": "il grafo contiene un ciclo: dist -> room -> dist",
+  "node": "room"
+}

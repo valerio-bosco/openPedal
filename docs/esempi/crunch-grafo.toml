@@ -1,0 +1,62 @@
+# Preset v2 di esempio: crunch con un riverbero in parallelo al segnale secco.
+name = "Crunch (grafo)"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+pos = [0, 120]
+
+[[node]]
+id = "gate"
+type = "gate"
+pos = [200, 120]
+params = { threshold_db = -55 }
+
+[[node]]
+id = "dist"
+type = "drive"
+pos = [420, 120]
+params = { shape = "asym", gain_db = 12, level_db = -4, bias = 0.15 }
+
+[[node]]
+id = "speaker"
+type = "pedal:cassa-4x12"
+pos = [660, 120]
+params = { Brillantezza = 0.4 }
+
+[[node]]
+id = "room"
+type = "reverb"
+pos = [900, 260]
+params = { room = 0.4, mix = 1.0 }
+
+[[node]]
+id = "out"
+type = "output"
+pos = [1140, 120]
+params = { volume_db = -8 }
+
+[[edge]]
+from = "in"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "dist"
+
+[[edge]]
+from = "dist"
+to = "speaker"
+
+[[edge]]
+from = "speaker"
+to = "out"
+
+[[edge]]
+from = "speaker"
+to = "room"
+
+[[edge]]
+from = "room"
+to = "out"

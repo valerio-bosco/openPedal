@@ -1,0 +1,286 @@
+[
+  {
+    "type": "hello"
+  },
+  {
+    "type": "set_param",
+    "node": "dist",
+    "param": "gain_db",
+    "value": 18.0
+  },
+  {
+    "type": "set_param",
+    "node": "dist",
+    "param": "shape",
+    "value": 3.0
+  },
+  {
+    "type": "set_graph",
+    "graph": {
+      "name": "Crunch (grafo)",
+      "version": 2,
+      "node": [
+        {
+          "id": "in",
+          "type": "input",
+          "pos": [
+            0.0,
+            120.0
+          ],
+          "params": {}
+        },
+        {
+          "id": "gate",
+          "type": "gate",
+          "pos": [
+            200.0,
+            120.0
+          ],
+          "params": {
+            "threshold_db": -55.0
+          }
+        },
+        {
+          "id": "dist",
+          "type": "drive",
+          "pos": [
+            420.0,
+            120.0
+          ],
+          "params": {
+            "bias": 0.15,
+            "gain_db": 12.0,
+            "level_db": -4.0,
+            "shape": "asym"
+          }
+        },
+        {
+          "id": "speaker",
+          "type": "pedal:cassa-4x12",
+          "pos": [
+            660.0,
+            120.0
+          ],
+          "params": {
+            "Brillantezza": 0.4
+          }
+        },
+        {
+          "id": "room",
+          "type": "reverb",
+          "pos": [
+            900.0,
+            260.0
+          ],
+          "params": {
+            "mix": 1.0,
+            "room": 0.4
+          }
+        },
+        {
+          "id": "out",
+          "type": "output",
+          "pos": [
+            1140.0,
+            120.0
+          ],
+          "params": {
+            "volume_db": -8.0
+          }
+        }
+      ],
+      "edge": [
+        {
+          "from": "in",
+          "to": "gate"
+        },
+        {
+          "from": "gate",
+          "to": "dist"
+        },
+        {
+          "from": "dist",
+          "to": "speaker"
+        },
+        {
+          "from": "speaker",
+          "to": "out"
+        },
+        {
+          "from": "speaker",
+          "to": "room"
+        },
+        {
+          "from": "room",
+          "to": "out"
+        }
+      ]
+    }
+  },
+  {
+    "type": "load_preset",
+    "name": "clean"
+  },
+  {
+    "type": "save_preset",
+    "name": "mio-suono",
+    "graph": {
+      "name": "Crunch (grafo)",
+      "version": 2,
+      "node": [
+        {
+          "id": "in",
+          "type": "input",
+          "pos": [
+            0.0,
+            120.0
+          ],
+          "params": {}
+        },
+        {
+          "id": "gate",
+          "type": "gate",
+          "pos": [
+            200.0,
+            120.0
+          ],
+          "params": {
+            "threshold_db": -55.0
+          }
+        },
+        {
+          "id": "dist",
+          "type": "drive",
+          "pos": [
+            420.0,
+            120.0
+          ],
+          "params": {
+            "bias": 0.15,
+            "gain_db": 12.0,
+            "level_db": -4.0,
+            "shape": "asym"
+          }
+        },
+        {
+          "id": "speaker",
+          "type": "pedal:cassa-4x12",
+          "pos": [
+            660.0,
+            120.0
+          ],
+          "params": {
+            "Brillantezza": 0.4
+          }
+        },
+        {
+          "id": "room",
+          "type": "reverb",
+          "pos": [
+            900.0,
+            260.0
+          ],
+          "params": {
+            "mix": 1.0,
+            "room": 0.4
+          }
+        },
+        {
+          "id": "out",
+          "type": "output",
+          "pos": [
+            1140.0,
+            120.0
+          ],
+          "params": {
+            "volume_db": -8.0
+          }
+        }
+      ],
+      "edge": [
+        {
+          "from": "in",
+          "to": "gate"
+        },
+        {
+          "from": "gate",
+          "to": "dist"
+        },
+        {
+          "from": "dist",
+          "to": "speaker"
+        },
+        {
+          "from": "speaker",
+          "to": "out"
+        },
+        {
+          "from": "speaker",
+          "to": "room"
+        },
+        {
+          "from": "room",
+          "to": "out"
+        }
+      ]
+    }
+  },
+  {
+    "type": "save_pedal",
+    "id": "cassa-4x12",
+    "pedal": {
+      "name": "Cassa 4x12",
+      "category": "amp",
+      "description": "Cassa chiusa da rock: bassi con pugno, medi scavati.",
+      "node": [
+        {
+          "id": "c",
+          "type": "cab",
+          "pos": [
+            0.0,
+            0.0
+          ],
+          "params": {
+            "high_hz": 4800.0,
+            "low_hz": 105.0,
+            "low_q": 1.5,
+            "mid_db": -4.0,
+            "presence_db": 3.0,
+            "ripple_db": 3.5,
+            "seed": 7.0
+          }
+        }
+      ],
+      "edge": [
+        {
+          "from": "pedal_in",
+          "to": "c"
+        },
+        {
+          "from": "c",
+          "to": "pedal_out"
+        }
+      ],
+      "knob": [
+        {
+          "label": "Brillantezza",
+          "target": "c.high_hz",
+          "min": 3500.0,
+          "max": 7000.0,
+          "default": 0.4
+        },
+        {
+          "label": "Medi",
+          "target": "c.mid_db",
+          "min": -10.0,
+          "max": 6.0,
+          "default": 0.4
+        }
+      ]
+    }
+  },
+  {
+    "type": "delete_pedal",
+    "id": "vecchio-pedale"
+  }
+]

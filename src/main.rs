@@ -1,5 +1,7 @@
 mod dsp;
 mod engine;
+mod graph;
+mod server;
 mod wav;
 
 use std::path::{Path, PathBuf};
@@ -85,6 +87,8 @@ fn run() -> Result<()> {
                 return Ok(());
             }
             "ports" => return list_ports(),
+            "catalog" => return print_catalog(),
+            "dev-fixtures" => return write_fixtures(&PathBuf::from(args.next().context("uso: dev-fixtures CARTELLA")?)),
             "check" => return check_presets(args.map(PathBuf::from).collect()),
             "--in" => config.input = args.next().context("--in vuole una regex")?,
             "--out" => config.output = args.next().context("--out vuole una regex")?,
@@ -104,6 +108,54 @@ fn run() -> Result<()> {
     }
 
     play(&config, &preset_path, record.map(|path| (path, seconds)))
+}
+
+/// Il catalogo in JSON, come lo riceve l'interfaccia.
+fn print_catalog() -> Result<()> {
+    let pedals = graph::load::read_pedals(Path::new("pedals"))?;
+    println!("{}", serde_json::to_string_pretty(&graph::model::catalog_items(&pedals))?);
+    Ok(())
+}
+
+/// Genera gli esempi JSON del protocollo per lo sviluppo dell'interfaccia.
+fn write_fixtures(dir: &Path) -> Result<()> {
+    use server::protocol::{AudioInfo, ClientMsg, MetersMsg, ServerMsg, StateMsg};
+
+    fs::create_dir_all(dir)?;
+    let pedals = graph::load::read_pedals(Path::new("pedals"))?;
+    let catalog = graph::model::catalog_items(&pedals);
+    let graph = graph::load::read_graph(Path::new("docs/esempi/crunch-grafo.toml"))?;
+    let write = |name: &str, json: String| -> Result<()> {
+        fs::write(dir.join(name), json + "\n").with_context(|| format!("scrittura di {name}"))
+    };
+
+    write("catalog.json", serde_json::to_string_pretty(&catalog)?)?;
+    let state = ServerMsg::State(StateMsg {
+        catalog,
+        graph: graph.clone(),
+        presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-grafo".into()],
+        audio: AudioInfo { sample_rate: 48000, buffer: 96, running: true },
+    });
+    write("state.json", serde_json::to_string_pretty(&state)?)?;
+    let meters = ServerMsg::Meters(MetersMsg { in_db: -18.5, out_db: -12.0, dsp: 0.02, xruns: 0 });
+    write("meters.json", serde_json::to_string_pretty(&meters)?)?;
+    let error = ServerMsg::Error { message: "il grafo contiene un ciclo: dist -> room -> dist".into(), node: Some("room".into()) };
+    write("error.json", serde_json::to_string_pretty(&error)?)?;
+
+    let (_, pedal) = pedals.first().context("serve almeno un pedale in pedals/")?.clone();
+    let client = vec![
+        ClientMsg::Hello,
+        ClientMsg::SetParam { node: "dist".into(), param: "gain_db".into(), value: 18.0 },
+        ClientMsg::SetParam { node: "dist".into(), param: "shape".into(), value: 3.0 },
+        ClientMsg::SetGraph { graph: graph.clone() },
+        ClientMsg::LoadPreset { name: "clean".into() },
+        ClientMsg::SavePreset { name: "mio-suono".into(), graph },
+        ClientMsg::SavePedal { id: "cassa-4x12".into(), pedal },
+        ClientMsg::DeletePedal { id: "vecchio-pedale".into() },
+    ];
+    write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
+    println!("fixture scritte in {}", dir.display());
+    Ok(())
 }
 
 fn list_ports() -> Result<()> {

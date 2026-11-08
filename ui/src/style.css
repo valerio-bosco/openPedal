@@ -1,0 +1,10 @@
+html,
+body,
+#root,
+.app {
+  height: 100%;
+  margin: 0;
+  background: #15161a;
+  color: #e8e6e3;
+  font-family: system-ui, sans-serif;
+}

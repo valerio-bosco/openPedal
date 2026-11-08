@@ -1,9 +1,61 @@
 use std::f32::consts::PI;
 
-use serde::Deserialize;
+use anyhow::Result;
 
 use super::modulation::{Lfo, Wave};
+use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
 use super::Block;
+
+// Da migrare (D1): set_param.
+pub const DELAY_DESC: BlockDesc = BlockDesc {
+    kind: "delay",
+    label: "Delay",
+    category: Category::Time,
+    params: &[
+        ParamDesc::log("time_ms", "Tempo", 10.0, 2000.0, 350.0, "ms"),
+        ParamDesc::number("feedback", "Ripetizioni", 0.0, 0.98, 0.35, ""),
+        // 0 = solo segnale pulito, 1 = solo eco.
+        ParamDesc::number("mix", "Mix", 0.0, 1.0, 0.3, ""),
+        // Le ripetizioni si scuriscono sopra questa frequenza (stile analogico).
+        ParamDesc::log("damp_hz", "Tono eco", 200.0, 20000.0, 5000.0, "Hz"),
+    ],
+};
+
+pub fn build_delay(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = DELAY_DESC.params;
+    let params = DelayParams {
+        time_ms: v.number(&p[0]),
+        feedback: v.number(&p[1]),
+        mix: v.number(&p[2]),
+        damp_hz: v.number(&p[3]),
+    };
+    Ok(Box::new(Delay::new(&params, sr)))
+}
+
+// Da migrare (D1): set_param.
+pub const CHORUS_DESC: BlockDesc = BlockDesc {
+    kind: "chorus",
+    label: "Chorus",
+    category: Category::Modulation,
+    params: &[
+        ParamDesc::log("rate_hz", "Velocità", 0.05, 10.0, 0.8, "Hz"),
+        ParamDesc::number("base_ms", "Ritardo", 1.0, 30.0, 12.0, "ms"),
+        // Escursione della modulazione (limitata a meno di base_ms).
+        ParamDesc::number("depth_ms", "Profondità", 0.0, 15.0, 3.0, "ms"),
+        ParamDesc::number("mix", "Mix", 0.0, 1.0, 0.5, ""),
+    ],
+};
+
+pub fn build_chorus(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = CHORUS_DESC.params;
+    let params = ChorusParams {
+        rate_hz: v.number(&p[0]),
+        base_ms: v.number(&p[1]),
+        depth_ms: v.number(&p[2]),
+        mix: v.number(&p[3]),
+    };
+    Ok(Box::new(Chorus::new(&params, sr)))
+}
 
 /// Linea di ritardo circolare con lettura frazionaria (interpolazione lineare).
 pub struct DelayLine {
@@ -36,8 +88,7 @@ impl DelayLine {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct DelayParams {
     pub time_ms: f32,
     pub feedback: f32,
@@ -87,8 +138,7 @@ impl Block for Delay {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct ChorusParams {
     pub rate_hz: f32,
     /// Ritardo centrale in ms.

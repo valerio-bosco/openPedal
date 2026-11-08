@@ -1,11 +1,41 @@
 use std::f32::consts::PI;
 
-use serde::Deserialize;
+use anyhow::Result;
 
+use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
 use super::Block;
 
-#[derive(Deserialize, Debug, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+// Da migrare (D1): set_param.
+pub const FILTER_DESC: BlockDesc = BlockDesc {
+    kind: "filter",
+    label: "Filtro / EQ",
+    category: Category::Filter,
+    params: &[
+        ParamDesc::choice(
+            "kind",
+            "Tipo",
+            &["lowpass", "highpass", "bandpass", "notch", "peak", "lowshelf", "highshelf"],
+            0,
+        ),
+        ParamDesc::log("freq", "Frequenza", 20.0, 20000.0, 1000.0, "Hz"),
+        ParamDesc::log("q", "Q", 0.1, 20.0, 0.707, ""),
+        // Usato solo da peak, lowshelf e highshelf.
+        ParamDesc::number("gain_db", "Guadagno", -24.0, 24.0, 0.0, "dB"),
+    ],
+};
+
+pub fn build_filter(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = FILTER_DESC.params;
+    let params = FilterParams {
+        kind: FilterKind::ALL[v.choice(&p[0])],
+        freq: v.number(&p[1]),
+        q: v.number(&p[2]),
+        gain_db: v.number(&p[3]),
+    };
+    Ok(Box::new(Biquad::new(&params, sr)))
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum FilterKind {
     Lowpass,
     Highpass,
@@ -16,8 +46,20 @@ pub enum FilterKind {
     Highshelf,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+impl FilterKind {
+    /// Nello stesso ordine delle scelte in FILTER_DESC.
+    pub const ALL: [FilterKind; 7] = [
+        FilterKind::Lowpass,
+        FilterKind::Highpass,
+        FilterKind::Bandpass,
+        FilterKind::Notch,
+        FilterKind::Peak,
+        FilterKind::Lowshelf,
+        FilterKind::Highshelf,
+    ];
+}
+
+#[derive(Debug, Clone)]
 pub struct FilterParams {
     pub kind: FilterKind,
     pub freq: f32,

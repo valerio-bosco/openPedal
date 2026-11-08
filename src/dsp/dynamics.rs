@@ -1,41 +1,68 @@
-use serde::Deserialize;
+use anyhow::Result;
 
-use super::{db_to_lin, one_pole_coef, Block};
+use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
+use super::{db_to_lin, one_pole_coef, Block, Smoothed};
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
-pub struct GainParams {
-    pub db: f32,
-}
+// ---- Gain: esempio di riferimento di un blocco migrato -------------------------
 
-impl Default for GainParams {
-    fn default() -> Self {
-        Self { db: 0.0 }
-    }
+pub const GAIN_DESC: BlockDesc = BlockDesc {
+    kind: "gain",
+    label: "Volume",
+    category: Category::Utility,
+    params: &[ParamDesc::number("db", "Volume", -60.0, 24.0, 0.0, "dB")],
+};
+
+pub fn build_gain(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = GAIN_DESC.params;
+    Ok(Box::new(Gain { gain: Smoothed::new(db_to_lin(v.number(&p[0])), 15.0, sr) }))
 }
 
 pub struct Gain {
-    gain: f32,
-}
-
-impl Gain {
-    pub fn new(p: &GainParams) -> Self {
-        Self { gain: db_to_lin(p.db) }
-    }
+    gain: Smoothed,
 }
 
 impl Block for Gain {
     fn process(&mut self, buf: &mut [f32]) {
         for s in buf {
-            *s *= self.gain;
+            *s *= self.gain.next();
+        }
+    }
+
+    fn set_param(&mut self, index: usize, value: f32) {
+        if index == 0 {
+            self.gain.target = db_to_lin(value);
         }
     }
 }
 
+// ---- Gate (da migrare: D1) ---------------------------------------------------
+
+pub const GATE_DESC: BlockDesc = BlockDesc {
+    kind: "gate",
+    label: "Noise gate",
+    category: Category::Dynamics,
+    params: &[
+        ParamDesc::number("threshold_db", "Soglia", -90.0, 0.0, -60.0, "dB"),
+        ParamDesc::log("attack_ms", "Attacco", 0.1, 50.0, 0.5, "ms"),
+        ParamDesc::log("hold_ms", "Tenuta", 1.0, 500.0, 40.0, "ms"),
+        ParamDesc::log("release_ms", "Rilascio", 5.0, 2000.0, 80.0, "ms"),
+    ],
+};
+
+pub fn build_gate(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = GATE_DESC.params;
+    let params = GateParams {
+        threshold_db: v.number(&p[0]),
+        attack_ms: v.number(&p[1]),
+        hold_ms: v.number(&p[2]),
+        release_ms: v.number(&p[3]),
+    };
+    Ok(Box::new(Gate::new(&params, sr)))
+}
+
 /// Noise gate: chiude il segnale sotto soglia, per eliminare il fruscio
 /// quando non suoni (indispensabile prima di un drive).
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct GateParams {
     pub threshold_db: f32,
     pub attack_ms: f32,

@@ -18,6 +18,7 @@
           rust-analyzer
           pkg-config
           qpwgraph # per vedere i collegamenti audio
+          nodejs # solo per sviluppare l'interfaccia (ui/); chi usa openPedal non ne ha bisogno
         ];
         # libjack2 serve solo per compilare (header e jack.pc); a runtime vince
         # la libjack di PipeWire grazie a LD_LIBRARY_PATH, come fa `pw-jack`.

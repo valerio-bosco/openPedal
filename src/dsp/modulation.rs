@@ -1,15 +1,39 @@
 use std::f32::consts::TAU;
 
-use serde::Deserialize;
+use anyhow::Result;
 
+use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
 use super::{one_pole_coef, Block};
 
-#[derive(Deserialize, Debug, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+// Da migrare (D1): set_param.
+pub const TREMOLO_DESC: BlockDesc = BlockDesc {
+    kind: "tremolo",
+    label: "Tremolo",
+    category: Category::Modulation,
+    params: &[
+        ParamDesc::log("rate_hz", "Velocità", 0.1, 20.0, 5.0, "Hz"),
+        // 0 = nessun effetto, 1 = il volume scende fino a zero.
+        ParamDesc::number("depth", "Profondità", 0.0, 1.0, 0.5, ""),
+        ParamDesc::choice("wave", "Onda", &["sine", "triangle", "square"], 0),
+    ],
+};
+
+pub fn build_tremolo(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = TREMOLO_DESC.params;
+    let params = TremoloParams { rate_hz: v.number(&p[0]), depth: v.number(&p[1]), wave: Wave::ALL[v.choice(&p[2])] };
+    Ok(Box::new(Tremolo::new(&params, sr)))
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Wave {
     Sine,
     Triangle,
     Square,
+}
+
+impl Wave {
+    /// Nello stesso ordine delle scelte in TREMOLO_DESC.
+    pub const ALL: [Wave; 3] = [Wave::Sine, Wave::Triangle, Wave::Square];
 }
 
 /// Oscillatore lento (LFO), uscita in [-1, 1].
@@ -45,8 +69,7 @@ impl Lfo {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct TremoloParams {
     pub rate_hz: f32,
     /// 0 = nessun effetto, 1 = il volume scende fino a zero.

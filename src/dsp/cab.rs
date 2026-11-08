@@ -10,13 +10,52 @@ use std::path::Path;
 use anyhow::{ensure, Context, Result};
 use rustfft::num_complex::Complex32;
 use rustfft::FftPlanner;
-use serde::Deserialize;
-
+use super::params::{BlockDesc, Category, ParamDesc, ParamValues};
 use super::{db_to_lin, Block};
 use crate::wav;
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
+// Da migrare (D1): i parametri procedurali richiedono una ricostruzione; set_param per level_db.
+pub const CAB_DESC: BlockDesc = BlockDesc {
+    kind: "cab",
+    label: "Cassa",
+    category: Category::Amp,
+    params: &[
+        // Se c'è un file, i parametri procedurali sono ignorati.
+        ParamDesc::file("ir", "IR (file WAV)", &["wav"]),
+        ParamDesc::number("max_ms", "Lunghezza max IR", 5.0, 500.0, 80.0, "ms"),
+        ParamDesc::number("level_db", "Livello", -24.0, 24.0, 0.0, "dB"),
+        ParamDesc::log("low_hz", "Risonanza", 40.0, 250.0, 100.0, "Hz"),
+        ParamDesc::number("low_q", "Q risonanza", 0.5, 3.0, 1.3, ""),
+        ParamDesc::log("high_hz", "Taglio alti", 1500.0, 12000.0, 5000.0, "Hz"),
+        ParamDesc::log("mid_hz", "Medi", 150.0, 2000.0, 500.0, "Hz"),
+        ParamDesc::number("mid_db", "Guadagno medi", -12.0, 12.0, -3.0, "dB"),
+        ParamDesc::log("presence_hz", "Presenza", 1000.0, 6000.0, 2500.0, "Hz"),
+        ParamDesc::number("presence_db", "Guadagno presenza", -12.0, 12.0, 3.0, "dB"),
+        ParamDesc::number("ripple_db", "Irregolarità", 0.0, 12.0, 3.0, "dB"),
+        ParamDesc::int("seed", "Seme", 0.0, 9999.0, 1.0),
+    ],
+};
+
+pub fn build_cab(v: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let p = CAB_DESC.params;
+    let params = CabParams {
+        ir: v.text(&p[0]).filter(|s| !s.is_empty()).map(str::to_string),
+        max_ms: v.number(&p[1]),
+        level_db: v.number(&p[2]),
+        low_hz: v.number(&p[3]),
+        low_q: v.number(&p[4]),
+        high_hz: v.number(&p[5]),
+        mid_hz: v.number(&p[6]),
+        mid_db: v.number(&p[7]),
+        presence_hz: v.number(&p[8]),
+        presence_db: v.number(&p[9]),
+        ripple_db: v.number(&p[10]),
+        seed: v.number(&p[11]) as u32,
+    };
+    Ok(Box::new(Cab::new(&params, sr)?))
+}
+
+#[derive(Debug, Clone)]
 pub struct CabParams {
     /// File WAV con l'IR di una cassa vera. Se c'è, i parametri procedurali sono ignorati.
     pub ir: Option<String>,

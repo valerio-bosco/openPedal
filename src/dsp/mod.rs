@@ -1,61 +1,92 @@
-//! Blocchi DSP e catena di effetti.
+//! Blocchi DSP, catalogo e catena lineare (preset v1).
 //!
-//! Regola d'oro: `Block::process` gira nel thread realtime. Niente allocazioni,
-//! niente lock, niente I/O. Tutto ciò che serve (buffer, coefficienti) si prepara
-//! in `build`, fuori dal thread audio.
+//! Regola d'oro: `Block::process` e `Block::set_param` girano nel thread realtime.
+//! Niente allocazioni, niente lock, niente I/O. Tutto ciò che serve (buffer,
+//! coefficienti) si prepara nella funzione `build_*`, fuori dal thread audio.
 
 mod cab;
+mod compressor;
 mod drive;
 mod dynamics;
 mod filter;
 mod modulation;
+pub mod oversample;
+pub mod params;
+mod reverb;
 mod time;
+mod tonestack;
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-pub use cab::CabParams;
-pub use drive::DriveParams;
-pub use dynamics::{GainParams, GateParams};
-pub use filter::FilterParams;
-pub use modulation::TremoloParams;
-pub use time::{ChorusParams, DelayParams};
+pub use params::{BlockDesc, Category, ParamDesc, ParamKind, ParamValues, Value};
 
 /// Un'unità di elaborazione: lavora in-place su un blocco di campioni mono.
 pub trait Block: Send {
     fn process(&mut self, buf: &mut [f32]);
+
+    /// Cambia un parametro dal vivo. `index` è la posizione in `BlockDesc::params`,
+    /// `value` è già limitato all'intervallo (per le scelte: l'indice dell'opzione).
+    /// Chiamato dal thread audio: niente allocazioni; le variazioni brusche vanno
+    /// smussate (circa 10-20 ms) per non sentire click.
+    /// Il default non fa niente: il parametro cambierà alla prossima ricostruzione.
+    fn set_param(&mut self, _index: usize, _value: f32) {}
+
+    /// Azzera lo stato interno (code di delay e riverbero, inviluppi...).
+    fn reset(&mut self) {}
 }
 
-/// Descrizione di un blocco come appare nel preset (`type = "..."`).
+pub type BuildFn = fn(&ParamValues, f32) -> Result<Box<dyn Block>>;
+
+/// Una voce del catalogo: come si descrive un blocco e come lo si costruisce.
+pub struct Entry {
+    pub desc: &'static BlockDesc,
+    pub build: BuildFn,
+}
+
+/// Tutti i blocchi base. Registrare un blocco nuovo = aggiungere una riga qui.
+static CATALOG: &[Entry] = &[
+    Entry { desc: &dynamics::GAIN_DESC, build: dynamics::build_gain },
+    Entry { desc: &dynamics::GATE_DESC, build: dynamics::build_gate },
+    Entry { desc: &compressor::COMPRESSOR_DESC, build: compressor::build_compressor },
+    Entry { desc: &drive::DRIVE_DESC, build: drive::build_drive },
+    Entry { desc: &tonestack::TONESTACK_DESC, build: tonestack::build_tonestack },
+    Entry { desc: &cab::CAB_DESC, build: cab::build_cab },
+    Entry { desc: &filter::FILTER_DESC, build: filter::build_filter },
+    Entry { desc: &modulation::TREMOLO_DESC, build: modulation::build_tremolo },
+    Entry { desc: &time::CHORUS_DESC, build: time::build_chorus },
+    Entry { desc: &time::DELAY_DESC, build: time::build_delay },
+    Entry { desc: &reverb::REVERB_DESC, build: reverb::build_reverb },
+];
+
+pub fn catalog() -> &'static [Entry] {
+    CATALOG
+}
+
+pub fn find(kind: &str) -> Option<&'static Entry> {
+    CATALOG.iter().find(|e| e.desc.kind == kind)
+}
+
+/// Valida i parametri e costruisce il blocco `kind`.
+pub fn build_block(kind: &str, values: &ParamValues, sr: f32) -> Result<Box<dyn Block>> {
+    let Some(entry) = find(kind) else {
+        let valid: Vec<_> = CATALOG.iter().map(|e| e.desc.kind).collect();
+        bail!("blocco sconosciuto '{kind}' (blocchi validi: {})", valid.join(", "));
+    };
+    values.validate(entry.desc)?;
+    (entry.build)(values, sr).with_context(|| format!("blocco '{kind}'"))
+}
+
+/// Un blocco di un preset v1: `type` più i suoi parametri.
 #[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum BlockSpec {
-    Gain(GainParams),
-    Gate(GateParams),
-    Drive(DriveParams),
-    Filter(FilterParams),
-    Delay(DelayParams),
-    Chorus(ChorusParams),
-    Tremolo(TremoloParams),
-    Cab(CabParams),
+pub struct BlockEntry {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(flatten)]
+    pub params: ParamValues,
 }
 
-impl BlockSpec {
-    fn build(&self, sr: f32) -> Result<Box<dyn Block>> {
-        Ok(match self {
-            BlockSpec::Gain(p) => Box::new(dynamics::Gain::new(p)),
-            BlockSpec::Gate(p) => Box::new(dynamics::Gate::new(p, sr)),
-            BlockSpec::Drive(p) => Box::new(drive::Drive::new(p, sr)),
-            BlockSpec::Filter(p) => Box::new(filter::Biquad::new(p, sr)),
-            BlockSpec::Delay(p) => Box::new(time::Delay::new(p, sr)),
-            BlockSpec::Chorus(p) => Box::new(time::Chorus::new(p, sr)),
-            BlockSpec::Tremolo(p) => Box::new(modulation::Tremolo::new(p, sr)),
-            BlockSpec::Cab(p) => Box::new(cab::Cab::new(p, sr)?),
-        })
-    }
-}
-
-/// Un preset: nome, volume finale e lista ordinata di blocchi.
+/// Preset v1: nome, volume finale e lista ordinata di blocchi.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Preset {
@@ -65,7 +96,7 @@ pub struct Preset {
     #[serde(default)]
     pub output_db: f32,
     #[serde(default, rename = "block")]
-    pub blocks: Vec<BlockSpec>,
+    pub blocks: Vec<BlockEntry>,
 }
 
 fn default_name() -> String {
@@ -81,10 +112,13 @@ pub struct Chain {
 impl Chain {
     /// Prepara la catena (fuori dal thread audio): può leggere file, quindi può fallire.
     pub fn build(preset: &Preset, sr: f32) -> Result<Chain> {
-        Ok(Chain {
-            blocks: preset.blocks.iter().map(|b| b.build(sr)).collect::<Result<_>>()?,
-            out_gain: db_to_lin(preset.output_db),
-        })
+        let blocks = preset
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| build_block(&b.kind, &b.params, sr).with_context(|| format!("blocco n. {}", i + 1)))
+            .collect::<Result<_>>()?;
+        Ok(Chain { blocks, out_gain: db_to_lin(preset.output_db) })
     }
 
     pub fn process(&mut self, buf: &mut [f32]) {
@@ -114,6 +148,25 @@ pub fn one_pole_coef(ms: f32, sr: f32) -> f32 {
     }
 }
 
+/// Valore che si muove dolcemente verso un obiettivo: per i parametri cambiati dal vivo.
+#[derive(Debug, Clone, Copy)]
+pub struct Smoothed {
+    pub value: f32,
+    pub target: f32,
+    coef: f32,
+}
+
+impl Smoothed {
+    pub fn new(value: f32, ms: f32, sr: f32) -> Self {
+        Self { value, target: value, coef: one_pole_coef(ms, sr) }
+    }
+
+    #[inline]
+    pub fn next(&mut self) -> f32 {
+        self.value = self.target + (self.value - self.target) * self.coef;
+        self.value
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,8 +199,36 @@ mod tests {
 
     #[test]
     fn un_parametro_sbagliato_e_un_errore() {
-        let r: Result<Preset, _> = toml::from_str("[[block]]\ntype = \"drive\"\ngain = 3\n");
-        assert!(r.is_err(), "il refuso `gain` (invece di gain_db) deve essere segnalato");
+        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\ngain = 3\n").unwrap();
+        let err = Chain::build(&p, SR).err().expect("il refuso `gain` (invece di gain_db) deve essere segnalato");
+        assert!(format!("{err:#}").contains("gain_db"), "{err:#}");
+    }
+
+    #[test]
+    fn una_scelta_sbagliata_e_un_errore() {
+        let p: Preset = toml::from_str("[[block]]\ntype = \"drive\"\nshape = \"tubo\"\n").unwrap();
+        assert!(Chain::build(&p, SR).is_err());
+    }
+
+    #[test]
+    fn i_default_del_catalogo_sono_validi() {
+        // Ogni blocco si costruisce con i soli default e non produce NaN.
+        for entry in catalog() {
+            let mut block = (entry.build)(&ParamValues::default(), SR).unwrap();
+            let mut buf = sine(220.0, 0.5, 4800);
+            block.process(&mut buf);
+            assert!(buf.iter().all(|s| s.is_finite()), "{}", entry.desc.kind);
+            for (i, p) in entry.desc.params.iter().enumerate() {
+                let v = match p.kind {
+                    ParamKind::Number { max, .. } => max,
+                    ParamKind::Choice { options, .. } => (options.len() - 1) as f32,
+                    ParamKind::File { .. } => continue,
+                };
+                block.set_param(i, v);
+            }
+            block.process(&mut buf);
+            assert!(buf.iter().all(|s| s.is_finite()), "{} dopo set_param", entry.desc.kind);
+        }
     }
 
     #[test]

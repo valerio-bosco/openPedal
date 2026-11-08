@@ -1,0 +1,31 @@
+# Pedale composto: una cassa 4x12 con due manopole esposte.
+name = "Cassa 4x12"
+category = "amp"
+description = "Cassa chiusa da rock: bassi con pugno, medi scavati."
+
+[[node]]
+id = "c"
+type = "cab"
+params = { low_hz = 105, low_q = 1.5, high_hz = 4800, mid_db = -4, presence_db = 3, ripple_db = 3.5, seed = 7 }
+
+[[edge]]
+from = "pedal_in"
+to = "c"
+
+[[edge]]
+from = "c"
+to = "pedal_out"
+
+[[knob]]
+label = "Brillantezza"
+target = "c.high_hz"
+min = 3500
+max = 7000
+default = 0.4
+
+[[knob]]
+label = "Medi"
+target = "c.mid_db"
+min = -10
+max = 6
+default = 0.4
