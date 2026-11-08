@@ -4,7 +4,7 @@ FROM swift:6.4-noble
 
 ARG XTOOL_VERSION=1.24.0
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip \
+ && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils unzip zip \
  && rm -rf /var/lib/apt/lists/*
 
 # The AppImage is extracted, so FUSE is not needed inside the container.
