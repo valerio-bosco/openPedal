@@ -31,7 +31,7 @@ import {
   type ParamValue,
   type PedalFile,
   type ServerMsg,
-} from "./protocol";
+} from "./generated/protocol";
 import { fixturePedals } from "./mock";
 import {
   CATEGORY_COLOR,

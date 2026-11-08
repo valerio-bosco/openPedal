@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ParamKind {
     /// Numeric value. `log` = the knob moves on a logarithmic scale;
@@ -18,7 +18,7 @@ pub enum ParamKind {
     File { extensions: &'static [&'static str] },
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, schemars::JsonSchema)]
 pub struct ParamDesc {
     pub id: &'static str,
     pub label: &'static str,
@@ -70,7 +70,7 @@ impl ParamDesc {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Io,
@@ -115,15 +115,16 @@ impl BlockDesc {
 }
 
 /// A value as it arrives from a TOML file or from the UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
+#[schemars(rename = "ParamValue")]
 pub enum Value {
     Number(f32),
     Text(String),
 }
 
 /// The parameters of a node: id -> value. Missing ones take the default.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct ParamValues(pub BTreeMap<String, Value>);
 

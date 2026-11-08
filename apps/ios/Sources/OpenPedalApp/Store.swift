@@ -29,7 +29,7 @@ final class Store {
     private(set) var graph = GraphFile(name: "", version: 2, node: [], edge: [])
     private(set) var presets: [String] = []
     private(set) var audio: AudioInfo?
-    private(set) var serverProtocol: UInt32?
+    private(set) var serverProtocol: Int?
     private(set) var gotState = false
     private(set) var dirty = false
     private(set) var undoStack: [GraphFile] = []
@@ -106,8 +106,8 @@ final class Store {
         switch msg {
         case .meters(let m):
             meters.inDb = m.inDb; meters.outDb = m.outDb; meters.dsp = m.dsp; meters.xruns = m.xruns
-        case .error(let e):
-            showBanner(e.node.map { "\($0): \(e.message)" } ?? e.message)
+        case .error(let message, let node):
+            showBanner(node.map { "\($0): \(message)" } ?? message)
         case .state(let s):
             if catalog != s.catalog {
                 catalog = s.catalog
@@ -184,7 +184,7 @@ final class Store {
 
     func setBypass(_ id: String, _ bypass: Bool) {
         pushUndo()
-        update(id) { $0.bypass = bypass }
+        update(id) { $0.isBypassed = bypass }
         client.send(.setBypass(node: id, bypass: bypass))
     }
 
@@ -296,7 +296,7 @@ final class Store {
         guard let node = models[id]?.spec, let item = item(for: node) else { return }
         pushUndo()
         for p in item.params {
-            switch p.kind {
+            switch p.tag {
             case .number:
                 setNumber(id, p, p.def)
             case .choice:

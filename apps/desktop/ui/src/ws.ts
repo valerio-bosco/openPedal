@@ -1,7 +1,7 @@
 // Connection to the engine: WebSocket `/ws` with reconnection. If the server does not respond
 // at startup, it falls back to the fake server (mock) and keeps retrying in the background.
 import { MockServer } from "./mock";
-import type { ClientMsg, ServerMsg } from "./protocol";
+import type { ClientMsg, ServerMsg } from "./generated/protocol";
 
 export type Status = "connecting" | "online" | "mock" | "offline";
 

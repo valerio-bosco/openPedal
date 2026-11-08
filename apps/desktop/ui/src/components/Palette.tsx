@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { CatalogItem, Category } from "../protocol";
+import type { CatalogItem, Category } from "../generated/protocol";
 import { CATEGORY_COLOR, CATEGORY_LABEL, CATEGORY_ORDER } from "../model";
 
 export const DRAG_MIME = "application/x-openpedal-kind";

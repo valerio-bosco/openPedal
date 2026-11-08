@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AudioInfo, MetersMsg } from "../protocol";
+import type { AudioInfo, MetersMsg } from "../generated/protocol";
 import type { Status } from "../ws";
 
 const STATUS_TEXT: Record<Status, string> = {

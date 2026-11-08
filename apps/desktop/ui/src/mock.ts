@@ -2,8 +2,9 @@
 // using the fixtures. It also serves as automatic fallback when `/ws` does not respond.
 import stateFixture from "./fixtures/state.json";
 import clientFixture from "./fixtures/client-messages.json";
-import { PROTOCOL_VERSION, type CatalogItem, type ClientMsg, type GraphFile, type PedalFile, type ServerMsg, type StateMsg } from "./protocol";
+import { PROTOCOL_VERSION, type CatalogItem, type ClientMsg, type GraphFile, type PedalFile, type ServerMsg } from "./generated/protocol";
 
+type StateMsg = Extract<ServerMsg, { type: "state" }>;
 const base = stateFixture as unknown as StateMsg;
 
 /** Example pedals (content), taken from the client messages fixture. */

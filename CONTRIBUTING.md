@@ -20,7 +20,7 @@ Without Nix you need Rust, Node.js, JACK development files and, on Linux with Pi
 - `cargo test --workspace` passes and `cargo clippy --workspace --all-targets` has no warnings.
 - If you changed `apps/desktop/ui/`: `npm run build` passes (it includes the TypeScript check).
 - If you changed the UI behavior: `tools/e2e/run.sh` passes (headless Chromium tests; keep the button labels they rely on or update the tests).
-- If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures apps/desktop/ui/src/fixtures` and keep `apps/desktop/ui/src/protocol.ts` in sync.
+- If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures apps/desktop/ui/src/fixtures` and the client types with `cargo run -p openpedal-protocol --bin gen-protocol` (see Protocol below).
 - New behavior comes with a test. DSP tests should measure something (levels, frequencies, timing), not just "it runs".
 
 ## Language
@@ -42,6 +42,16 @@ Optional body explaining why.
 - Examples: `feat(ui): add preset deletion`, `fix(dsp): smooth filter coefficient changes`, `docs: describe the WebSocket protocol`.
 
 Commits before November 2026 are in Italian; history is not rewritten.
+
+## Protocol
+
+The WebSocket protocol is written once, in Rust (`crates/protocol`, plus the wire types in `crates/graph/src/model.rs` and `crates/dsp/src/params.rs`). The TypeScript types (`apps/desktop/ui/src/generated/protocol.ts`, with runtime type guards) and the Swift `Codable` types (`apps/ios/Sources/OpenPedalApp/Generated/Protocol.swift`) are generated from it; never edit them by hand.
+
+1. Edit the Rust types (they derive `schemars::JsonSchema` next to `Serialize`/`Deserialize`; the wire format is whatever serde produces).
+2. Run `cargo run -p openpedal-protocol --bin gen-protocol` and commit the Rust change together with both generated files. CI regenerates them and fails on any diff.
+3. Regenerate the fixtures (`cargo run -- dev-fixtures apps/desktop/ui/src/fixtures`) when the JSON examples change.
+
+The fixtures are the contract tests: `cargo test -p openpedal-protocol` round-trips them through the Rust types and validates them against the schema, `npm run test:protocol` (in `apps/desktop/ui`) checks them with the generated TypeScript guards, and the iPad app must still compile against the generated Swift. Hand-written Swift helpers live in `ProtocolExtensions.swift`. A serde shape the generator (`crates/protocol/src/codegen`) does not know makes it panic instead of generating something wrong: extend the generator.
 
 ## Real-time rules
 

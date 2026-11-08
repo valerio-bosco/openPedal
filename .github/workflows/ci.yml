@@ -38,3 +38,12 @@ jobs:
 
       - name: Build UI
         run: nix develop -c bash -c "cd apps/desktop/ui && npm ci && npm run build"
+
+      - name: Protocol contract (TypeScript fixtures)
+        run: nix develop -c bash -c "cd apps/desktop/ui && npm run test:protocol"
+
+      - name: Generated protocol types are up to date
+        run: |
+          nix develop -c cargo run -p openpedal-protocol --bin gen-protocol
+          git add -N apps/desktop/ui/src/generated apps/ios/Sources/OpenPedalApp/Generated
+          git diff --exit-code -- apps/desktop/ui/src/generated apps/ios/Sources/OpenPedalApp/Generated

@@ -8,12 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use openpedal_graph::model::{CatalogItem, GraphFile, PedalFile};
 
+pub mod codegen;
+
 /// Version of the WebSocket contract (docs/PLAN.md §5.4), sent in `state`.
 /// Bumped on any breaking change; additive optional fields do not bump it.
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// From the client (interface) to the server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMsg {
     /// The server replies with `state`.
@@ -35,7 +37,7 @@ pub enum ClientMsg {
 }
 
 /// From the server to the client.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
     State(StateMsg),
@@ -49,7 +51,7 @@ pub enum ServerMsg {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct StateMsg {
     /// `PROTOCOL_VERSION` of this server.
     pub protocol: u32,
@@ -62,7 +64,7 @@ pub struct StateMsg {
     pub audio: AudioInfo,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AudioInfo {
     pub sample_rate: u32,
     pub buffer: u32,
@@ -71,7 +73,7 @@ pub struct AudioInfo {
 }
 
 /// Sent about 20 times per second.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MetersMsg {
     pub in_db: f32,
     pub out_db: f32,

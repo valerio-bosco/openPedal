@@ -1,6 +1,6 @@
 import { createContext, memo, useContext } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { INPUT, OUTPUT, PEDAL_IN, PEDAL_OUT, type CatalogItem, type ParamValue } from "../protocol";
+import { INPUT, OUTPUT, PEDAL_IN, PEDAL_OUT, type CatalogItem, type ParamValue } from "../generated/protocol";
 import { CATEGORY_COLOR, paramValue, type PNode } from "../model";
 import { Knob } from "./Knob";
 
