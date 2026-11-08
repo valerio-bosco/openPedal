@@ -1,7 +1,8 @@
-//! Compiler: expands composite pedals, checks the graph, sorts it and
-//! builds the `Plan`. Runs on the control thread (it can allocate and read files).
+//! Compiler: expands effects (built-in blocks and composite pedals alike, through the
+//! `Registry`), checks the graph, sorts it and builds the `Plan`. Runs on the control thread
+//! (it can allocate and read files).
 
-// The parameter translation API will be used by the integration (I2, `EngineHandle`).
+// The parameter translation API is used by the engine (`EngineHandle`).
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -11,6 +12,8 @@ use anyhow::{bail, Context, Result};
 
 use super::exec::{Bypass, Op, OutGain, Plan, Step};
 use super::model::*;
+use super::registry::{Composite, ControlKind, EffectDesc, EffectSource, Map, Registry};
+use openpedal_dsp::params::Category;
 use openpedal_dsp::{self as dsp, db_to_lin, BlockDesc, Entry, ParamKind, ParamValues, Smoothed, Value};
 
 /// Graph error, with the (top-level) node it refers to, if any:
@@ -41,30 +44,41 @@ pub struct ParamChange {
     pub value: f32,
 }
 
-/// Where an exposed knob ends up: the parameter of a block, through
-/// one or more 0..1 -> min..max mapping levels (more levels if pedals are nested).
+/// Where a control value ends up: the parameter of a block, through the chain of route maps
+/// it crosses (one per composite level, outermost first; empty for a built-in effect's own controls).
 #[derive(Debug, Clone)]
-struct Binding {
+struct Target {
     flat: usize,
     desc: &'static BlockDesc,
     param: usize,
-    levels: Vec<(f32, f32)>,
+    maps: Vec<Map>,
 }
 
-impl Binding {
-    fn apply(&self, value: f32) -> f32 {
-        self.levels.iter().fold(value, |v, &(min, max)| min + (max - min) * v.clamp(0.0, 1.0))
+impl Target {
+    fn kind(&self) -> ParamKind {
+        self.desc.params[self.param].kind
+    }
+
+    /// The value to send to the block for control value `value`.
+    fn value(&self, value: f32) -> f32 {
+        let mapped = self.maps.iter().fold(value, |v, m| m.apply(v));
+        self.desc.params[self.param].clamp(mapped)
     }
 }
 
-enum Slot {
-    /// Node that corresponds to a single block (including `input` and `output`).
-    Block { flat: usize, desc: &'static BlockDesc },
-    /// `exit` is the flat index of the pedal's output junction (where its bypass lives).
-    Pedal { knobs: BTreeMap<String, Binding>, exit: usize },
+/// The targets of each control of an expanded effect, by control id.
+type Controls = BTreeMap<String, Vec<Target>>;
+
+/// What a top-level node offers to `NodeMap`.
+struct Slot {
+    /// `Some` for a built-in effect (including `input` and `output`).
+    builtin: Option<&'static BlockDesc>,
+    controls: Controls,
+    /// Flat index of the effect's output (where its bypass lives).
+    exit: usize,
 }
 
-/// Translates (node id, parameter id) into indices for `Plan::set_param`.
+/// Translates (node id, control id) into indices for `Plan::set_param`.
 /// Kept by the control thread; only valid for the `Plan` it was created with.
 pub struct NodeMap {
     slots: HashMap<String, Slot>,
@@ -73,59 +87,57 @@ pub struct NodeMap {
 }
 
 impl NodeMap {
-    /// `Ok(None)`: the node exists but is not in the plan (it is not wired between guitar and output),
-    /// so there is nothing to change. Error: node or parameter does not exist, or a parameter
-    /// that requires rebuilding the graph (a file).
+    /// Every parameter change caused by moving control `param` of `node` to `value`: one per route,
+    /// each mapped and clamped to its target parameter. Empty when the node exists but is not in the
+    /// plan (not wired between guitar and output), so there is nothing to change. Error: node or
+    /// control does not exist, or a control that requires rebuilding the graph (a file).
     /// For composite pedals `param` is the knob label and `value` goes from 0 to 1.
-    pub fn resolve(&self, node: &str, param: &str, value: f32) -> Result<Option<ParamChange>> {
+    pub fn resolve_changes(&self, node: &str, param: &str, value: f32) -> Result<Vec<ParamChange>> {
         let Some(slot) = self.slots.get(node) else {
             return Err(err(Some(node), format!("node '{node}' does not exist")));
         };
-        let (flat, index, value) = match slot {
-            Slot::Block { flat, desc } => {
-                let Some(index) = desc.param_index(param) else {
+        let Some(targets) = slot.controls.get(param) else {
+            let msg = match slot.builtin {
+                Some(desc) => {
                     let valid: Vec<_> = desc.params.iter().map(|p| p.id).collect();
-                    let msg = format!("node '{node}' ({}) has no parameter '{param}' (valid: {})", desc.kind, valid.join(", "));
-                    return Err(err(Some(node), msg));
-                };
-                let pd = &desc.params[index];
-                if let ParamKind::File { .. } = pd.kind {
-                    return Err(err(Some(node), format!("'{node}.{param}' can only be changed by rebuilding the graph")));
+                    format!("node '{node}' ({}) has no parameter '{param}' (valid: {})", desc.kind, valid.join(", "))
                 }
-                (*flat, index, pd.clamp(value))
-            }
-            Slot::Pedal { knobs, .. } => {
-                let Some(b) = knobs.get(param) else {
-                    let valid: Vec<_> = knobs.keys().map(String::as_str).collect();
-                    let msg = format!("pedal '{node}' has no knob '{param}' (knobs: {})", valid.join(", "));
-                    return Err(err(Some(node), msg));
-                };
-                (b.flat, b.param, b.desc.params[b.param].clamp(b.apply(value)))
-            }
+                None => {
+                    let valid: Vec<_> = slot.controls.keys().map(String::as_str).collect();
+                    format!("pedal '{node}' has no knob '{param}' (knobs: {})", valid.join(", "))
+                }
+            };
+            return Err(err(Some(node), msg));
         };
-        Ok(self.flat_to_step[flat].map(|step| ParamChange { step, param: index, value }))
+        if targets.iter().any(|t| matches!(t.kind(), ParamKind::File { .. })) {
+            return Err(err(Some(node), format!("'{node}.{param}' can only be changed by rebuilding the graph")));
+        }
+        Ok(targets
+            .iter()
+            .filter_map(|t| self.flat_to_step[t.flat].map(|step| ParamChange { step, param: t.param, value: t.value(value) }))
+            .collect())
     }
-}
 
-impl NodeMap {
+    /// Like `resolve_changes` for effects whose controls have a single route (every built-in block
+    /// and today's pedals): the first change, or `Ok(None)` if the node is not in the plan.
+    pub fn resolve(&self, node: &str, param: &str, value: f32) -> Result<Option<ParamChange>> {
+        Ok(self.resolve_changes(node, param, value)?.into_iter().next())
+    }
+
     /// Plan step to bypass for `node`. `Ok(None)`: the node is not in the plan (not wired
     /// between guitar and output). Error: unknown node, or `input`/`output`.
     pub fn resolve_bypass(&self, node: &str) -> Result<Option<usize>> {
         let Some(slot) = self.slots.get(node) else {
             return Err(err(Some(node), format!("node '{node}' does not exist")));
         };
-        let flat = match slot {
-            Slot::Block { desc, .. } if desc.kind == INPUT || desc.kind == OUTPUT => {
-                return Err(err(Some(node), format!("node '{node}' ({}) cannot be bypassed", desc.kind)));
-            }
-            Slot::Block { flat, .. } => *flat,
-            Slot::Pedal { exit, .. } => *exit,
-        };
-        Ok(self.flat_to_step[flat])
+        if let Some(desc) = slot.builtin.filter(|d| d.category == Category::Io) {
+            return Err(err(Some(node), format!("node '{node}' ({}) cannot be bypassed", desc.kind)));
+        }
+        Ok(self.flat_to_step[slot.exit])
     }
 }
 
-// ---------- espansione ----------
+// ---------- expansion ----------
 
 enum FlatKind {
     Input,
@@ -144,15 +156,25 @@ struct FlatNode {
     dry: Option<usize>,
 }
 
-/// How a level is wired to its nodes: cables enter at `entry` and leave from `exit`.
+/// How an effect instance is wired: cables enter at `entry` and leave from `exit`;
+/// `controls` says where each control goes.
 struct Expanded {
     entry: usize,
     exit: usize,
-    knobs: BTreeMap<String, Binding>,
+    /// `Some` for a built-in effect.
+    builtin: Option<&'static BlockDesc>,
+    controls: Controls,
+}
+
+impl Expanded {
+    /// A junction (`pedal_in` / `pedal_out`): no controls.
+    fn junction(i: usize) -> Expanded {
+        Expanded { entry: i, exit: i, builtin: None, controls: Controls::new() }
+    }
 }
 
 struct Expander<'a> {
-    pedals: &'a [(String, PedalFile)],
+    registry: &'a Registry,
     nodes: Vec<FlatNode>,
     edges: Vec<(usize, usize)>,
 }
@@ -163,8 +185,8 @@ impl Expander<'_> {
         self.nodes.len() - 1
     }
 
-    /// Expands a level (the main graph or the body of a pedal).
-    /// `implicit` = `pedal_in`/`pedal_out` junctions, only inside pedals.
+    /// Expands a level (the main graph or the body of a composite effect).
+    /// `implicit` = `pedal_in`/`pedal_out` junctions, only inside composites.
     /// `top` = top-level node to report in errors.
     fn body(
         &mut self,
@@ -178,9 +200,10 @@ impl Expander<'_> {
         let mut map: HashMap<String, Expanded> = HashMap::new();
         let mut kinds: HashMap<&str, &str> = HashMap::new();
         if let Some((i, o)) = implicit {
-            map.insert(PEDAL_IN.into(), Expanded { entry: i, exit: i, knobs: BTreeMap::new() });
-            map.insert(PEDAL_OUT.into(), Expanded { entry: o, exit: o, knobs: BTreeMap::new() });
+            map.insert(PEDAL_IN.into(), Expanded::junction(i));
+            map.insert(PEDAL_OUT.into(), Expanded::junction(o));
         }
+        let registry = self.registry;
         for spec in nodes {
             let node = top.or(Some(spec.id.as_str()));
             if spec.id.is_empty() {
@@ -191,23 +214,22 @@ impl Expander<'_> {
             }
             kinds.insert(&spec.id, &spec.kind);
             let path = if prefix.is_empty() { spec.id.clone() } else { format!("{prefix}/{}", spec.id) };
-            let exp = match spec.kind.as_str() {
-                INPUT | OUTPUT if top.is_some() || implicit.is_some() => {
-                    return Err(err(node, format!("'{}' cannot be inside a composite pedal", spec.kind)));
+            let Some(effect) = registry.get(&spec.kind) else {
+                if let Some(id) = spec.kind.strip_prefix(PEDAL_PREFIX) {
+                    return Err(err(node, format!("pedal '{id}' does not exist (missing pedals/{id}.toml)")));
                 }
-                INPUT => self.leaf(path, FlatKind::Input, &INPUT_DESC, spec)?,
-                OUTPUT => self.leaf(path, FlatKind::Output, &OUTPUT_DESC, spec)?,
-                kind if kind.starts_with(PEDAL_PREFIX) => {
-                    self.pedal(&kind[PEDAL_PREFIX.len()..], spec, &path, node.unwrap_or(&spec.id), stack)?
+                let valid: Vec<_> = dsp::catalog().iter().map(|e| e.desc.kind).collect();
+                let msg = format!("node '{}' has an unknown type '{}' (valid types: {})", spec.id, spec.kind, valid.join(", "));
+                return Err(err(node, msg));
+            };
+            let exp = match &effect.source {
+                EffectSource::Builtin(desc) => {
+                    if desc.category == Category::Io && (top.is_some() || implicit.is_some()) {
+                        return Err(err(node, format!("'{}' cannot be inside a composite pedal", spec.kind)));
+                    }
+                    self.builtin(path, desc, spec)?
                 }
-                kind => {
-                    let Some(entry) = dsp::find(kind) else {
-                        let valid: Vec<_> = dsp::catalog().iter().map(|e| e.desc.kind).collect();
-                        let msg = format!("node '{}' has an unknown type '{kind}' (valid types: {})", spec.id, valid.join(", "));
-                        return Err(err(node, msg));
-                    };
-                    self.leaf(path, FlatKind::Block(entry), entry.desc, spec)?
-                }
+                EffectSource::Composite(comp) => self.composite(effect, comp, spec, &path, node.unwrap_or(&spec.id), stack)?,
             };
             map.insert(spec.id.clone(), exp);
         }
@@ -234,101 +256,133 @@ impl Expander<'_> {
         Ok(map)
     }
 
-    fn leaf(&mut self, path: String, kind: FlatKind, desc: &'static BlockDesc, spec: &NodeSpec) -> Result<Expanded> {
+    /// Expands a built-in effect: one flat node; every control drives the block parameter of the
+    /// same name (an identity route, so no maps).
+    fn builtin(&mut self, path: String, desc: &'static BlockDesc, spec: &NodeSpec) -> Result<Expanded> {
         spec.params.validate(desc).map_err(|e| err(Some(&spec.id), format!("{e:#}")))?;
+        let kind = match desc.kind {
+            INPUT => FlatKind::Input,
+            OUTPUT => FlatKind::Output,
+            kind => FlatKind::Block(dsp::find(kind).expect("a registered effect is a catalog block")),
+        };
         if spec.bypass && matches!(kind, FlatKind::Input | FlatKind::Output) {
             return Err(err(Some(&spec.id), format!("node '{}' ({}) cannot be bypassed", spec.id, desc.kind)));
         }
         let i = self.push(path, kind, spec.params.clone());
         self.nodes[i].bypass = spec.bypass;
-        Ok(Expanded { entry: i, exit: i, knobs: BTreeMap::new() })
+        let controls = desc
+            .params
+            .iter()
+            .enumerate()
+            .map(|(param, p)| (p.id.to_string(), vec![Target { flat: i, desc, param, maps: Vec::new() }]))
+            .collect();
+        Ok(Expanded { entry: i, exit: i, builtin: Some(desc), controls })
     }
 
-    /// Expands a `pedal:<id>` node: the knobs set the internal parameters.
-    fn pedal(&mut self, id: &str, spec: &NodeSpec, path: &str, top: &str, stack: &mut Vec<String>) -> Result<Expanded> {
+    /// Expands a composite effect (`pedal:<id>`): the control values go through the routes
+    /// into the inner nodes' parameters before building.
+    fn composite(
+        &mut self,
+        effect: &EffectDesc,
+        comp: &Composite,
+        spec: &NodeSpec,
+        path: &str,
+        top: &str,
+        stack: &mut Vec<String>,
+    ) -> Result<Expanded> {
+        let id = effect.kind.strip_prefix(PEDAL_PREFIX).unwrap_or(&effect.kind);
         if stack.iter().any(|s| s == id) {
             let chain: Vec<_> = stack.iter().map(String::as_str).chain([id]).collect();
             return Err(err(Some(top), format!("pedal '{id}' contains itself: {}", chain.join(" -> "))));
         }
-        let pedals = self.pedals;
-        let Some((_, pedal)) = pedals.iter().find(|(pid, _)| pid == id) else {
-            return Err(err(Some(top), format!("pedal '{id}' does not exist (missing pedals/{id}.toml)")));
-        };
 
         for name in spec.params.0.keys() {
-            if !pedal.knobs.iter().any(|k| &k.label == name) {
-                let valid: Vec<_> = pedal.knobs.iter().map(|k| k.label.as_str()).collect();
+            if effect.control(name).is_none() {
+                let valid: Vec<_> = effect.controls.iter().map(|k| k.label.as_str()).collect();
                 let msg = format!("pedal '{id}' has no knob '{name}' (knobs: {})", valid.join(", "));
                 return Err(err(Some(top), msg));
             }
         }
 
-        // The knobs write their value into the internal parameter before building.
-        let mut inner = pedal.nodes.clone();
-        for k in &pedal.knobs {
-            let (target, param) = k.target.split_once('.').ok_or_else(|| {
-                err(Some(top), format!("pedal '{id}', knob '{}': target '{}' must be 'node.parameter'", k.label, k.target))
-            })?;
-            let Some(node) = inner.iter_mut().find(|n| n.id == target) else {
-                return Err(err(Some(top), format!("pedal '{id}', knob '{}': node '{target}' does not exist", k.label)));
-            };
-            let v = match spec.params.get(&k.label) {
-                Some(Value::Number(v)) => *v,
-                Some(Value::Text(_)) => return Err(err(Some(top), format!("the knob '{}' must be a number", k.label))),
-                None => k.default,
-            };
-            node.params.set(param, Value::Number(k.min + (k.max - k.min) * v.clamp(0.0, 1.0)));
+        // The controls write their (mapped) value into the inner parameters before building.
+        let mut inner = comp.nodes.clone();
+        for (control, routes) in effect.controls.iter().zip(&comp.routes) {
+            for route in routes {
+                if route.node.is_empty() {
+                    let msg = format!("pedal '{id}', knob '{}': target '{}' must be 'node.parameter'", control.label, route.param);
+                    return Err(err(Some(top), msg));
+                }
+                let Some(node) = inner.iter_mut().find(|n| n.id == route.node) else {
+                    let msg = format!("pedal '{id}', knob '{}': node '{}' does not exist", control.label, route.node);
+                    return Err(err(Some(top), msg));
+                };
+                let value = match (&control.kind, spec.params.get(&control.id)) {
+                    (ControlKind::Knob { .. }, Some(Value::Number(v))) => Value::Number(route.map.apply(*v)),
+                    (ControlKind::Knob { .. }, Some(Value::Text(_))) => {
+                        return Err(err(Some(top), format!("the knob '{}' must be a number", control.label)));
+                    }
+                    (ControlKind::Knob { default, .. }, None) => Value::Number(route.map.apply(*default)),
+                    // Choices and files are forwarded as they are.
+                    (_, Some(v)) => v.clone(),
+                    (_, None) => continue,
+                };
+                node.params.set(&route.param, value);
+            }
         }
 
         let pin = self.push(format!("{path}/{PEDAL_IN}"), FlatKind::Pass, ParamValues::default());
         let pout = self.push(format!("{path}/{PEDAL_OUT}"), FlatKind::Pass, ParamValues::default());
         stack.push(id.to_string());
-        let map = self.body(&inner, &pedal.edges, path, Some(top), stack, Some((pin, pout)));
+        let map = self.body(&inner, &comp.edges, path, Some(top), stack, Some((pin, pout)));
         stack.pop();
         let map = map.with_context(|| format!("pedal '{id}'"))?;
         self.nodes[pout].bypass = spec.bypass;
         self.nodes[pout].dry = Some(pin);
 
-        let mut knobs = BTreeMap::new();
-        for k in &pedal.knobs {
-            let (target, param) = k.target.split_once('.').expect("already checked");
-            let exp = &map[target];
-            let level = (k.min, k.max);
-            let binding = match &self.nodes[exp.entry].kind {
-                FlatKind::Block(entry) => {
-                    let Some(index) = entry.desc.param_index(param) else {
-                        let msg = format!("pedal '{id}', knob '{}': '{target}' ({}) has no parameter '{param}'", k.label, entry.desc.kind);
-                        return Err(err(Some(top), msg));
+        let mut controls = Controls::new();
+        for (control, routes) in effect.controls.iter().zip(&comp.routes) {
+            let mut targets = Vec::new();
+            for route in routes {
+                let exp = &map[&route.node];
+                // The target is a parameter of an inner block or a control of an inner composite.
+                let Some(inner_targets) = exp.controls.get(&route.param) else {
+                    let msg = match exp.builtin {
+                        Some(desc) => format!(
+                            "pedal '{id}', knob '{}': '{}' ({}) has no parameter '{}'",
+                            control.label, route.node, desc.kind, route.param
+                        ),
+                        None => format!("pedal '{id}', knob '{}': '{}' has no knob '{}'", control.label, route.node, route.param),
                     };
-                    if !matches!(entry.desc.params[index].kind, ParamKind::Number { .. }) {
-                        let msg = format!("pedal '{id}', knob '{}': '{}' is not numeric", k.label, k.target);
+                    return Err(err(Some(top), msg));
+                };
+                for t in inner_targets {
+                    if !matches!(t.kind(), ParamKind::Number { .. }) {
+                        let msg = format!("pedal '{id}', knob '{}': '{}.{}' is not numeric", control.label, route.node, route.param);
                         return Err(err(Some(top), msg));
                     }
-                    Binding { flat: exp.entry, desc: entry.desc, param: index, levels: vec![level] }
+                    let mut maps = vec![route.map];
+                    maps.extend(&t.maps);
+                    targets.push(Target { maps, ..t.clone() });
                 }
-                // Target = another pedal: `param` is one of its knobs, already checked in `body`.
-                _ => {
-                    let Some(inner_binding) = exp.knobs.get(param) else {
-                        return Err(err(Some(top), format!("pedal '{id}', knob '{}': '{target}' has no knob '{param}'", k.label)));
-                    };
-                    let mut levels = vec![level];
-                    levels.extend(&inner_binding.levels);
-                    Binding { levels, ..inner_binding.clone() }
-                }
-            };
-            knobs.insert(k.label.clone(), binding);
+            }
+            controls.insert(control.id.clone(), targets);
         }
-        Ok(Expanded { entry: pin, exit: pout, knobs })
+        Ok(Expanded { entry: pin, exit: pout, builtin: None, controls })
     }
 }
 
-// ---------- compilazione ----------
+// ---------- compilation ----------
 
 /// Compiles a graph (with the available composite pedals) into a `Plan` and a `NodeMap`
 /// that translates parameter changes. It can read files (cab) and fail: it must not be called
 /// from the audio thread.
 pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Result<(Plan, NodeMap)> {
-    let mut ex = Expander { pedals, nodes: Vec::new(), edges: Vec::new() };
+    compile_with(graph, &Registry::new(pedals), sr)
+}
+
+/// `compile` with an already built effect registry.
+pub fn compile_with(graph: &GraphFile, registry: &Registry, sr: f32) -> Result<(Plan, NodeMap)> {
+    let mut ex = Expander { registry, nodes: Vec::new(), edges: Vec::new() };
     let top = ex.body(&graph.nodes, &graph.edges, "", None, &mut Vec::new(), None)?;
     let Expander { nodes, edges, .. } = ex;
 
@@ -393,7 +447,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
                 Op::Block(block)
             }
         };
-        let inputs = pred[i].iter().filter(|&&p| keep(p)).map(|&p| flat_to_step[p].expect("ordine topologico")).collect();
+        let inputs = pred[i].iter().filter(|&&p| keep(p)).map(|&p| flat_to_step[p].expect("topological order")).collect();
         let bypass = match &node.kind {
             FlatKind::Block(_) => Some(Bypass::new(node.bypass, None, sr)),
             // A pedal's output junction: the dry signal is its input junction, if that comes earlier.
@@ -408,13 +462,7 @@ pub fn compile(graph: &GraphFile, pedals: &[(String, PedalFile)], sr: f32) -> Re
     let mut slots = HashMap::new();
     for spec in &graph.nodes {
         let exp = &top[&spec.id];
-        let slot = match &nodes[exp.entry].kind {
-            FlatKind::Input => Slot::Block { flat: exp.entry, desc: &INPUT_DESC },
-            FlatKind::Output => Slot::Block { flat: exp.entry, desc: &OUTPUT_DESC },
-            FlatKind::Block(entry) => Slot::Block { flat: exp.entry, desc: entry.desc },
-            FlatKind::Pass => Slot::Pedal { knobs: exp.knobs.clone(), exit: exp.exit },
-        };
-        slots.insert(spec.id.clone(), slot);
+        slots.insert(spec.id.clone(), Slot { builtin: exp.builtin, controls: exp.controls.clone(), exit: exp.exit });
     }
     Ok((Plan::new(steps), NodeMap { slots, flat_to_step }))
 }
@@ -465,7 +513,6 @@ fn cycle_error(nodes: &[FlatNode], pred: &[Vec<usize>], left: &[usize]) -> anyho
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openpedal_dsp::{Chain, Preset};
     use crate::load::{parse_graph, read_pedals};
     use std::path::Path;
 
@@ -504,28 +551,144 @@ mod tests {
     }
 
     #[test]
-    fn v1_presets_sound_like_the_old_chain() {
+    fn v1_preset_and_equivalent_v2_graph_render_identically() {
+        const V1: &str = "name = \"X\"\noutput_db = -6\n[[block]]\ntype = \"gate\"\nthreshold_db = -50\n[[block]]\ntype = \"drive\"\nshape = \"asym\"\ngain_db = 12\n[[block]]\ntype = \"filter\"\nkind = \"lowpass\"\nfreq = 3000\n";
+        const V2: &str = r#"
+name = "X"
+version = 2
+[[node]]
+id = "in"
+type = "input"
+[[node]]
+id = "gate1"
+type = "gate"
+params = { threshold_db = -50 }
+[[node]]
+id = "drive1"
+type = "drive"
+params = { shape = "asym", gain_db = 12 }
+[[node]]
+id = "filter1"
+type = "filter"
+params = { kind = "lowpass", freq = 3000 }
+[[node]]
+id = "out"
+type = "output"
+params = { volume_db = -6 }
+[[edge]]
+from = "in"
+to = "gate1"
+[[edge]]
+from = "gate1"
+to = "drive1"
+[[edge]]
+from = "drive1"
+to = "filter1"
+[[edge]]
+from = "filter1"
+to = "out"
+"#;
+        let input = signal(48000);
+        let render = |text: &str| run(&mut build(text, &[]).unwrap().0, &input);
+        let (old, new) = (render(V1), render(V2));
+        assert!(peak(&old) > 0.01, "the preset must make sound");
+        assert!(old.iter().zip(&new).all(|(a, b)| a.to_bits() == b.to_bits()), "v1 and v2 sound different");
+    }
+
+    #[test]
+    fn bundled_v1_presets_survive_conversion_to_a_saved_v2_file() {
         let input = signal(48000);
         let mut count = 0;
         for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../content/presets")).unwrap() {
             let path = entry.unwrap().path();
-            let text = std::fs::read_to_string(&path).unwrap();
-            if text.contains("[[node]]") {
-                continue; // already a graph: nothing to compare with
+            if std::fs::read_to_string(&path).unwrap().contains("[[node]]") {
+                continue; // already a graph
             }
-            let preset: Preset = toml::from_str(&text).unwrap();
-            let mut chain = Chain::build(&preset, SR).unwrap();
-            let mut old = input.clone();
-            for block in old.chunks_mut(64) {
-                chain.process(block);
-            }
-            let (mut plan, _) = compile(&crate::load::read_graph(&path).unwrap(), &[], SR).unwrap();
-            let new = run(&mut plan, &input);
-            let same = old.iter().zip(&new).all(|(a, b)| a.to_bits() == b.to_bits());
-            assert!(same, "{} sounds different", path.display());
+            let converted = crate::load::read_graph(&path).unwrap();
+            let saved = toml::to_string(&converted).unwrap();
+            assert!(saved.contains("[[node]]"), "files are written in the latest format");
+            let a = run(&mut compile(&converted, &[], SR).unwrap().0, &input);
+            let b = run(&mut compile(&crate::load::parse_graph(&saved).unwrap(), &[], SR).unwrap().0, &input);
+            assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()), "{} changes when saved", path.display());
             count += 1;
         }
-        assert!(count >= 5);
+        assert!(count >= 1);
+    }
+
+    /// A composite effect whose one control drives two inner gains with opposite curves.
+    fn seesaw_registry() -> Registry {
+        use crate::registry::{Composite, Control, EffectDesc, EffectSource, Route};
+        let nodes = |text: &str| -> Vec<NodeSpec> { pedal(text).nodes };
+        let body = pedal("name = \"S\"\n[[node]]\nid = \"a\"\ntype = \"gain\"\n[[node]]\nid = \"b\"\ntype = \"gain\"\n[[edge]]\nfrom = \"pedal_in\"\nto = \"a\"\n[[edge]]\nfrom = \"a\"\nto = \"b\"\n[[edge]]\nfrom = \"b\"\nto = \"pedal_out\"\n");
+        let route = |node: &str, map| Route { node: node.into(), param: "db".into(), map };
+        let effect = EffectDesc {
+            kind: "pedal:seesaw".into(),
+            label: "Seesaw".into(),
+            category: openpedal_dsp::params::Category::Utility,
+            description: String::new(),
+            controls: vec![Control {
+                id: "Tilt".into(),
+                label: "Tilt".into(),
+                kind: crate::registry::ControlKind::Knob { min: 0.0, max: 1.0, default: 0.0, unit: String::new(), log: false, step: 0.0 },
+            }],
+            source: EffectSource::Composite(Composite {
+                nodes: nodes("name = \"S\"\n[[node]]\nid = \"a\"\ntype = \"gain\"\n[[node]]\nid = \"b\"\ntype = \"gain\"\n"),
+                edges: body.edges,
+                routes: vec![vec![route("a", Map::Linear { min: 0.0, max: -12.0 }), route("b", Map::Linear { min: -12.0, max: 0.0 })]],
+            }),
+        };
+        Registry::new(&[]).with_effect(effect)
+    }
+
+    #[test]
+    fn one_control_can_drive_several_parameters_through_different_maps() {
+        let g = USE_OUTER.replace("pedal:outer", "pedal:seesaw").replace("params = { Master = 1 }\n", "params = { Tilt = 1 }\n");
+        let (mut plan, map) = compile_with(&parse_graph(&g).unwrap(), &seesaw_registry(), SR).unwrap();
+        let input = signal(9600);
+        // Tilt = 1: a = -12 dB, b = 0 dB.
+        let out = run(&mut plan, &input);
+        assert!((out[5000] - input[5000] * openpedal_dsp::db_to_lin(-12.0)).abs() < 1e-5);
+
+        let changes = map.resolve_changes("p", "Tilt", 0.25).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_ne!(changes[0].step, changes[1].step);
+        assert!((changes[0].value - -3.0).abs() < 1e-5 && (changes[1].value - -9.0).abs() < 1e-5);
+        // `resolve` reports the first route only.
+        assert_eq!(map.resolve("p", "Tilt", 0.25).unwrap(), Some(changes[0]));
+        for c in changes {
+            plan.set_param(c.step, c.param, c.value);
+        }
+        let out = run(&mut plan, &signal(48000));
+        let expected = openpedal_dsp::db_to_lin(-12.0) * signal(48000)[47000];
+        assert!((out[47000] - expected).abs() < 1e-3);
+        assert!(map.resolve_changes("p", "Nope", 0.5).is_err());
+    }
+
+    #[test]
+    fn builtin_blocks_resolve_through_identity_routes() {
+        let (_, map) = build(&gain_graph(""), &[]).unwrap();
+        let c = map.resolve_changes("g", "db", -3.0).unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].param, dsp::find("gain").unwrap().desc.param_index("db").unwrap());
+        assert_eq!(c[0].value, -3.0);
+        let e = map.resolve("g", "nope", 0.0).unwrap_err();
+        assert!(format!("{e:#}").contains("has no parameter 'nope'"), "{e:#}");
+    }
+
+    #[test]
+    fn malformed_routes_are_reported_with_the_node() {
+        let bad = |knob: &str| {
+            let text = format!("name = \"B\"\n[[node]]\nid = \"g\"\ntype = \"gain\"\n[[knob]]\nlabel = \"K\"\n{knob}min = 0\nmax = 1\n");
+            let g = USE_OUTER.replace("pedal:outer", "pedal:b").replace("params = { Master = 1 }\n", "");
+            let e = build(&g, &[("b".into(), pedal(&text))]).err().unwrap();
+            assert!(e.downcast_ref::<GraphError>().is_some());
+            format!("{e:#}")
+        };
+        let e = build(&USE_OUTER.replace("pedal:outer", "pedal:b").replace("params = { Master = 1 }\n", ""), &[("b".into(), pedal("name = \"B\"\n[[node]]\nid = \"g\"\ntype = \"gain\"\n[[knob]]\nlabel = \"K\"\ntarget = \"zz.db\"\nmin = 0\nmax = 1\n"))]).err().unwrap();
+        assert_eq!(e.downcast_ref::<GraphError>().unwrap().node.as_deref(), Some("p"));
+        assert!(bad("target = \"db\"\n").contains("must be 'node.parameter'"));
+        assert!(bad("target = \"zz.db\"\n").contains("node 'zz' does not exist"));
+        assert!(bad("target = \"g.nope\"\n").contains("nope"));
     }
 
     #[test]

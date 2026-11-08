@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use openpedal_dsp::params::{BlockDesc, Category, ParamDesc, ParamKind, ParamValues};
+use openpedal_dsp::params::{BlockDesc, Category, ParamDesc, ParamValues};
 
 /// Type of the input node (the guitar): one per graph, with no inputs.
 pub const INPUT: &str = "input";
@@ -124,51 +124,9 @@ pub struct CatalogItem {
     pub description: String,
 }
 
-impl CatalogItem {
-    pub fn from_desc(desc: &BlockDesc) -> Self {
-        Self {
-            kind: desc.kind.into(),
-            label: desc.label.into(),
-            category: desc.category,
-            params: desc.params.to_vec(),
-            composite: false,
-            description: String::new(),
-        }
-    }
-
-    /// The knobs exposed by a pedal become 0..1 parameters, with the label as the id.
-    pub fn from_pedal(id: &str, pedal: &PedalFile) -> Self {
-        let params = pedal
-            .knobs
-            .iter()
-            .map(|k| {
-                // ParamDesc needs static strings: pedal labels live
-                // as long as the catalog, which is reloaded rarely.
-                let label: &'static str = Box::leak(k.label.clone().into_boxed_str());
-                ParamDesc {
-                    id: label,
-                    label,
-                    kind: ParamKind::Number { min: 0.0, max: 1.0, default: k.default, unit: "", log: false, step: 0.0 },
-                }
-            })
-            .collect();
-        Self {
-            kind: format!("{PEDAL_PREFIX}{id}"),
-            label: pedal.name.clone(),
-            category: Category::parse(&pedal.category),
-            params,
-            composite: true,
-            description: pedal.description.clone(),
-        }
-    }
-}
-
-/// Full catalog: special nodes, base blocks and composite pedals.
+/// Full catalog: special nodes, base blocks and composite pedals (a projection of the effect registry).
 pub fn catalog_items(pedals: &[(String, PedalFile)]) -> Vec<CatalogItem> {
-    let mut items = vec![CatalogItem::from_desc(&INPUT_DESC), CatalogItem::from_desc(&OUTPUT_DESC)];
-    items.extend(openpedal_dsp::catalog().iter().map(|e| CatalogItem::from_desc(e.desc)));
-    items.extend(pedals.iter().map(|(id, p)| CatalogItem::from_pedal(id, p)));
-    items
+    crate::registry::Registry::new(pedals).catalog()
 }
 
 #[cfg(test)]
