@@ -3,3 +3,4 @@ Sources/OpenPedalApp/Resources/
 .build/
 *.xtool/
 xtool/
+.bsp/
