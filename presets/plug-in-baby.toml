@@ -1,0 +1,91 @@
+# Muse - "Plug In Baby" lead riff, first approximation with the current blocks.
+# Reference: Matt Bellamy's Manson with a built-in Z.Vex Fuzz Factory into a
+# Marshall-style valve amp. Missing pieces (see docs/PLAN.md): a gated,
+# sputtery fuzz model and an octave block.
+name = "plug-in-baby"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+pos = [0, 120]
+
+[[node]]
+id = "gate"
+type = "gate"
+pos = [160, 120]
+params = { threshold_db = -48, release_ms = 60 }
+
+[[node]]
+id = "tight"
+type = "filter"
+pos = [320, 120]
+params = { kind = "highpass", freq = 140 }
+
+[[node]]
+id = "fuzz"
+type = "drive"
+pos = [480, 120]
+params = { shape = "fuzz", gain_db = 38, level_db = -14, quality = "alta" }
+
+[[node]]
+id = "stack"
+type = "tonestack"
+pos = [640, 120]
+params = { model = "marshall", bass = 0.35, mid = 0.75, treble = 0.7 }
+
+[[node]]
+id = "amp"
+type = "drive"
+pos = [800, 120]
+params = { shape = "asym", gain_db = 8, level_db = -4, bias = 0.2, quality = "alta" }
+
+[[node]]
+id = "cab"
+type = "cab"
+pos = [960, 120]
+params = { low_hz = 110, low_q = 1.4, high_hz = 5200, mid_db = -2, presence_hz = 2800, presence_db = 4, ripple_db = 3, seed = 7 }
+
+[[node]]
+id = "room"
+type = "reverb"
+pos = [1120, 120]
+params = { room = 0.3, damp = 0.6, mix = 0.12, predelay_ms = 12 }
+
+[[node]]
+id = "out"
+type = "output"
+pos = [1280, 120]
+params = { volume_db = -15 }   # same loudness as the clean and crunch presets
+
+[[edge]]
+from = "in"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "tight"
+
+[[edge]]
+from = "tight"
+to = "fuzz"
+
+[[edge]]
+from = "fuzz"
+to = "stack"
+
+[[edge]]
+from = "stack"
+to = "amp"
+
+[[edge]]
+from = "amp"
+to = "cab"
+
+[[edge]]
+from = "cab"
+to = "room"
+
+[[edge]]
+from = "room"
+to = "out"

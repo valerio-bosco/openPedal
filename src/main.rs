@@ -266,7 +266,7 @@ fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
     let mut ok = true;
     for path in &paths {
         match load_plan(path, 48000.0) {
-            Ok((g, _, _)) => println!("ok  {} \"{}\" ({} nodi)", path.display(), g.name, g.nodes.len()),
+            Ok((g, _, _)) => println!("ok  {} \"{}\" ({} nodes)", path.display(), g.name, g.nodes.len()),
             Err(e) => {
                 println!("ERR {}: {e:#}", path.display());
                 ok = false;
