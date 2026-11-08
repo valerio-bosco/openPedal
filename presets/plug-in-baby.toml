@@ -1,7 +1,8 @@
-# Muse - "Plug In Baby" lead riff, first approximation with the current blocks.
+# Muse - "Plug In Baby" lead riff.
 # Reference: Matt Bellamy's Manson with a built-in Z.Vex Fuzz Factory into a
-# Marshall-style valve amp. Missing pieces (see docs/PLAN.md): a gated,
-# sputtery fuzz model and an octave block.
+# Marshall-style valve amp. The fuzz gates and sputters as notes decay, which
+# keeps the fast riff articulate. A Boss Octavider (octave down) is reported by
+# some sources but not confirmed: set "sub" down to 0 to remove it.
 name = "plug-in-baby"
 version = 2
 
@@ -14,7 +15,7 @@ pos = [0, 120]
 id = "gate"
 type = "gate"
 pos = [160, 120]
-params = { threshold_db = -48, release_ms = 60 }
+params = { threshold_db = -55, release_ms = 60 }   # the fuzz has its own gate: this one only removes hiss
 
 [[node]]
 id = "tight"
@@ -23,40 +24,46 @@ pos = [320, 120]
 params = { kind = "highpass", freq = 140 }
 
 [[node]]
-id = "fuzz"
-type = "drive"
+id = "sub"
+type = "octave"
 pos = [480, 120]
-params = { shape = "fuzz", gain_db = 38, level_db = -14, quality = "alta" }
+params = { dry = 1.0, down = 0.25, up = 0.0, tone_hz = 1500, track_hz = 700 }
+
+[[node]]
+id = "fuzz"
+type = "fuzz"
+pos = [640, 120]
+params = { drive = 0.75, gate = 0.45, comp = 0.6, bias = 0.35, tone_hz = 7000, level_db = -14 }
 
 [[node]]
 id = "stack"
 type = "tonestack"
-pos = [640, 120]
+pos = [800, 120]
 params = { model = "marshall", bass = 0.35, mid = 0.75, treble = 0.7 }
 
 [[node]]
 id = "amp"
 type = "drive"
-pos = [800, 120]
+pos = [960, 120]
 params = { shape = "asym", gain_db = 8, level_db = -4, bias = 0.2, quality = "alta" }
 
 [[node]]
 id = "cab"
 type = "cab"
-pos = [960, 120]
+pos = [1120, 120]
 params = { low_hz = 110, low_q = 1.4, high_hz = 5200, mid_db = -2, presence_hz = 2800, presence_db = 4, ripple_db = 3, seed = 7 }
 
 [[node]]
 id = "room"
 type = "reverb"
-pos = [1120, 120]
+pos = [1280, 120]
 params = { room = 0.3, damp = 0.6, mix = 0.12, predelay_ms = 12 }
 
 [[node]]
 id = "out"
 type = "output"
-pos = [1280, 120]
-params = { volume_db = -15 }   # same loudness as the clean and crunch presets
+pos = [1440, 120]
+params = { volume_db = -12 }   # same loudness as the clean and crunch presets
 
 [[edge]]
 from = "in"
@@ -68,6 +75,10 @@ to = "tight"
 
 [[edge]]
 from = "tight"
+to = "sub"
+
+[[edge]]
+from = "sub"
 to = "fuzz"
 
 [[edge]]
