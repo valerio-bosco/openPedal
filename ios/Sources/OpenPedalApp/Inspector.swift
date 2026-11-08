@@ -13,7 +13,10 @@ struct InspectorView: View {
     @Binding var expanded: Bool
     /// Height while the grabber is being dragged; nil otherwise.
     @Binding var liveHeight: CGFloat?
+    /// Animated panel height (the glass window).
     let height: CGFloat
+    /// Height of the current detent: the content is laid out at this size at once and revealed by the window.
+    let detentHeight: CGFloat
 
     @State private var dragStart: CGFloat?
 
@@ -30,7 +33,10 @@ struct InspectorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(height: height)
+        // Content at its final size, not animated: only the glass window below changes size per frame.
+        .frame(height: detentHeight, alignment: .top)
+        .transaction(value: detentHeight) { $0.animation = nil }
+        .frame(height: height, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
     }
@@ -175,6 +181,7 @@ private struct InspectorHeader: View {
                         Text(expanded ? "Less" : "All controls · \(count)").font(.subheadline.weight(.semibold))
                         Image(systemName: "chevron.up").font(.caption.weight(.bold))
                             .rotationEffect(.degrees(expanded ? 180 : 0))
+                            .animation(Self.snap, value: expanded)
                     }
                 }
                 .buttonStyle(.glass)
