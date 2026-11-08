@@ -32,6 +32,7 @@ import {
   CATEGORY_COLOR,
   IMPLICIT_ITEMS,
   edgeId,
+  X_SCALE,
   flowToGraph,
   flowToSpecs,
   isFixed,
@@ -193,7 +194,7 @@ function Editor() {
       const base = kind.replace(/^pedal:/, "p-");
       const rect = wrapper.current?.getBoundingClientRect();
       const p = pos ?? flow.screenToFlowPosition({ x: (rect?.left ?? 0) + (rect?.width ?? 600) / 2, y: (rect?.top ?? 0) + (rect?.height ?? 400) / 2 });
-      const node = specToNode({ id: uniqueId(base, taken), type: kind, pos: [p.x, p.y], params: {} });
+      const node = specToNode({ id: uniqueId(base, taken), type: kind, pos: [p.x / X_SCALE, p.y], params: {} });
       setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { ...node, selected: true }]);
     },
     [nodes, flow, setNodes],
@@ -279,7 +280,7 @@ function Editor() {
     const inner: NodeSpec[] = sel.map((n) => ({
       id: n.id,
       type: n.data.kind,
-      pos: [Math.round(n.position.x - minX), Math.round(n.position.y - minY)],
+      pos: [Math.round((n.position.x - minX) / X_SCALE), Math.round(n.position.y - minY)],
       params: { ...n.data.params },
     }));
     const internal = edges.filter((e) => inSel.has(e.source) && inSel.has(e.target));
@@ -301,7 +302,7 @@ function Editor() {
 
     const nodeId = uniqueId("p-" + id, new Set(nodes.map((n) => n.id)));
     const params: Record<string, ParamValue> = Object.fromEntries(f.knobs.map((k) => [k.label, k.default]));
-    const pos: [number, number] = [Math.round(minX), Math.round(minY)];
+    const pos: [number, number] = [Math.round(minX / X_SCALE), Math.round(minY)];
     const newNode = specToNode({ id: nodeId, type: kind, pos, params });
     const keep = nodes.filter((n) => !inSel.has(n.id));
     const keepEdges = edges.filter((e) => !inSel.has(e.source) && !inSel.has(e.target));

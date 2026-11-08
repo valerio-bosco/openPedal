@@ -53,13 +53,16 @@ export const CATEGORY_COLOR: Record<Category, string> = {
 
 export const isFixed = (kind: string) => kind === INPUT || kind === OUTPUT || kind === PEDAL_IN || kind === PEDAL_OUT;
 
+/** Le posizioni dei file sono compatte (~220 px): sullo schermo i nodi sono più larghi, quindi si dilata l'asse x. */
+export const X_SCALE = 1.5;
+
 export const edgeId = (from: string, to: string) => `${from}->${to}`;
 
 export function specToNode(n: NodeSpec): PNode {
   return {
     id: n.id,
     type: "pedal",
-    position: { x: n.pos[0], y: n.pos[1] },
+    position: { x: n.pos[0] * X_SCALE, y: n.pos[1] },
     deletable: !isFixed(n.type),
     data: { kind: n.type, params: { ...n.params } },
   };
@@ -78,7 +81,7 @@ export function flowToSpecs(nodes: PNode[], edges: Edge[]) {
     .map((n) => ({
       id: n.id,
       type: n.data.kind,
-      pos: [Math.round(n.position.x), Math.round(n.position.y)] as [number, number],
+      pos: [Math.round(n.position.x / X_SCALE), Math.round(n.position.y)] as [number, number],
       params: { ...n.data.params },
     }));
   const edge: EdgeSpec[] = edges.map((e) => ({ from: e.source, to: e.target }));
