@@ -112,6 +112,8 @@ final class Store {
             selectedID = id
         case .param(let node, let param, let value):
             applyRemoteParam(node, param, value)
+        case .response:
+            break // frequency-response replies: used by the pedal designer
         case .state(let s):
             if catalog != s.catalog {
                 catalog = s.catalog

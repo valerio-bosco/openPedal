@@ -1,6 +1,6 @@
 {
   "type": "state",
-  "protocol": 2,
+  "protocol": 3,
   "catalog": [
     {
       "kind": "input",
@@ -868,6 +868,70 @@
       ],
       "composite": true,
       "description": "Closed-back rock cab: punchy lows, scooped mids."
+    },
+    {
+      "kind": "pedal:grit-box",
+      "label": "Grit Box",
+      "category": "drive",
+      "params": [
+        {
+          "id": "grit",
+          "label": "Grit",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.55,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "tone",
+          "label": "Tone",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.5,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "body",
+          "label": "Body",
+          "kind": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.5,
+          "unit": "",
+          "log": false,
+          "step": 0.0
+        },
+        {
+          "id": "voice",
+          "label": "Voice",
+          "kind": "choice",
+          "options": [
+            "Smooth",
+            "Crunch",
+            "Fuzz"
+          ],
+          "default": 0
+        },
+        {
+          "id": "boost",
+          "label": "Boost",
+          "kind": "choice",
+          "options": [
+            "off",
+            "on"
+          ],
+          "default": 0
+        }
+      ],
+      "composite": true,
+      "description": "Tight, amp-like overdrive. Grit sets drive, output level and low cut together.",
+      "color": "#d9573b"
     }
   ],
   "graph": {
@@ -979,6 +1043,7 @@
   "pedals": {
     "cab-4x12": {
       "name": "4x12 Cab",
+      "version": 2,
       "category": "amp",
       "description": "Closed-back rock cab: punchy lows, scooped mids.",
       "node": [
@@ -1010,20 +1075,208 @@
           "to": "pedal_out"
         }
       ],
-      "knob": [
+      "control": [
         {
+          "id": "Brightness",
           "label": "Brightness",
-          "target": "c.high_hz",
-          "min": 3500.0,
-          "max": 7000.0,
-          "default": 0.4
+          "kind": "knob",
+          "default": 0.4,
+          "route": [
+            {
+              "target": "c.high_hz",
+              "min": 3500.0,
+              "max": 7000.0
+            }
+          ]
         },
         {
+          "id": "Mids",
           "label": "Mids",
-          "target": "c.mid_db",
-          "min": -10.0,
-          "max": 6.0,
-          "default": 0.4
+          "kind": "knob",
+          "default": 0.4,
+          "route": [
+            {
+              "target": "c.mid_db",
+              "min": -10.0,
+              "max": 6.0
+            }
+          ]
+        }
+      ]
+    },
+    "grit-box": {
+      "name": "Grit Box",
+      "version": 2,
+      "category": "drive",
+      "description": "Tight, amp-like overdrive. Grit sets drive, output level and low cut together.",
+      "color": "#d9573b",
+      "node": [
+        {
+          "id": "hp",
+          "type": "filter",
+          "pos": [
+            0.0,
+            0.0
+          ],
+          "params": {
+            "freq": 100.0,
+            "kind": "highpass",
+            "q": 0.707
+          }
+        },
+        {
+          "id": "drive",
+          "type": "drive",
+          "pos": [
+            220.0,
+            0.0
+          ],
+          "params": {
+            "bias": 0.15,
+            "gain_db": 20.0,
+            "level_db": -6.0,
+            "shape": "soft"
+          }
+        },
+        {
+          "id": "tone",
+          "type": "tonestack",
+          "pos": [
+            440.0,
+            0.0
+          ],
+          "params": {
+            "model": "marshall"
+          }
+        },
+        {
+          "id": "lp",
+          "type": "filter",
+          "pos": [
+            660.0,
+            0.0
+          ],
+          "params": {
+            "freq": 7000.0,
+            "kind": "lowpass",
+            "q": 0.707
+          }
+        }
+      ],
+      "edge": [
+        {
+          "from": "pedal_in",
+          "to": "hp"
+        },
+        {
+          "from": "hp",
+          "to": "drive"
+        },
+        {
+          "from": "drive",
+          "to": "tone"
+        },
+        {
+          "from": "tone",
+          "to": "lp"
+        },
+        {
+          "from": "lp",
+          "to": "pedal_out"
+        }
+      ],
+      "control": [
+        {
+          "id": "grit",
+          "label": "Grit",
+          "kind": "knob",
+          "default": 0.55,
+          "route": [
+            {
+              "target": "drive.gain_db",
+              "min": 6.0,
+              "max": 40.0
+            },
+            {
+              "target": "drive.level_db",
+              "map": "inverse",
+              "min": -14.0,
+              "max": -4.0
+            },
+            {
+              "target": "hp.freq",
+              "map": "log",
+              "min": 60.0,
+              "max": 250.0
+            }
+          ]
+        },
+        {
+          "id": "tone",
+          "label": "Tone",
+          "kind": "knob",
+          "default": 0.5,
+          "route": [
+            {
+              "target": "lp.freq",
+              "map": "log",
+              "min": 2500.0,
+              "max": 9000.0
+            },
+            {
+              "target": "tone.treble",
+              "min": 0.2,
+              "max": 0.8
+            }
+          ]
+        },
+        {
+          "id": "body",
+          "label": "Body",
+          "kind": "knob",
+          "default": 0.5,
+          "route": [
+            {
+              "target": "tone.bass",
+              "min": 0.2,
+              "max": 0.8
+            }
+          ]
+        },
+        {
+          "id": "voice",
+          "label": "Voice",
+          "kind": "selector",
+          "default": 0.0,
+          "options": [
+            "Smooth",
+            "Crunch",
+            "Fuzz"
+          ],
+          "route": [
+            {
+              "target": "drive.shape",
+              "values": [
+                "soft",
+                "asym",
+                "fuzz"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "boost",
+          "label": "Boost",
+          "kind": "switch",
+          "default": false,
+          "route": [
+            {
+              "target": "drive.level_db",
+              "off": 0.0,
+              "on": 6.0,
+              "mode": "add"
+            }
+          ]
         }
       ]
     }

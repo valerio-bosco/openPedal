@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { Category, KnobSpec } from "../generated/protocol";
+import type { Category } from "../generated/protocol";
+import type { KnobSpec } from "../lib/knobs";
 import { CATEGORY_LABEL, CATEGORY_ORDER, formatNumber, type NumberDesc } from "../model";
 
 /** Numeric parameter of an internal node that can be exposed as a knob. */

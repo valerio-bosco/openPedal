@@ -16,7 +16,7 @@ export function fixturePedals(): Record<string, PedalFile> {
   return out;
 }
 
-/** Catalog entry for a composite pedal: one 0..1 knob per `knob`. */
+/** Catalog entry for a composite pedal: a knob is a 0..1 number, a switch an off/on choice, a selector a choice. */
 export function pedalCatalogItem(id: string, p: PedalFile): CatalogItem {
   return {
     kind: `pedal:${id}`,
@@ -24,17 +24,15 @@ export function pedalCatalogItem(id: string, p: PedalFile): CatalogItem {
     category: (p.category || "utility") as CatalogItem["category"],
     composite: true,
     description: p.description || undefined,
-    params: p.knob.map((k) => ({
-      id: k.label,
-      label: k.label,
-      kind: "number" as const,
-      min: 0,
-      max: 1,
-      default: k.default,
-      unit: "",
-      log: false,
-      step: 0,
-    })),
+    color: p.color,
+    params: p.control.map((c) => {
+      const label = c.label || c.id;
+      if (c.kind === "knob") {
+        return { id: c.id, label, kind: "number" as const, min: 0, max: 1, default: typeof c.default === "number" ? c.default : 0.5, unit: "", log: false, step: 0 };
+      }
+      const options = c.kind === "switch" ? ["off", "on"] : (c.options ?? []);
+      return { id: c.id, label, kind: "choice" as const, options, default: Number(c.default ?? 0) };
+    }),
   };
 }
 

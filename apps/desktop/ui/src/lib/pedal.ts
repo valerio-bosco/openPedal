@@ -12,6 +12,7 @@ import {
 } from "../generated/protocol";
 import { X_SCALE, edgeId, flowToSpecs, paramValue, slug, specToNode, specsToFlow, uniqueId, type PNode } from "../model";
 import type { Candidate, PedalForm } from "../components/PedalDialog";
+import { controlsOf } from "./knobs";
 
 /** Numeric parameters of the given pedals that can be exposed as knobs. */
 export function candidatesFor(list: PNode[], catalog: Map<string, CatalogItem>): Candidate[] {
@@ -61,7 +62,7 @@ export function buildPedal(
     ...[...entries].map((to) => ({ from: PEDAL_IN, to })),
     ...[...exits].map((from) => ({ from, to: PEDAL_OUT })),
   ];
-  const pedal: PedalFile = { name: f.name, category: f.category, description: f.description, node: inner, edge: pedalEdges, knob: f.knobs };
+  const pedal: PedalFile = { name: f.name, category: f.category, description: f.description, node: inner, edge: pedalEdges, control: controlsOf(f.knobs), version: 2 };
 
   const nodeId = uniqueId("p-" + id, new Set(nodes.map((n) => n.id)));
   const params: Record<string, ParamValue> = Object.fromEntries(f.knobs.map((k) => [k.label, k.default]));
@@ -99,5 +100,5 @@ export function editedPedal(meta: PedalForm, nodes: PNode[], edges: Edge[]): Ped
   const { node, edge } = flowToSpecs(nodes, edges);
   const alive = new Set(node.map((n) => n.id));
   const knobs = meta.knobs.filter((k) => alive.has(k.target.split(".")[0]));
-  return { name: meta.name, category: meta.category, description: meta.description, node, edge, knob: knobs };
+  return { name: meta.name, category: meta.category, description: meta.description, node, edge, control: controlsOf(knobs), version: 2 };
 }

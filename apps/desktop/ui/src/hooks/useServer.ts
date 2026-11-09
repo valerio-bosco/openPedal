@@ -57,6 +57,7 @@ export function useServer(toast: (text: string) => void) {
       if (m.type === "meters") return setMeters(m);
       if (m.type === "param") return handlers.current.param(m.node, m.param, m.value);
       if (m.type === "added") return; // only the iPad's `add_node` asks for it
+      if (m.type === "response") return; // analysis replies: used by the pedal designer
       if (m.type === "error") {
         toast(m.message);
         if (m.node) handlers.current.nodeError(m.node, m.message);

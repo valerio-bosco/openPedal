@@ -4,7 +4,7 @@
 import Foundation
 
 enum OpenPedalProtocol {
-    static let version = 2
+    static let version = 3
     static let input = "input"
     static let output = "output"
     static let pedalPrefix = "pedal:"
@@ -29,6 +29,8 @@ struct CatalogItem: Codable, Hashable {
     var params: [ParamDesc]
     /// true = composite pedal (`pedal:<id>`), editable and deletable from the interface.
     var composite: Bool
+    /// Enamel colour of a custom pedal (`#rrggbb`), if it has one.
+    var color: String?
     var description: String?
 }
 
@@ -74,6 +76,13 @@ enum ClientMsg: Codable, Hashable {
     case undo
     /// Redoes the last undone step.
     case redo
+    /// Frequency response of a pedal file, which may be an unsaved draft, with the given control
+    /// values (knob position 0..1, or option index of a switch/selector; missing ones take their
+    /// default). The server replies with `response`, or `error` if the pedal is invalid.
+    case analyzePedal(pedal: PedalFile, values: [String: Double])
+    /// Frequency response of a node of the playing graph, with its current values.
+    /// The server replies with `response`.
+    case analyzeNode(String)
     /// Call once at the start of a continuous gesture (a knob drag): the `set_param` messages
     /// that follow become a single undo step.
     case editBegin
@@ -90,6 +99,8 @@ enum ClientMsg: Codable, Hashable {
     private enum AddNodeKeys: String, CodingKey { case kind, after }
     private enum RemoveNodeKeys: String, CodingKey { case node }
     private enum MoveNodeKeys: String, CodingKey { case node, to }
+    private enum AnalyzePedalKeys: String, CodingKey { case pedal, values }
+    private enum AnalyzeNodeKeys: String, CodingKey { case node }
 
     init(from decoder: Decoder) throws {
         let tc = try decoder.container(keyedBy: TagKey.self)
@@ -133,6 +144,12 @@ enum ClientMsg: Codable, Hashable {
             self = .undo
         case "redo":
             self = .redo
+        case "analyze_pedal":
+            let c = try decoder.container(keyedBy: AnalyzePedalKeys.self)
+            self = .analyzePedal(pedal: try c.decode(PedalFile.self, forKey: .pedal), values: try c.decode([String: Double].self, forKey: .values))
+        case "analyze_node":
+            let c = try decoder.container(keyedBy: AnalyzeNodeKeys.self)
+            self = .analyzeNode(try c.decode(String.self, forKey: .node))
         case "edit_begin":
             self = .editBegin
         case let other:
@@ -200,10 +217,61 @@ enum ClientMsg: Codable, Hashable {
             try tc.encode("undo", forKey: .type)
         case .redo:
             try tc.encode("redo", forKey: .type)
+        case .analyzePedal(let pedal, let values):
+            try tc.encode("analyze_pedal", forKey: .type)
+            var c = encoder.container(keyedBy: AnalyzePedalKeys.self)
+            try c.encode(pedal, forKey: .pedal)
+            try c.encode(values, forKey: .values)
+        case .analyzeNode(let node):
+            try tc.encode("analyze_node", forKey: .type)
+            var c = encoder.container(keyedBy: AnalyzeNodeKeys.self)
+            try c.encode(node, forKey: .node)
         case .editBegin:
             try tc.encode("edit_begin", forKey: .type)
         }
     }
+}
+
+/// Initial value of a control: a boolean for a switch, a number for a knob or a selector.
+enum ControlDefault: Codable, Hashable {
+    case boolean(Bool)
+    case number(Double)
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let v = try? c.decode(Bool.self) { self = .boolean(v); return }
+        if let v = try? c.decode(Double.self) { self = .number(v); return }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "no variant of ControlDefault matches")
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .boolean(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        }
+    }
+}
+
+/// A control the user moves: it drives one or more inner parameters through its routes.
+struct ControlSpec: Codable, Hashable {
+    /// Stable identifier (used by `params` in graphs and by `set_param`).
+    var id: String
+    /// Name shown in the interface (the id when empty).
+    var label: String
+    var kind: ControlType
+    var route: [RouteSpec]
+    /// Knob: position 0..1 (default 0.5). Switch: true/false (default false). Selector: option index (default 0).
+    var `default`: ControlDefault?
+    /// Selector only.
+    var options: [String]?
+}
+
+/// What a pedal control looks like and how it is moved.
+enum ControlType: String, Codable, Hashable, CaseIterable {
+    case knob
+    case `switch`
+    case selector
 }
 
 struct EdgeSpec: Codable, Hashable {
@@ -219,16 +287,11 @@ struct GraphFile: Codable, Hashable {
     var edge: [EdgeSpec]
 }
 
-/// Knob exposed by a composite pedal: a 0..1 value mapped onto an internal parameter.
-struct KnobSpec: Codable, Hashable {
-    var label: String
-    /// "<internal node id>.<parameter id>", e.g. "c.high_hz".
-    var target: String
-    /// Internal parameter values when the knob is at 0 and at 1.
-    var min: Double
-    var max: Double
-    /// Initial knob position, 0..1.
-    var `default`: Double
+/// Curve of a knob route (0..1 -> `min..max`).
+enum MapKind: String, Codable, Hashable, CaseIterable {
+    case linear
+    case log
+    case inverse
 }
 
 /// Sent about 20 times per second.
@@ -363,14 +426,42 @@ enum ParamValue: Codable, Hashable {
 /// The parameters of a node: id -> value. Missing ones take the default.
 typealias ParamValues = [String: ParamValue]
 
-/// A composite pedal (file `pedals/<id>.toml`).
+/// A composite pedal (file `pedals/<id>.toml`), format v2. v1 files (with `[[knob]]`) are read
+/// as v2 (each knob becomes a knob control with one linear route) and always written as v2.
 struct PedalFile: Codable, Hashable {
     var name: String
+    var version: Int
     var category: String
     var description: String
     var node: [NodeSpec]
     var edge: [EdgeSpec]
-    var knob: [KnobSpec]
+    var control: [ControlSpec]
+    /// Enamel colour of the pedal, `#rrggbb`.
+    var color: String?
+}
+
+/// How a route combines with the other routes writing the same parameter.
+enum RouteMode: String, Codable, Hashable, CaseIterable {
+    case set
+    case add
+}
+
+/// One link from a control to an inner parameter. Which fields apply depends on the control:
+/// a knob uses `map` + `min` + `max`, a switch `off` + `on`, a selector `values`.
+struct RouteSpec: Codable, Hashable {
+    /// "<inner node id>.<parameter id>", e.g. "drive.gain_db".
+    var target: String
+    /// Knob only; omitted from files when linear.
+    var map: MapKind?
+    var max: Double?
+    /// Knob: value of the parameter when the knob is at 0 and at 1.
+    var min: Double?
+    var mode: RouteMode?
+    /// Switch: the parameter value when off and when on (a number, or an option name).
+    var off: ParamValue?
+    var on: ParamValue?
+    /// Selector: the parameter value for each option (numbers, or option names of a choice parameter).
+    var values: [ParamValue]?
 }
 
 /// From the server to the client.
@@ -380,12 +471,16 @@ enum ServerMsg: Codable, Hashable {
     /// A `set_param` made by another client, forwarded without rebuilding anything
     /// (never sent back to the client that made it). For choices `value` is the option index.
     case param(node: String, param: String, value: Double)
+    /// Reply to `analyze_pedal` / `analyze_node`, sent only to the client that asked: the magnitude
+    /// response, `db[i]` at `freq[i]` Hz (about 128 log-spaced points, 20 Hz to 20 kHz).
+    case response(freq: [Double], db: [Double])
     /// Sent to the client that asked for `add_node`, right after the `state` that contains the node.
     case added(String)
     case error(message: String, node: String?)
 
     private enum TagKey: String, CodingKey { case type }
     private enum ParamKeys: String, CodingKey { case node, param, value }
+    private enum ResponseKeys: String, CodingKey { case freq, db }
     private enum AddedKeys: String, CodingKey { case node }
     private enum ErrorKeys: String, CodingKey { case message, node }
 
@@ -399,6 +494,9 @@ enum ServerMsg: Codable, Hashable {
         case "param":
             let c = try decoder.container(keyedBy: ParamKeys.self)
             self = .param(node: try c.decode(String.self, forKey: .node), param: try c.decode(String.self, forKey: .param), value: try c.decode(Double.self, forKey: .value))
+        case "response":
+            let c = try decoder.container(keyedBy: ResponseKeys.self)
+            self = .response(freq: try c.decode([Double].self, forKey: .freq), db: try c.decode([Double].self, forKey: .db))
         case "added":
             let c = try decoder.container(keyedBy: AddedKeys.self)
             self = .added(try c.decode(String.self, forKey: .node))
@@ -425,6 +523,11 @@ enum ServerMsg: Codable, Hashable {
             try c.encode(node, forKey: .node)
             try c.encode(param, forKey: .param)
             try c.encode(value, forKey: .value)
+        case .response(let freq, let db):
+            try tc.encode("response", forKey: .type)
+            var c = encoder.container(keyedBy: ResponseKeys.self)
+            try c.encode(freq, forKey: .freq)
+            try c.encode(db, forKey: .db)
         case .added(let node):
             try tc.encode("added", forKey: .type)
             var c = encoder.container(keyedBy: AddedKeys.self)

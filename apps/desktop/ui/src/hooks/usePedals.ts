@@ -1,7 +1,8 @@
 // Composite pedals: creating one from a selection, entering it to edit, saving or leaving, deleting.
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Edge } from "@xyflow/react";
-import { PEDAL_PREFIX, type CatalogItem, type Category, type KnobSpec } from "../generated/protocol";
+import { PEDAL_PREFIX, type CatalogItem, type Category } from "../generated/protocol";
+import { knobsOf, type KnobSpec } from "../lib/knobs";
 import { flowToGraph, type PNode } from "../model";
 import { buildPedal, editedPedal, pedalInnerGraph } from "../lib/pedal";
 import type { PedalForm } from "../components/PedalDialog";
@@ -64,7 +65,7 @@ export function usePedals({ server, graph, history, graphName, toast, markSynced
       name: p.name,
       category: p.category as Category,
       description: p.description,
-      knobs: p.knob,
+      knobs: knobsOf(p),
       parent: { nodes, edges },
     });
     history.reset(inner);

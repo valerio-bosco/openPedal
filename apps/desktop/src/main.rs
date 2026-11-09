@@ -243,9 +243,16 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     let error = ServerMsg::Error { message: "the graph contains a cycle: dist -> room -> dist".into(), node: Some("room".into()) };
     write("error.json", serde_json::to_string_pretty(&error)?)?;
     write("param.json", serde_json::to_string_pretty(&ServerMsg::Param { node: "dist".into(), param: "gain_db".into(), value: 18.0 })?)?;
+    // A short synthetic example (a real response has about 128 points).
+    let response = ServerMsg::Response {
+        freq: vec![20.0, 100.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 20000.0],
+        db: vec![-18.5, -3.2, 4.1, 5.0, 3.4, -1.8, -9.6, -22.0],
+    };
+    write("response.json", serde_json::to_string_pretty(&response)?)?;
     write("added.json", serde_json::to_string_pretty(&ServerMsg::Added { node: "delay2".into() })?)?;
 
-    let (_, pedal) = pedals.first().context("need at least one pedal in content/pedals/")?.clone();
+    let (_, pedal) = pedals.iter().find(|(id, _)| id == "cab-4x12").context("need content/pedals/cab-4x12.toml")?.clone();
+    let (_, custom) = pedals.iter().find(|(id, _)| id == "grit-box").context("need content/pedals/grit-box.toml")?.clone();
     let client = vec![
         ClientMsg::Hello,
         ClientMsg::SetParam { node: "dist".into(), param: "gain_db".into(), value: 18.0 },
@@ -255,6 +262,7 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::LoadPreset { name: "clean".into() },
         ClientMsg::SavePreset { name: "my-sound".into(), graph },
         ClientMsg::SavePedal { id: "cab-4x12".into(), pedal },
+        ClientMsg::SavePedal { id: "grit-box".into(), pedal: custom.clone() },
         ClientMsg::DeletePreset { name: "old-sound".into() },
         ClientMsg::DeletePedal { id: "old-pedal".into() },
         ClientMsg::AddNode { kind: "delay".into(), after: Some("dist".into()) },
@@ -263,6 +271,8 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::MoveNode { node: "dist".into(), to: 0 },
         ClientMsg::Undo,
         ClientMsg::Redo,
+        ClientMsg::AnalyzePedal { pedal: custom, values: [("grit".to_string(), 0.8), ("voice".to_string(), 1.0), ("boost".to_string(), 1.0)].into() },
+        ClientMsg::AnalyzeNode { node: "dist".into() },
         ClientMsg::EditBegin,
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
