@@ -20,7 +20,16 @@ sleep 1.5
 "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9333 --window-size=1500,900 \
     --user-data-dir="$dir/chrome" "http://127.0.0.1:$port/" >/dev/null 2>&1 &
 browser=$!
-trap 'kill -TERM $browser $server 2>/dev/null; wait 2>/dev/null; rm -rf "$dir"' EXIT
+# Chromium's helper processes can still be writing to the profile after the main process exits:
+# retry the removal and keep the tests' exit status.
+cleanup() {
+    local status=$?
+    kill -TERM $browser $server 2>/dev/null
+    wait 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do rm -rf "$dir" 2>/dev/null && break; sleep 0.3; done
+    exit $status
+}
+trap cleanup EXIT
 sleep 3
 
 status=0
