@@ -472,3 +472,7 @@ and written back as v2 (rule §11.3).
 | A | Core: file v2 + v1 reading, Map::{Log, Inverse}, switch/selector routes (set/add), registry/compile/resolve, catalog projection + colour, analysis, protocol v3, fixtures, generated types | crates/**, generated, fixtures, apps/desktop/src (dev-fixtures) |
 | B1 | Desktop pedal designer (replaces PedalDialog), per the mockup | apps/desktop/ui/src/** |
 | B2 | iPad: "Merge into a pedal" (multi-select on the board), designer sheet, edit custom pedal, enamel colour | apps/ios/Sources/** |
+
+Phase 4 done (da919a7): core (pedal file v2, routes, analysis, protocol v3), desktop pedal designer
+(`components/PedalDesigner.tsx`, e2e `tools/e2e/designer.mjs`), iPad "Merge into a pedal" + designer
+(`apps/ios/Sources/OpenPedalApp/Designer/`). Next ideas: formula source, envelope/LFO controls, drawn curves.
