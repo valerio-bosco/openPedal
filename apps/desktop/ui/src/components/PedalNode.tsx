@@ -46,7 +46,7 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
           />
         )}
         <span className="pedal-title">{item?.label ?? data.kind}</span>
-        {item?.composite && <span className="pedal-badge" title="Composite pedal: double-click to edit it">composite</span>}
+        {item?.composite && <span className="pedal-badge" title="Composite pedal: double-click to open it in the designer">composite</span>}
         {!special && (
           <button className="nodrag pedal-remove" title="Delete pedal (Del)" onClick={() => removeNode(id)}>
             ×

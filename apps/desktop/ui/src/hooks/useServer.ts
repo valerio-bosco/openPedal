@@ -23,6 +23,8 @@ export interface ServerHandlers {
   nodeError: (node: string, message: string) => void;
   /** Another client moved a knob (`param`). */
   param: (node: string, param: string, value: number) => void;
+  /** The frequency response asked for with `analyze_pedal` arrived. */
+  response: (freq: number[], db: number[]) => void;
 }
 
 export function useServer(toast: (text: string) => void) {
@@ -33,7 +35,7 @@ export function useServer(toast: (text: string) => void) {
   const [status, setStatus] = useState<Status>("connecting");
   const conn = useRef<Connection>(undefined);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false, dirty: false });
-  const handlers = useRef<ServerHandlers>({ graph: () => {}, nodeError: () => {}, param: () => {} });
+  const handlers = useRef<ServerHandlers>({ graph: () => {}, nodeError: () => {}, param: () => {}, response: () => {} });
   /** Number of user interactions (knob drag, node drag) that must not be disturbed by an incoming graph. */
   const holds = useRef(0);
   /** The last graph received while an interaction was in progress: applied when it ends. */
@@ -57,7 +59,7 @@ export function useServer(toast: (text: string) => void) {
       if (m.type === "meters") return setMeters(m);
       if (m.type === "param") return handlers.current.param(m.node, m.param, m.value);
       if (m.type === "added") return; // only the iPad's `add_node` asks for it
-      if (m.type === "response") return; // analysis replies: used by the pedal designer
+      if (m.type === "response") return handlers.current.response(m.freq, m.db);
       if (m.type === "error") {
         toast(m.message);
         if (m.node) handlers.current.nodeError(m.node, m.message);

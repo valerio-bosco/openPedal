@@ -34,7 +34,7 @@ sleep 3
 
 status=0
 node "$root/tools/e2e/history.test.mts" || status=1
-for t in editing new-graph delete-preset; do
+for t in editing new-graph delete-preset designer; do
     echo "== $t"
     node "$root/tools/e2e/$t.mjs" $port "$dir" || status=1
 done

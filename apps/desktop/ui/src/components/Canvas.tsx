@@ -14,13 +14,13 @@ interface Props {
   /** False until the first `state` arrives: a loading message is shown. */
   ready: boolean;
   toast: (text: string) => void;
-  onEnterPedal: (node: PNode) => void;
+  onEditPedal: (node: PNode) => void;
   onNodeMenu: (x: number, y: number, node: string) => void;
   onEdgeMenu: (x: number, y: number, edge: string) => void;
   onCloseMenu: () => void;
 }
 
-export function Canvas({ graph, catalog, ready, toast, onEnterPedal, onNodeMenu, onEdgeMenu, onCloseMenu }: Props) {
+export function Canvas({ graph, catalog, ready, toast, onEditPedal, onNodeMenu, onEdgeMenu, onCloseMenu }: Props) {
   const { flow, addNode, removeEdges } = graph;
 
   const onDrop = (e: React.DragEvent) => {
@@ -46,7 +46,7 @@ export function Canvas({ graph, catalog, ready, toast, onEnterPedal, onNodeMenu,
         isValidConnection={graph.isValidConnection}
         onNodeDragStart={graph.hold}
         onNodeDragStop={graph.release}
-        onNodeDoubleClick={(_, n) => onEnterPedal(n)}
+        onNodeDoubleClick={(_, n) => onEditPedal(n)}
         onNodeContextMenu={(e, n) => {
           e.preventDefault();
           onNodeMenu(e.clientX, e.clientY, n.id);
