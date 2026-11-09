@@ -194,13 +194,15 @@ Client → server:
 | `move_node` | `node`, `to` | moves a pedal to index `to` among the pedals (0 = after the input, clamped); input stays first, output last |
 | `undo` / `redo` | – | one step through the shared server-side history (cap 100); replies `state`; `error` if there is nothing to undo/redo |
 | `edit_begin` | – | start of a continuous gesture (knob drag): the following `set_param`s become one undo step (the step is recorded at the first one) |
+| `analyze_pedal` / `analyze_node` | `pedal` + `values` / `node` | frequency response of a pedal file (draft allowed) or of a node of the playing graph; reply `response` to the asker only (protocol v3, §12.2) |
 
 Server → client:
 
 | `type` | Fields |
 |---|---|
-| `state` | `protocol` (`PROTOCOL_VERSION`, currently 2), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running), `can_undo`, `can_redo`, `dirty` (graph differs from the last load/save) |
+| `state` | `protocol` (`PROTOCOL_VERSION`, currently 3), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running), `can_undo`, `can_redo`, `dirty` (graph differs from the last load/save) |
 | `param` | `node`, `param`, `value`: a `set_param` made by another client (never echoed to its sender) |
+| `response` | `freq`, `db`: reply to `analyze_pedal` / `analyze_node` (about 128 log-spaced points, 20 Hz-20 kHz), sent only to the client that asked |
 | `added` | `node`: the id created by `add_node`, sent only to the client that asked, right after its `state` |
 | `meters` | `in_db`, `out_db`, `dsp` (0..1), `xruns`, about 20 times per second |
 | `error` | `message` (shown to the user), `node` (optional: the node the error is about) |
@@ -452,6 +454,16 @@ and written back as v2 (rule §11.3).
   rendering a low-level test signal through a compiled copy of the effect, FFT, ~128 log-spaced points
   20 Hz-20 kHz.
 - `PROTOCOL_VERSION = 3`.
+
+### 12.2b Implemented in wave A (differences and rules)
+
+- Files omit defaults: a knob route with the linear map has no `map` key, a `set` route has no `mode` key, a control without `default` takes 0.5 (knob), off (switch) or the first option (selector). `label` defaults to `id`. A switch `default` may also be 0/1. `[[knob]]` and `[[control]]` cannot be mixed in one file; `version` above 2 is refused. A v1 knob's control `id` is its label (so saved graphs keep working).
+- `inverse` is a linear map run backwards (0 gives `max`, 1 gives `min`); `log` is `min * (max/min)^n` and needs `min`, `max` > 0. Switch/selector route values are numbers, or option names when the target is a choice parameter.
+- **Combination rule** (`crates/graph/src/compile.rs`, `apply_routes`; identical at build time and for live changes): controls are applied in file order; a `set` route replaces the parameter (the last control, then the last route, wins); then every `add` route adds its value, in file order: `final = base + offset1 + offset2 ...`, where `base` is the value written by the `set` routes or, if none, the inner node's own value in the pedal file, or the parameter default; the sum is clamped to the parameter range. `add` is for numeric block parameters only (not for a control of a nested pedal).
+- `NodeMap::resolve_changes` returns one change per driven parameter and recomputes each from the current values of all controls of that pedal (kept inside the `NodeMap`).
+- Pedals are validated on save (`Library::save_pedal`, `graph::validate_pedal`) and when compiled; `analyze_pedal` also reports them.
+- Analysis (`crates/graph/src/analysis.rs`): a standalone `input -> effect -> output` plan at the engine rate, a -30 dBFS impulse (about 0.68 s), FFT, power averaged over a sixth of an octave, 128 log points. About 4 ms for the example pedal. It is the small-signal response at that level (drives are not driven into saturation by the test signal).
+- TOML numbers are written with their shortest decimal text (`0.4`, not `0.4000000059604645`).
 
 ### 12.3 Work split
 

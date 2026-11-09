@@ -67,6 +67,12 @@ fn server_messages_round_trip() {
     let param = fixture("param");
     let msg = ServerMsg::Param { node: param["node"].as_str().unwrap().into(), param: param["param"].as_str().unwrap().into(), value: param["value"].as_f64().unwrap() as f32 };
     assert_eq!(wire(&msg), param);
+    // response
+    let response = fixture("response");
+    let freq: Vec<f32> = serde_json::from_value(response["freq"].clone()).unwrap();
+    let db: Vec<f32> = serde_json::from_value(response["db"].clone()).unwrap();
+    assert_eq!(freq.len(), db.len());
+    assert_eq!(wire(&ServerMsg::Response { freq, db }), response);
     let added = fixture("added");
     assert_eq!(wire(&ServerMsg::Added { node: added["node"].as_str().unwrap().into() }), added);
 
@@ -74,7 +80,7 @@ fn server_messages_round_trip() {
     // below; every other part goes through the Rust types.
     let state = fixture("state");
     assert_eq!(state["protocol"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 2);
+    assert_eq!(PROTOCOL_VERSION, 3);
     for key in ["can_undo", "can_redo", "dirty"] {
         assert!(state[key].is_boolean(), "state.{key}");
     }
@@ -93,7 +99,7 @@ fn fixtures_match_the_schema() {
     for c in fixture("catalog").as_array().unwrap() {
         assert_valid(&v, "catalog item", c);
     }
-    for name in ["state", "meters", "error", "param", "added"] {
+    for name in ["state", "meters", "error", "param", "response", "added"] {
         assert_valid(&v, name, &fixture(name));
     }
     // and the schema is not vacuous
@@ -111,4 +117,29 @@ fn generated_files_are_current() {
         let on_disk = std::fs::read_to_string(root.join(path)).unwrap_or_default();
         assert!(on_disk == text, "{path} is stale: run `cargo run -p openpedal-protocol --bin gen-protocol`");
     }
+}
+
+#[test]
+fn fixtures_carry_a_v2_custom_pedal_and_the_analysis_messages() {
+    let state = fixture("state");
+    let grit = &state["pedals"]["grit-box"];
+    assert_eq!(grit["version"], 2);
+    assert!(grit["color"].as_str().unwrap().starts_with('#'));
+    assert!(grit.get("knob").is_none());
+    let controls = grit["control"].as_array().unwrap();
+    let kinds: Vec<&str> = controls.iter().map(|c| c["kind"].as_str().unwrap()).collect();
+    for kind in ["knob", "switch", "selector"] {
+        assert!(kinds.contains(&kind), "{kind}");
+    }
+    let modes: Vec<&str> = controls.iter().flat_map(|c| c["route"].as_array().unwrap()).filter_map(|r| r["mode"].as_str()).collect();
+    assert!(modes.contains(&"add"));
+    let item = state["catalog"].as_array().unwrap().iter().find(|c| c["kind"] == "pedal:grit-box").unwrap();
+    assert_eq!(item["color"], grit["color"]);
+    // the catalog projects the controls to ordinary parameters
+    assert_eq!(item["params"][3]["kind"], "choice");
+    assert_eq!(item["params"][4]["options"], json!(["off", "on"]));
+
+    let msgs = fixture("client-messages");
+    let types: Vec<&str> = msgs.as_array().unwrap().iter().map(|m| m["type"].as_str().unwrap()).collect();
+    assert!(types.contains(&"analyze_pedal") && types.contains(&"analyze_node"));
 }

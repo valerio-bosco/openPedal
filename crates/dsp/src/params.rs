@@ -115,12 +115,31 @@ impl BlockDesc {
 }
 
 /// A value as it arrives from a TOML file or from the UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 #[schemars(rename = "ParamValue")]
 pub enum Value {
     Number(f32),
     Text(String),
+}
+
+/// An `f32` as the `f64` with the same shortest decimal text (0.4 -> 0.4, not 0.4000000059604645),
+/// so that files written by serializers that widen to `f64` (TOML) stay readable by people.
+pub fn clean_f64(v: f32) -> f64 {
+    if v.is_finite() {
+        v.to_string().parse().unwrap_or(f64::from(v))
+    } else {
+        f64::from(v)
+    }
+}
+
+impl Serialize for Value {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Value::Number(n) => s.serialize_f64(clean_f64(*n)),
+            Value::Text(t) => s.serialize_str(t),
+        }
+    }
 }
 
 /// The parameters of a node: id -> value. Missing ones take the default.

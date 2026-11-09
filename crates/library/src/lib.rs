@@ -127,8 +127,12 @@ impl Library {
         toml::from_str(&text).with_context(|| format!("error in pedal {}", path.display()))
     }
 
+    /// Writes a pedal (always in the latest file format), after checking it: control and route
+    /// structure, targets, colour. A pedal that would not compile is refused with a clear message.
     pub fn save_pedal(&self, id: &str, pedal: &PedalFile) -> Result<()> {
         let path = file_path(&self.pedals_dir(), id)?;
+        let others = self.load_pedals().unwrap_or_default();
+        openpedal_graph::validate_pedal(id, pedal, &others).map_err(|m| anyhow::anyhow!("invalid pedal: {m}"))?;
         write_atomic(&path, &toml::to_string_pretty(pedal).context("cannot serialize the pedal")?)
     }
 
@@ -311,6 +315,29 @@ mod tests {
         assert_eq!(lib.load_pedals().unwrap().len(), 1);
         lib.delete_pedal("test").unwrap();
         assert!(lib.list_pedals().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalid_pedals_are_refused_and_v1_files_are_rewritten_as_v2() {
+        let root = temp_dir("pedal-v2");
+        let lib = Library::new(&root);
+        let v1 = "name = \"Old\"\n[[node]]\nid = \"g\"\ntype = \"gain\"\n[[knob]]\nlabel = \"Level\"\ntarget = \"g.db\"\nmin = -12\nmax = 0\ndefault = 0.5\n";
+        std::fs::create_dir_all(lib.pedals_dir()).unwrap();
+        std::fs::write(lib.pedals_dir().join("old.toml"), v1).unwrap();
+        let old = lib.load_pedal("old").unwrap();
+        assert_eq!(old.version, 2);
+        assert_eq!(old.controls[0].id, "Level");
+        lib.save_pedal("old", &old).unwrap();
+        let text = std::fs::read_to_string(lib.pedals_dir().join("old.toml")).unwrap();
+        assert!(text.contains("version = 2") && text.contains("[[control]]") && !text.contains("[[knob]]"), "{text}");
+        assert_eq!(lib.load_pedal("old").unwrap(), old);
+
+        let mut bad = old.clone();
+        bad.controls[0].routes[0].target = "g.nope".into();
+        let e = lib.save_pedal("old", &bad).unwrap_err().to_string();
+        assert!(e.contains("no parameter 'nope'"), "{e}");
+        assert_eq!(lib.load_pedal("old").unwrap(), old, "a refused pedal does not touch the file");
         let _ = std::fs::remove_dir_all(root);
     }
 

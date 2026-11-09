@@ -108,7 +108,9 @@ fn coding_keys(o: &mut String, indent: &str, enum_name: &str, owner: &str, fs: &
 
 fn escape(p: &str) -> String {
     match p {
-        "default" | "protocol" | "extension" | "operator" | "in" | "is" | "as" | "class" | "enum" | "func" | "let" | "var" | "init" => {
+        "default" | "protocol" | "extension" | "operator" | "in" | "is" | "as" | "class" | "enum" | "func" | "let" | "var" | "init" | "switch" | "case" | "struct"
+        | "return" | "if" | "else" | "for" | "while" | "repeat" | "break" | "continue" | "guard" | "do" | "try" | "throw" | "import" | "static" | "self" | "super"
+        | "true" | "false" | "nil" | "where" | "defer" | "inout" | "subscript" | "typealias" | "internal" | "private" | "public" | "open" | "fileprivate" => {
             format!("`{p}`")
         }
         _ => p.to_owned(),

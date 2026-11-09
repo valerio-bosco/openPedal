@@ -1,6 +1,7 @@
 //! Pedal graph: model (contract, phase 0), loading, compilation and
 //! execution (task A1, see docs/PLAN.md §7).
 
+pub mod analysis;
 pub mod chain;
 pub mod compile;
 pub mod exec;
@@ -11,4 +12,4 @@ pub mod registry;
 #[allow(unused_imports)] // GraphError: for the integration
 pub use compile::{compile, GraphError, NodeMap, ParamChange};
 pub use exec::Plan;
-pub use registry::{Control, ControlKind, EffectDesc, EffectSource, Map, Registry, Route};
+pub use registry::{validate_pedal, Control, ControlKind, EffectDesc, EffectSource, Map, Registry, Route, RouteMode};

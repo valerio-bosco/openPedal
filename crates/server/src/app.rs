@@ -16,7 +16,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast;
 
 use openpedal_protocol::{ClientMsg, ServerMsg, StateMsg, PROTOCOL_VERSION};
-use openpedal_graph::chain;
+use openpedal_graph::{analysis, chain};
 use openpedal_graph::model::GraphFile;
 use openpedal_library::Library;
 
@@ -267,6 +267,22 @@ fn publish(state: &AppState, session: &mut Session, from: u64) -> Vec<ServerMsg>
     vec![msg]
 }
 
+/// `analyze_pedal` / `analyze_node`: renders the effect offline at the engine's sample rate.
+fn analyze(state: &AppState, msg: ClientMsg) -> Result<ServerMsg> {
+    let sample_rate = state.engine.audio().sample_rate as f32;
+    let pedals = state.library.load_pedals()?;
+    let response = match msg {
+        ClientMsg::AnalyzePedal { pedal, values } => analysis::analyze_pedal(&pedal, &values, &pedals, sample_rate)?,
+        ClientMsg::AnalyzeNode { node } => {
+            let graph = state.engine.graph();
+            let spec = graph.nodes.iter().find(|n| n.id == node).with_context(|| format!("node '{node}' does not exist"))?;
+            analysis::analyze_node(spec, &pedals, sample_rate).map_err(|e| anyhow::Error::new(openpedal_graph::GraphError { message: format!("{e:#}"), node: Some(node.clone()) }))?
+        }
+        _ => unreachable!("only analysis requests come here"),
+    };
+    Ok(ServerMsg::Response { freq: response.freq, db: response.db })
+}
+
 /// Applies a new graph produced by an edit, as one undo step.
 fn edit_graph(state: &AppState, session: &mut Session, next: GraphFile) -> Result<()> {
     let before = state.engine.graph();
@@ -294,6 +310,11 @@ fn travel(state: &AppState, session: &mut Session, undo: bool) -> Result<()> {
 /// Handles a client message and returns the replies for that client. Changes other clients must
 /// see are broadcast to them (`from` identifies the sender, which never gets its own `param` back).
 pub fn handle_message_from(state: &AppState, from: u64, msg: ClientMsg) -> Vec<ServerMsg> {
+    // Analysis only reads: it needs neither the history lock nor a broadcast, and renders offline
+    // (a few milliseconds), so it never delays edits or the audio thread.
+    if matches!(msg, ClientMsg::AnalyzePedal { .. } | ClientMsg::AnalyzeNode { .. }) {
+        return vec![analyze(state, msg).unwrap_or_else(error_from)];
+    }
     // One edit at a time: history, engine and broadcast order stay consistent.
     let mut session = state.lock();
     let session = &mut *session;
@@ -362,6 +383,7 @@ pub fn handle_message_from(state: &AppState, from: u64, msg: ClientMsg) -> Vec<S
             }
             Ok(publish(state, session, from))
         }
+        ClientMsg::AnalyzePedal { .. } | ClientMsg::AnalyzeNode { .. } => unreachable!("handled above"),
         ClientMsg::Undo => {
             travel(state, session, true)?;
             Ok(publish(state, session, from))
@@ -546,6 +568,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    const LOWPASS_PEDAL: &str = "name = \"LP\"\n[[node]]\nid = \"f\"\ntype = \"filter\"\nparams = { kind = \"lowpass\", freq = 1000 }\n[[edge]]\nfrom = \"pedal_in\"\nto = \"f\"\n[[edge]]\nfrom = \"f\"\nto = \"pedal_out\"\n[[control]]\nid = \"cut\"\nkind = \"knob\"\n[[control.route]]\ntarget = \"f.freq\"\nmap = \"log\"\nmin = 200\nmax = 5000\n";
+
+    fn response(r: &[ServerMsg]) -> (&[f32], &[f32]) {
+        match r {
+            [ServerMsg::Response { freq, db }] => (freq, db),
+            other => panic!("expected one response, got {}", serde_json::to_string(other).unwrap()),
+        }
+    }
+
+    #[test]
+    fn analyze_pedal_answers_only_the_asker_and_works_for_unsaved_drafts() {
+        let (state, _, root) = app("analyze-pedal");
+        let draft: PedalFile = toml::from_str(LOWPASS_PEDAL).unwrap();
+        let mut rx = state.tx.subscribe();
+        let r = handle_message(&state, ClientMsg::AnalyzePedal { pedal: draft.clone(), values: Default::default() });
+        let (freq, db) = response(&r);
+        assert_eq!((freq.len(), db.len()), (128, 128));
+        assert!(db[0].abs() < 0.5 && db[127] < -30.0, "lowpass shape: {} .. {}", db[0], db[127]);
+        assert!(rx.try_recv().is_err(), "nothing is broadcast");
+        assert!(state.library.list_pedals().is_empty(), "the draft was not saved");
+        // control values
+        let open = handle_message(&state, ClientMsg::AnalyzePedal { pedal: draft.clone(), values: [("cut".to_string(), 1.0)].into() });
+        assert!(response(&open).1[90] > db[90] + 10.0, "a higher cutoff passes more at the same frequency");
+        // errors name the problem
+        let r = handle_message(&state, ClientMsg::AnalyzePedal { pedal: draft, values: [("nope".to_string(), 1.0)].into() });
+        assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("no control 'nope'")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn analyze_node_uses_the_playing_graph() {
+        let (state, _, root) = app("analyze-node");
+        let mut g = default_graph();
+        let node = |id: &str, kind: &str, text: &str| openpedal_graph::model::NodeSpec { id: id.into(), kind: kind.into(), pos: [0.0, 0.0], params: toml::from_str(text).unwrap(), bypass: false };
+        g.nodes.insert(1, node("loud", "gain", "db = 12.0"));
+        assert!(handle_message(&state, ClientMsg::SetGraph { graph: g }).is_empty());
+        let r = handle_message(&state, ClientMsg::AnalyzeNode { node: "loud".into() });
+        assert!(response(&r).1.iter().all(|d| (d - 12.0).abs() < 0.1));
+        for bad in ["nope", "in"] {
+            let r = handle_message(&state, ClientMsg::AnalyzeNode { node: bad.into() });
+            assert!(matches!(&r[0], ServerMsg::Error { .. }), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalid_pedals_are_refused_when_saved() {
+        let (state, _, root) = app("save-invalid");
+        let mut bad: PedalFile = toml::from_str(LOWPASS_PEDAL).unwrap();
+        bad.controls[0].routes[0].target = "f.nothing".into();
+        let r = handle_message(&state, ClientMsg::SavePedal { id: "bad".into(), pedal: bad });
+        assert!(matches!(&r[0], ServerMsg::Error { message, .. } if message.contains("no parameter 'nothing'")), "{}", serde_json::to_string(&r).unwrap());
+        assert!(state.library.list_pedals().is_empty());
+        let good: PedalFile = toml::from_str(LOWPASS_PEDAL).unwrap();
+        assert!(matches!(handle_message(&state, ClientMsg::SavePedal { id: "lp".into(), pedal: good })[0], ServerMsg::State(_)));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn save_load_preset_and_pedals() {
         let (state, _, root) = app("file");
@@ -669,7 +749,7 @@ mod tests {
         let (state, engine, root) = app("undo");
         let r = handle_message(&state, ClientMsg::Hello);
         let s = state_of(&r);
-        assert_eq!((s.can_undo, s.can_redo, s.dirty, s.protocol), (false, false, false, 2));
+        assert_eq!((s.can_undo, s.can_redo, s.dirty, s.protocol), (false, false, false, PROTOCOL_VERSION));
         assert!(matches!(handle_message(&state, ClientMsg::Undo)[0], ServerMsg::Error { .. }));
         assert!(matches!(handle_message(&state, ClientMsg::Redo)[0], ServerMsg::Error { .. }));
 

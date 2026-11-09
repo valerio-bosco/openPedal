@@ -14,7 +14,9 @@ pub mod codegen;
 /// Bumped on any breaking change; additive optional fields do not bump it.
 /// 2: server-side chain edits and undo/redo, new `param` and `added` server messages,
 /// `can_undo`/`can_redo`/`dirty` in `state`, and state broadcast to every client.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// 3: pedal files v2 (`control`/`route`, `color`, `version`; `knob` is gone), `color` on catalog
+/// items, the `analyze_pedal`/`analyze_node` requests and the `response` reply.
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// From the client (interface) to the server.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -53,6 +55,13 @@ pub enum ClientMsg {
     Undo,
     /// Redoes the last undone step.
     Redo,
+    /// Frequency response of a pedal file, which may be an unsaved draft, with the given control
+    /// values (knob position 0..1, or option index of a switch/selector; missing ones take their
+    /// default). The server replies with `response`, or `error` if the pedal is invalid.
+    AnalyzePedal { pedal: PedalFile, values: BTreeMap<String, f32> },
+    /// Frequency response of a node of the playing graph, with its current values.
+    /// The server replies with `response`.
+    AnalyzeNode { node: String },
     /// Call once at the start of a continuous gesture (a knob drag): the `set_param` messages
     /// that follow become a single undo step.
     EditBegin,
@@ -67,6 +76,9 @@ pub enum ServerMsg {
     /// A `set_param` made by another client, forwarded without rebuilding anything
     /// (never sent back to the client that made it). For choices `value` is the option index.
     Param { node: String, param: String, value: f32 },
+    /// Reply to `analyze_pedal` / `analyze_node`, sent only to the client that asked: the magnitude
+    /// response, `db[i]` at `freq[i]` Hz (about 128 log-spaced points, 20 Hz to 20 kHz).
+    Response { freq: Vec<f32>, db: Vec<f32> },
     /// Sent to the client that asked for `add_node`, right after the `state` that contains the node.
     Added { node: String },
     Error {

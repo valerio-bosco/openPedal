@@ -13,7 +13,7 @@ use openpedal_dsp::params::{ParamKind, Value};
 use openpedal_dsp::{self as dsp, lin_to_db};
 use crate::engine::{Engine, Meters};
 use openpedal_graph::model::{self, CatalogItem, GraphFile, PedalFile, OUTPUT, OUTPUT_DESC, PEDAL_PREFIX};
-use openpedal_graph::{self as graph, NodeMap};
+use openpedal_graph::{self as graph, ControlKind, NodeMap, Registry};
 use openpedal_protocol::{AudioInfo, MetersMsg};
 use crate::EngineHandle;
 
@@ -37,15 +37,18 @@ impl Inner {
     }
 }
 
-/// true if the parameter (of a block, or through the knobs, of a composite pedal)
+/// true if the parameter (of a block, or through the routes of a control, of a composite pedal)
 /// cannot change live and requires rebuilding the block.
 fn needs_rebuild(kind: &str, param: &str, pedals: &[(String, PedalFile)], depth: usize) -> bool {
     if let Some(id) = kind.strip_prefix(PEDAL_PREFIX) {
         let Some((_, pedal)) = pedals.iter().find(|(p, _)| p == id) else { return false };
-        let Some(knob) = pedal.knobs.iter().find(|k| k.label == param) else { return false };
-        let Some((node, inner_param)) = knob.target.split_once('.') else { return false };
-        let Some(spec) = pedal.nodes.iter().find(|n| n.id == node) else { return false };
-        return depth < 8 && needs_rebuild(&spec.kind, inner_param, pedals, depth + 1);
+        let Some(control) = pedal.controls.iter().find(|c| c.id == param) else { return false };
+        return depth < 8
+            && control.routes.iter().any(|route| {
+                let Some((node, inner_param)) = route.target.split_once('.') else { return false };
+                let Some(spec) = pedal.nodes.iter().find(|n| n.id == node) else { return false };
+                needs_rebuild(&spec.kind, inner_param, pedals, depth + 1)
+            });
     }
     // The procedural cabinet regenerates the IR: only the level changes live.
     kind == "cab" && param != "level_db"
@@ -137,9 +140,16 @@ impl EngineHandle for LiveEngine {
         for change in inner.map.resolve_changes(node, param, value)? {
             inner.engine.set_param(change)?;
         }
+        let is_pedal = inner.graph.nodes.iter().any(|n| n.id == node && n.kind.starts_with(PEDAL_PREFIX));
+        let registry = is_pedal.then(|| Registry::new(&inner.pedals));
         let spec = inner.graph.nodes.iter_mut().find(|n| n.id == node).ok_or_else(|| anyhow!("node '{node}' does not exist"))?;
-        let stored = if spec.kind.starts_with(PEDAL_PREFIX) {
-            Value::Number(value.clamp(0.0, 1.0))
+        let stored = if let Some(registry) = &registry {
+            // A pedal's control: a knob position, or (saved by name, as in files) a switch/selector option.
+            let control = registry.get(&spec.kind).and_then(|e| e.control(param)).ok_or_else(|| anyhow!("'{}' has no control '{param}'", spec.kind))?;
+            match &control.kind {
+                ControlKind::Choice { options, .. } => Value::Text(options[(value.round().max(0.0) as usize).min(options.len() - 1)].clone()),
+                _ => Value::Number(value.clamp(0.0, 1.0)),
+            }
         } else {
             let desc = if spec.kind == OUTPUT { &OUTPUT_DESC } else { dsp::find(&spec.kind).map(|e| e.desc).ok_or_else(|| anyhow!("unknown type '{}'", spec.kind))? };
             let p = desc.params.iter().find(|p| p.id == param).ok_or_else(|| anyhow!("'{}' has no parameter '{param}'", spec.kind))?;

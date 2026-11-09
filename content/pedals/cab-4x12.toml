@@ -1,4 +1,5 @@
-# Composite pedal: a 4x12 cab with two exposed knobs.
+# Composite pedal (format v2): a 4x12 cab with two exposed knobs.
+version = 2
 name = "4x12 Cab"
 category = "amp"
 description = "Closed-back rock cab: punchy lows, scooped mids."
@@ -16,16 +17,24 @@ to = "c"
 from = "c"
 to = "pedal_out"
 
-[[knob]]
+[[control]]
+id = "Brightness"
 label = "Brightness"
+kind = "knob"
+default = 0.4
+
+[[control.route]]
 target = "c.high_hz"
 min = 3500
 max = 7000
+
+[[control]]
+id = "Mids"
+label = "Mids"
+kind = "knob"
 default = 0.4
 
-[[knob]]
-label = "Mids"
+[[control.route]]
 target = "c.mid_db"
 min = -10
 max = 6
-default = 0.4

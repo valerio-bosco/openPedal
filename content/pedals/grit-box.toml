@@ -1,0 +1,127 @@
+# Custom pedal (format v2): highpass -> drive -> tone stack -> lowpass, five controls.
+version = 2
+name = "Grit Box"
+category = "drive"
+description = "Tight, amp-like overdrive. Grit sets drive, output level and low cut together."
+color = "#d9573b"
+
+[[node]]
+id = "hp"
+type = "filter"
+pos = [0.0, 0.0]
+params = { kind = "highpass", freq = 100, q = 0.707 }
+
+[[node]]
+id = "drive"
+type = "drive"
+pos = [220.0, 0.0]
+params = { shape = "soft", gain_db = 20, level_db = -6, bias = 0.15 }
+
+[[node]]
+id = "tone"
+type = "tonestack"
+pos = [440.0, 0.0]
+params = { model = "marshall" }
+
+[[node]]
+id = "lp"
+type = "filter"
+pos = [660.0, 0.0]
+params = { kind = "lowpass", freq = 7000, q = 0.707 }
+
+[[edge]]
+from = "pedal_in"
+to = "hp"
+
+[[edge]]
+from = "hp"
+to = "drive"
+
+[[edge]]
+from = "drive"
+to = "tone"
+
+[[edge]]
+from = "tone"
+to = "lp"
+
+[[edge]]
+from = "lp"
+to = "pedal_out"
+
+# Grit: more drive, a bit less level and a tighter low end as it goes up.
+[[control]]
+id = "grit"
+label = "Grit"
+kind = "knob"
+default = 0.55
+
+[[control.route]]
+target = "drive.gain_db"
+min = 6
+max = 40
+
+[[control.route]]
+target = "drive.level_db"
+map = "inverse"
+min = -14
+max = -4
+
+[[control.route]]
+target = "hp.freq"
+map = "log"
+min = 60
+max = 250
+
+# Tone: darker to brighter (top-end roll-off and tone-stack treble).
+[[control]]
+id = "tone"
+label = "Tone"
+kind = "knob"
+default = 0.5
+
+[[control.route]]
+target = "lp.freq"
+map = "log"
+min = 2500
+max = 9000
+
+[[control.route]]
+target = "tone.treble"
+min = 0.2
+max = 0.8
+
+[[control]]
+id = "body"
+label = "Body"
+kind = "knob"
+default = 0.5
+
+[[control.route]]
+target = "tone.bass"
+min = 0.2
+max = 0.8
+
+[[control]]
+id = "voice"
+label = "Voice"
+kind = "selector"
+options = ["Smooth", "Crunch", "Fuzz"]
+default = 0
+
+[[control.route]]
+target = "drive.shape"
+values = ["soft", "asym", "fuzz"]
+
+# Boost: +6 dB of level on top of whatever Grit sets (add mode).
+[[control]]
+id = "boost"
+label = "Boost"
+kind = "switch"
+default = false
+
+[[control.route]]
+target = "drive.level_db"
+off = 0
+on = 6
+mode = "add"

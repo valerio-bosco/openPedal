@@ -160,6 +160,16 @@ fn ty(v: &Value) -> (Ty, bool) {
     if let Some(r) = v.get("$ref") {
         return (Ty::Ref(ref_name(r)), false);
     }
+    // `Option<T>` of a named type: `anyOf: [{ $ref }, { type: null }]`.
+    if let Some([a, b]) = v.get("anyOf").and_then(Value::as_array).map(Vec::as_slice) {
+        let is_null = |t: &Value| t.get("type").and_then(Value::as_str) == Some("null");
+        if is_null(b) && !is_null(a) {
+            return (ty(a).0, true);
+        }
+        if is_null(a) && !is_null(b) {
+            return (ty(b).0, true);
+        }
+    }
     let (kind, nullable) = match &v["type"] {
         Value::String(s) => (s.as_str(), false),
         Value::Array(a) if a.len() == 2 && a[1] == "null" => (a[0].as_str().unwrap(), true),
