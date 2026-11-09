@@ -9,7 +9,7 @@ struct PedalThumbnail: View {
     private let h: CGFloat = 108
 
     var body: some View {
-        let color = enamel(for: item.kind, category: item.category.rawValue)
+        let color = enamel(for: item.kind, item: item)
         let numbers = Array(item.params.filter { $0.tag == .number }.prefix(4))
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
 

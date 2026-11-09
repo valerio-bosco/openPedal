@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 /// Input/output levels, kept apart from `Store` so 30 Hz updates only redraw the meters.
 @MainActor @Observable
@@ -8,6 +9,21 @@ final class MeterModel {
     var outDb: Double = -90
     var dsp: Double = 0
     var xruns: Int = 0
+}
+
+/// Latest frequency response from the core (`analyze_pedal`), kept apart so only the designer's graph redraws.
+@MainActor @Observable
+final class ResponseModel {
+    var freq: [Double] = []
+    var db: [Double] = []
+}
+
+/// One open pedal designer (a full-screen cover): a new pedal merged from board pedals, or an existing one.
+struct DesignerSession: Identifiable {
+    let id = UUID()
+    let model: DesignerModel
+    /// Board nodes the pedal replaces on Save (merge); empty when editing a saved pedal.
+    let mergeIDs: [String]
 }
 
 /// One node's live values. Views of a pedal observe only its own model, so turning a knob redraws
@@ -37,10 +53,17 @@ final class Store {
     private(set) var canRedo = false
     private(set) var chain = Chain(nodes: [], linear: true)
     private(set) var models: [String: NodeModel] = [:]
+    /// Custom pedal files (id -> pedal), for the designer.
+    private(set) var pedals: [String: PedalFile] = [:]
     var selectedID: String?
+    /// Selection mode of the board ("Merge into a pedal"): tapping a pedal marks it instead of selecting it.
+    private(set) var selecting = false
+    private(set) var selection: Set<String> = []
+    var designer: DesignerSession?
     var banner: String?
 
     let meters = MeterModel()
+    let analysis = ResponseModel()
 
     /// The server speaks a newer contract than this app knows.
     var protocolTooNew: Bool { (serverProtocol ?? 0) > supportedProtocolVersion }
@@ -54,6 +77,8 @@ final class Store {
     private var pending: [String: ClientMsg] = [:]
     private var flushScheduled = false
     private var lastFlush = Date.distantPast
+    private var pendingSave: (id: String, done: (Bool) -> Void)?
+    private var pendingSelect: String?
 
     init(port: UInt16) {
         client = WSClient(port: port)
@@ -107,19 +132,23 @@ final class Store {
             meters.inDb = m.inDb; meters.outDb = m.outDb; meters.dsp = m.dsp; meters.xruns = m.xruns
         case .error(let message, let node):
             showBanner(node.map { "\($0): \(message)" } ?? message)
+            pendingSelect = nil
+            if let p = pendingSave { pendingSave = nil; p.done(false) }
         case .added(let id):
             // The `state` that contains the new pedal arrived just before.
             selectedID = id
         case .param(let node, let param, let value):
             applyRemoteParam(node, param, value)
-        case .response:
-            break // frequency-response replies: used by the pedal designer
+        case .response(let freq, let db):
+            analysis.freq = freq
+            analysis.db = db
         case .state(let s):
             if catalog != s.catalog {
                 catalog = s.catalog
                 catalogByKind = Dictionary(s.catalog.map { ($0.kind, $0) }, uniquingKeysWith: { a, _ in a })
             }
             if presets != s.presets { presets = s.presets }
+            if pedals != s.pedals { pedals = s.pedals }
             if audio != s.audio { audio = s.audio }
             if serverProtocol != s.protocolVersion { serverProtocol = s.protocolVersion }
             if canUndo != s.canUndo { canUndo = s.canUndo }
@@ -127,6 +156,8 @@ final class Store {
             if dirty != s.dirty { dirty = s.dirty }
             if !gotState { gotState = true }
             applyGraph(s.graph)
+            // The reply to `save_pedal` (the file is in `pedals` now).
+            if let p = pendingSave, s.pedals[p.id] != nil { pendingSave = nil; p.done(true) }
         }
     }
 
@@ -148,6 +179,8 @@ final class Store {
         let structure = Chain.derive(g)
         if graph != g { graph = g }
         if chain.nodes.map(\.id) != structure.nodes.map(\.id) || chain.linear != structure.linear { chain = structure }
+        if let id = pendingSelect, g.node.contains(where: { $0.id == id }) { selectedID = id; pendingSelect = nil }
+        if !selection.isEmpty { selection = selection.filter { id in g.node.contains { $0.id == id } } }
         if let id = selectedID, !g.node.contains(where: { $0.id == id }) { selectedID = nil }
         if selectedID == nil {
             selectedID = chain.nodes.first { $0.type != "input" && $0.type != "output" }?.id
@@ -310,6 +343,87 @@ final class Store {
                 break
             }
         }
+    }
+
+    // MARK: custom pedals
+
+    /// Frequency response of a draft pedal; the core answers with `response` (or `error`).
+    func analyze(_ pedal: PedalFile, values: [String: Double]) {
+        client.send(.analyzePedal(pedal: pedal, values: values))
+    }
+
+    /// Writes `pedals/<id>.toml`. `done(true)` runs when the core confirms with its new `state`, `done(false)` on `error`.
+    func savePedal(id: String, pedal: PedalFile, done: @escaping (Bool) -> Void) {
+        flush()
+        pendingSave = (id, done)
+        client.send(.savePedal(id: id, pedal: pedal))
+    }
+
+    /// Opens the designer on the selected board pedals, in chain order (they must be neighbours).
+    func openMergeDesigner() {
+        guard canMergeSelection else { return }
+        let ids = selectedPedalIDs
+        let specs = currentOrder().filter { ids.contains($0.id) }
+        designer = DesignerSession(model: DesignerModel(store: self, merging: specs), mergeIDs: ids)
+    }
+
+    /// Opens the designer on a saved custom pedal used by a board node.
+    func openEditDesigner(node id: String) {
+        guard let type = models[id]?.type, type.hasPrefix(OpenPedalProtocol.pedalPrefix) else { return }
+        let pedalID = String(type.dropFirst(OpenPedalProtocol.pedalPrefix.count))
+        guard let file = pedals[pedalID] else { showBanner("Pedal file \"\(pedalID)\" not found"); return }
+        designer = DesignerSession(model: DesignerModel(store: self, editing: pedalID, file: file), mergeIDs: [])
+    }
+
+    /// Replaces the neighbouring pedals `ids` by one `pedal:<pedalID>` node. One `set_graph` of the
+    /// rewritten chain, so the core records a single undo step; `hello` brings the new state back.
+    func mergeIntoPedal(ids: [String], pedalID: String) {
+        guard chain.linear else { return }
+        flush()
+        let order = currentOrder()
+        let idx = order.indices.filter { ids.contains(order[$0].id) }
+        guard let first = idx.first, let last = idx.last, idx.count == ids.count, last - first + 1 == idx.count else { return }
+        let taken = Set(order.map(\.id))
+        var newID = pedalID, n = 2
+        while taken.contains(newID) { newID = "\(pedalID)\(n)"; n += 1 }
+        var next = order
+        next.replaceSubrange(first...last, with: [NodeSpec(id: newID, type: OpenPedalProtocol.pedalPrefix + pedalID)])
+        client.send(.setGraph(Chain.rewrite(snapshot(), order: next)))
+        client.send(.hello)
+        pendingSelect = newID
+        endSelecting()
+    }
+
+    // MARK: selection mode
+
+    func beginSelecting(_ first: String? = nil) {
+        guard chain.linear else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            selecting = true
+            selection = first.map { [$0] } ?? []
+        }
+    }
+
+    func endSelecting() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            selecting = false
+            selection = []
+        }
+    }
+
+    func toggleSelected(_ id: String) {
+        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+    }
+
+    /// Selected pedals in chain order.
+    var selectedPedalIDs: [String] { pedalIDs.filter { selection.contains($0) } }
+
+    /// At least one pedal, and no unselected pedal between the selected ones.
+    var canMergeSelection: Bool {
+        let ids = pedalIDs
+        let marks = ids.indices.filter { selection.contains(ids[$0]) }
+        guard let first = marks.first, let last = marks.last else { return false }
+        return last - first + 1 == marks.count
     }
 
     // MARK: presets

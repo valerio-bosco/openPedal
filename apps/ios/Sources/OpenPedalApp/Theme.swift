@@ -6,6 +6,23 @@ extension Color {
     }
 }
 
+extension Color {
+    /// `#rgb` or `#rrggbb`, as used by custom pedal files.
+    init?(css: String) {
+        var hex = css.trimmingCharacters(in: .whitespaces)
+        if hex.hasPrefix("#") { hex.removeFirst() }
+        if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
+        guard hex.count == 6, let v = UInt32(hex, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+}
+
+/// Enamel of a catalog entry: the colour a custom pedal chose, else the one of its type/category.
+func enamel(for type: String, item: CatalogItem?) -> Color {
+    if let hex = item?.color, let c = Color(css: hex) { return c }
+    return enamel(for: type, category: item?.category.rawValue)
+}
+
 /// Enamel colour of a pedal, per node type (as in the mockup), falling back to its category.
 func enamel(for type: String, category: String?) -> Color {
     let byType: [String: UInt32] = [

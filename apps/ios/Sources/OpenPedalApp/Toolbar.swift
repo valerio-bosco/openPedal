@@ -27,6 +27,17 @@ struct ToolbarView: View {
                 .padding(.horizontal, 6)
                 .glassEffect(.regular, in: .capsule)
 
+                Button {
+                    if store.selecting { store.endSelecting() } else { store.beginSelecting() }
+                } label: {
+                    Label(store.selecting ? "Done" : "Select", systemImage: store.selecting ? "checkmark" : "checklist")
+                        .font(.body.weight(.semibold))
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .disabled(!store.canEditChain || !store.hasPedals)
+                .accessibilityHint("Select neighbouring pedals to merge them into one pedal")
+
                 Spacer(minLength: 8)
 
                 MetersView(model: store.meters)

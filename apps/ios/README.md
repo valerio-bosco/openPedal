@@ -30,6 +30,7 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
 | `OpenPedalCore/include/openpedal.h` | the C API, hand-written, keep in sync with `crates/ffi/src/lib.rs` |
 | `OpenPedalCore/lib/libopenpedal.a` | built by `scripts/build-core.sh` (git-ignored) |
 | `Sources/OpenPedalApp/` | `App.swift` (root, ambient), `AudioHost.swift`, `Generated/Protocol.swift` (Codable protocol, generated from the Rust types) and `ProtocolExtensions.swift`, `WSClient.swift`, `Store.swift` (@Observable state, undo, throttled set_param), `Chain.swift` (chain derivation), `Board.swift` (pedalboard, pedals, drag and drop reorder), `Inspector.swift` (resizable controls panel, knobs), `Toolbar.swift`, `Sheets.swift` (add pedal, About), `Theme.swift` |
+| `Sources/OpenPedalApp/Designer/` | pedal designer (docs/PLAN.md §12): `DesignerModel.swift` (draft, controls, routes, validation), `DesignerView.swift` (full-screen cover, left panel, live preview), `DesignerVoices.swift` / `DesignerInside.swift` (right panel tabs), `ResponseGraph.swift`, `DesignerControls.swift` (number field, range slider, curve thumbnails), `SelectionBar.swift` |
 | `scripts/build-core.sh` | UI build + `cargo build -p openpedal-ffi --release --target aarch64-apple-ios` (produces `libopenpedal.a`) + copies |
 
 ## Build with xtool (from Linux) — verified on 2026-11-08
@@ -77,3 +78,12 @@ Troubleshooting:
 - The UI needs iPadOS 26 (`glassEffect`, `GlassEffectContainer`, `.glass`/`.glassProminent` button styles). No WebView.
 - It talks to the in-process server over `ws://127.0.0.1:<port>/ws` and expects the protocol v1 fields of the generated types (`bypass` stays optional, docs/PLAN.md §10.2).
 - Parallel graphs are shown in topological order; adding, removing and moving (menu or long-press drag) pedals is only enabled for a simple chain.
+
+## Custom pedals (pedal designer)
+
+- **Merge into a pedal**: toolbar *Select* (or a pedal's "..." menu > *Merge into a pedal*) turns the board into a selection mode; tap neighbouring pedals, then *Merge into a pedal*. The designer opens with those pedals (and their current settings) as the inner chain.
+- **Edit pedal**: select a custom pedal, "..." menu > *Edit pedal*. Save overwrites `pedals/<id>.toml`.
+- Designer: left panel (name, colour, category, live preview with draggable knobs / tappable switches and selectors, response graph); right panel with *Voices* (knob / switch / selector, targets with range, curve, add mode, per-position values) and *Inside* (linear inner chain: drag to reorder, add and remove blocks, open a block to change its settings). A saved pedal with parallel routing (made on the desktop) keeps its structure; only its voices can be edited here.
+- The response graph sends `analyze_pedal` about 80 ms after the last change (latest wins) and only when the draft passes the checks below. Validation mirrors the core (`validate_pedal`) and shows problems inline; Save is disabled until there are none. A core `error` still shows in the banner.
+- Save sends `save_pedal`; for a merge, once the core confirms with the new `state`, the app sends one `set_graph` with the rewritten chain (the selected pedals replaced by a single `pedal:<id>` node), so the merge is **one undo step**. Undo brings the original pedals back; the saved pedal file stays in the library (delete it from the desktop if you do not want it).
+- A custom pedal's `color` (catalog `color`) is its enamel on the board, in the Add pedal sheet and in the inspector.

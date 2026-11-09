@@ -41,7 +41,7 @@ struct RootView: View {
     private var tint: Color {
         // Structure only: turning a knob must not redraw the whole screen.
         guard let type = store.selectedType else { return Color(hex: 0xff8a3d) }
-        return enamel(for: type, category: store.item(kind: type)?.category.rawValue)
+        return enamel(for: type, item: store.item(kind: type))
     }
 
     /// Toolbar row (8 top + 52) and the inspector's outer padding (8 + 8): fixed chrome around the board.
@@ -50,7 +50,7 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let showInspector = store.hasPedals
+            let showInspector = store.hasPedals && !store.selecting
             let ih = showInspector ? (liveHeight ?? (expanded ? InspectorDetent.expanded : InspectorDetent.compact)) : 0
             // The pedals scale to the detent, not to every point of a grabber drag (which would re-lay out
             // the whole board on each touch event).
@@ -91,6 +91,13 @@ struct RootView: View {
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
 
+                if store.selecting {
+                    SelectionBar(store: store)
+                        .padding(.horizontal, 20).padding(.bottom, 24)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 if store.protocolTooNew {
                     Text("This app is older than the openPedal core (protocol v\(store.serverProtocol ?? 0)). Update the app.")
                         .multilineTextAlignment(.center).padding(28)
@@ -99,6 +106,9 @@ struct RootView: View {
                     ProgressView("Connecting...").padding(24).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
                 }
             }
+        }
+        .fullScreenCover(item: Binding(get: { store.designer }, set: { store.designer = $0 })) { session in
+            DesignerView(store: store, session: session)
         }
         .sheet(isPresented: $showAdd) { AddPedalSheet(store: store) }
         .sheet(isPresented: $showAbout) { AboutSheet(store: store) }

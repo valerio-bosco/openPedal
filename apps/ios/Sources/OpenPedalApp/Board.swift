@@ -106,7 +106,7 @@ struct BoardView: View {
                         }
                         .id(node.id)
                     }
-                    if store.canEditChain {
+                    if store.canEditChain && !store.selecting {
                         Button { showAdd = true } label: {
                             Image(systemName: "plus").font(.title.weight(.semibold)).frame(width: 64, height: 64)
                         }
@@ -186,7 +186,7 @@ struct BoardView: View {
             .offset(x: dx)
             .animation(lifted ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: dx)
             .zIndex(lifted ? 1 : 0)
-        if store.canEditChain {
+        if store.canEditChain && !store.selecting {
             view.gesture(reorder(model.id))
         } else {
             view
@@ -316,8 +316,9 @@ struct PedalView: View, Equatable {
     var body: some View {
         let node = model.spec
         let item = store.item(kind: model.type)
-        let color = enamel(for: model.type, category: item?.category.rawValue)
-        let isSel = store.selectedID == model.id
+        let color = enamel(for: model.type, item: item)
+        let marked = store.selecting && store.selection.contains(model.id)
+        let isSel = store.selectedID == model.id && !store.selecting
         let numbers = Array((item?.params ?? []).filter { $0.tag == .number }.prefix(4))
         let on = !node.isBypassed
         let shape = RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
@@ -353,6 +354,7 @@ struct PedalView: View, Equatable {
 
             Button { store.setBypass(model.id, on) } label: { Footswitch(u: u) }
                 .buttonStyle(.plain)
+                .allowsHitTesting(!store.selecting)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 1.25 * u - 8)
                 .accessibilityLabel(on ? "Bypass \(item?.label ?? model.type)" : "Enable \(item?.label ?? model.type)")
@@ -373,16 +375,29 @@ struct PedalView: View, Equatable {
                 .stroke(.white.opacity(0.9), lineWidth: 2.5)
                 .background(RoundedRectangle(cornerRadius: 1.65 * u, style: .continuous).fill(color.opacity(0.25)).blur(radius: 0.9 * u))
                 .padding(-0.42 * u)
-                .opacity(isSel && !lifted ? 1 : 0)
+                .opacity((isSel || marked) && !lifted ? 1 : 0)
         }
+        .overlay(alignment: .topLeading) {
+            if store.selecting {
+                Image(systemName: marked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 1.7 * u, weight: .semibold))
+                    .foregroundStyle(marked ? Color.white : Color.white.opacity(0.6), marked ? Color.accentColor : Color.black.opacity(0.35))
+                    .padding(0.6 * u)
+                    .allowsHitTesting(false)
+            }
+        }
+        .opacity(store.selecting && !marked ? 0.72 : 1)
         .scaleEffect(lifted ? 1.06 : 1)
         .offset(y: lifted ? -0.9 * u : (isSel ? -0.45 * u : 0))
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isSel)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: lifted)
         .animation(.easeOut(duration: 0.2), value: on)
         .contentShape(shape)
-        .onTapGesture { store.selectedID = model.id }
+        .onTapGesture {
+            if store.selecting { store.toggleSelected(model.id) } else { store.selectedID = model.id }
+        }
         .sensoryFeedback(.impact(weight: .medium), trigger: node.isBypassed)
+        .sensoryFeedback(.selection, trigger: marked)
         .sensoryFeedback(.impact(weight: .medium), trigger: lifted) { _, now in now }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Move left") { store.movePedal(model.id, by: -1) }

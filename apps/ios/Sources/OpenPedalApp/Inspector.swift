@@ -72,7 +72,7 @@ struct InspectorView: View {
     private func content(_ model: NodeModel) -> some View {
         // Reads only structure (type, catalog): value changes redraw the cells, not this panel.
         let item = store.item(kind: model.type)
-        let accent = enamel(for: model.type, category: item?.category.rawValue)
+        let accent = enamel(for: model.type, item: item)
         let params = item?.params ?? []
         VStack(spacing: 0) {
             InspectorHeader(store: store, model: model, item: item, accent: accent, count: params.count, expanded: $expanded)
@@ -186,12 +186,21 @@ private struct InspectorHeader: View {
                 }
                 .buttonStyle(.glass)
             }
-            if isPedal && store.canEditChain {
+            if isPedal {
                 Menu {
+                    if item?.composite == true {
+                        Button("Edit pedal", systemImage: "slider.horizontal.3") { store.openEditDesigner(node: model.id) }
+                    }
+                    Button("Merge into a pedal", systemImage: "square.stack.3d.up") { store.beginSelecting(model.id) }
+                        .disabled(!store.canEditChain)
+                    Divider()
                     Button("Move left", systemImage: "arrow.left") { store.movePedal(model.id, by: -1) }
+                        .disabled(!store.canEditChain)
                     Button("Move right", systemImage: "arrow.right") { store.movePedal(model.id, by: 1) }
+                        .disabled(!store.canEditChain)
                     Divider()
                     Button("Remove", systemImage: "trash", role: .destructive) { store.removePedal(model.id) }
+                        .disabled(!store.canEditChain)
                 } label: {
                     Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 22, height: 22)
                 }
