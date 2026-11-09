@@ -44,6 +44,8 @@ export function useServer(toast: (text: string) => void) {
   const onMsg = useCallback(
     (m: ServerMsg) => {
       if (m.type === "meters") return setMeters(m);
+      // protocol v2: `param` (another client moved a knob) and `added` are not used by this editor yet
+      if (m.type === "param" || m.type === "added") return;
       if (m.type === "error") {
         toast(m.message);
         if (m.node) handlers.current.nodeError(m.node, m.message);

@@ -75,6 +75,9 @@ export class MockServer {
       presets: this.presets,
       pedals: this.pedals,
       audio: { ...base.audio, running: false },
+      can_undo: false,
+      can_redo: false,
+      dirty: false,
     };
   }
 

@@ -63,10 +63,21 @@ fn server_messages_round_trip() {
     let msg = ServerMsg::Error { message: error["message"].as_str().unwrap().into(), node: error["node"].as_str().map(Into::into) };
     assert_eq!(wire(&msg), error);
 
+    // param, added
+    let param = fixture("param");
+    let msg = ServerMsg::Param { node: param["node"].as_str().unwrap().into(), param: param["param"].as_str().unwrap().into(), value: param["value"].as_f64().unwrap() as f32 };
+    assert_eq!(wire(&msg), param);
+    let added = fixture("added");
+    assert_eq!(wire(&ServerMsg::Added { node: added["node"].as_str().unwrap().into() }), added);
+
     // state: the catalog is serialize-only (static strings), so it is checked against the schema
     // below; every other part goes through the Rust types.
     let state = fixture("state");
     assert_eq!(state["protocol"], PROTOCOL_VERSION);
+    assert_eq!(PROTOCOL_VERSION, 2);
+    for key in ["can_undo", "can_redo", "dirty"] {
+        assert!(state[key].is_boolean(), "state.{key}");
+    }
     round_trip::<GraphFile>("state.graph", &state["graph"]);
     round_trip::<AudioInfo>("state.audio", &state["audio"]);
     round_trip::<BTreeMap<String, PedalFile>>("state.pedals", &state["pedals"]);
@@ -82,7 +93,7 @@ fn fixtures_match_the_schema() {
     for c in fixture("catalog").as_array().unwrap() {
         assert_valid(&v, "catalog item", c);
     }
-    for name in ["state", "meters", "error"] {
+    for name in ["state", "meters", "error", "param", "added"] {
         assert_valid(&v, name, &fixture(name));
     }
     // and the schema is not vacuous

@@ -23,6 +23,8 @@ pub trait EngineHandle: Send + Sync + 'static {
     /// Compiles and starts a graph. On error the old one stays;
     /// the message is in English and, if possible, names the offending node.
     fn set_graph(&self, graph: GraphFile) -> Result<()>;
+    /// Renames the graph returned by `graph` without touching the sound (after saving a preset).
+    fn set_graph_name(&self, name: &str);
     /// Live change of a parameter (also updates the graph returned by `graph`).
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()>;
     /// Live bypass of a node (also updates the graph returned by `graph`).

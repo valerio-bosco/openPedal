@@ -1,0 +1,6 @@
+{
+  "type": "param",
+  "node": "dist",
+  "param": "gain_db",
+  "value": 18.0
+}

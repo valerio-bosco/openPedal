@@ -126,10 +126,15 @@ impl EngineHandle for LiveEngine {
         Ok(())
     }
 
+    fn set_graph_name(&self, name: &str) {
+        self.lock().graph.name = name.to_string();
+    }
+
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()> {
         let mut inner = self.lock();
-        // Ok(None): the node exists but is not connected; the value is only saved in the graph.
-        if let Some(change) = inner.map.resolve(node, param, value)? {
+        // No changes: the node exists but is not connected; the value is only saved in the graph.
+        // A control can drive several parameters (one change per route).
+        for change in inner.map.resolve_changes(node, param, value)? {
             inner.engine.set_param(change)?;
         }
         let spec = inner.graph.nodes.iter_mut().find(|n| n.id == node).ok_or_else(|| anyhow!("node '{node}' does not exist"))?;

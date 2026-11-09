@@ -1,6 +1,6 @@
 {
   "type": "state",
-  "protocol": 1,
+  "protocol": 2,
   "catalog": [
     {
       "kind": "input",
@@ -1032,5 +1032,8 @@
     "sample_rate": 48000,
     "buffer": 96,
     "running": true
-  }
+  },
+  "can_undo": true,
+  "can_redo": false,
+  "dirty": true
 }

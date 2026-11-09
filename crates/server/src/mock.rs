@@ -86,6 +86,10 @@ impl EngineHandle for MockEngine {
         Ok(())
     }
 
+    fn set_graph_name(&self, name: &str) {
+        self.inner.lock().unwrap().graph.name = name.to_string();
+    }
+
     fn set_param(&self, node: &str, param: &str, value: f32) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         let Inner { graph, catalog } = &mut *inner;

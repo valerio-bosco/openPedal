@@ -12,7 +12,9 @@ pub mod codegen;
 
 /// Version of the WebSocket contract (docs/PLAN.md §5.4), sent in `state`.
 /// Bumped on any breaking change; additive optional fields do not bump it.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// 2: server-side chain edits and undo/redo, new `param` and `added` server messages,
+/// `can_undo`/`can_redo`/`dirty` in `state`, and state broadcast to every client.
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// From the client (interface) to the server.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -34,6 +36,26 @@ pub enum ClientMsg {
     /// Writes pedals/<id>.toml; the server then sends `state` back with the updated catalog.
     SavePedal { id: String, pedal: PedalFile },
     DeletePedal { id: String },
+    /// Inserts a new pedal of type `kind` into a linear chain, after the node `after`
+    /// (default: just before the output). The server picks a unique id. Replies with `state`
+    /// then `added`; `error` if the graph is not a simple chain.
+    AddNode {
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
+    /// Removes a pedal from a linear chain (not `input`/`output`) and reconnects its neighbours.
+    RemoveNode { node: String },
+    /// Moves a pedal of a linear chain to position `to` among the pedals (0 = right after the
+    /// input; clamped). The input stays first and the output last.
+    MoveNode { node: String, to: u32 },
+    /// Undoes the last step of the shared history (replies with `state`).
+    Undo,
+    /// Redoes the last undone step.
+    Redo,
+    /// Call once at the start of a continuous gesture (a knob drag): the `set_param` messages
+    /// that follow become a single undo step.
+    EditBegin,
 }
 
 /// From the server to the client.
@@ -42,6 +64,11 @@ pub enum ClientMsg {
 pub enum ServerMsg {
     State(StateMsg),
     Meters(MetersMsg),
+    /// A `set_param` made by another client, forwarded without rebuilding anything
+    /// (never sent back to the client that made it). For choices `value` is the option index.
+    Param { node: String, param: String, value: f32 },
+    /// Sent to the client that asked for `add_node`, right after the `state` that contains the node.
+    Added { node: String },
     Error {
         /// In English, to show to the user.
         message: String,
@@ -62,6 +89,11 @@ pub struct StateMsg {
     /// Content of the composite pedals (id -> pedal), so they can be opened and edited.
     pub pedals: BTreeMap<String, PedalFile>,
     pub audio: AudioInfo,
+    /// The shared history has something to undo / redo.
+    pub can_undo: bool,
+    pub can_redo: bool,
+    /// The graph differs from the last loaded or saved preset.
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]

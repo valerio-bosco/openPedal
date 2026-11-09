@@ -16,7 +16,7 @@ const catalog = fixture("catalog") as unknown[];
 assert.ok(Array.isArray(catalog) && catalog.length > 0);
 for (const c of catalog) assert.ok(isCatalogItem(c), `catalog item rejected: ${JSON.stringify(c).slice(0, 120)}`);
 
-for (const name of ["state", "meters", "error"]) {
+for (const name of ["state", "meters", "error", "param", "added"]) {
   const m = fixture(name);
   assert.ok(isServerMsg(m), `${name}.json rejected`);
   assert.equal((m as { type: string }).type, name);

@@ -4,7 +4,7 @@
 import Foundation
 
 enum OpenPedalProtocol {
-    static let version = 1
+    static let version = 2
     static let input = "input"
     static let output = "output"
     static let pedalPrefix = "pedal:"
@@ -61,6 +61,22 @@ enum ClientMsg: Codable, Hashable {
     /// Writes pedals/<id>.toml; the server then sends `state` back with the updated catalog.
     case savePedal(id: String, pedal: PedalFile)
     case deletePedal(String)
+    /// Inserts a new pedal of type `kind` into a linear chain, after the node `after`
+    /// (default: just before the output). The server picks a unique id. Replies with `state`
+    /// then `added`; `error` if the graph is not a simple chain.
+    case addNode(kind: String, after: String?)
+    /// Removes a pedal from a linear chain (not `input`/`output`) and reconnects its neighbours.
+    case removeNode(String)
+    /// Moves a pedal of a linear chain to position `to` among the pedals (0 = right after the
+    /// input; clamped). The input stays first and the output last.
+    case moveNode(node: String, to: Int)
+    /// Undoes the last step of the shared history (replies with `state`).
+    case undo
+    /// Redoes the last undone step.
+    case redo
+    /// Call once at the start of a continuous gesture (a knob drag): the `set_param` messages
+    /// that follow become a single undo step.
+    case editBegin
 
     private enum TagKey: String, CodingKey { case type }
     private enum SetParamKeys: String, CodingKey { case node, param, value }
@@ -71,6 +87,9 @@ enum ClientMsg: Codable, Hashable {
     private enum DeletePresetKeys: String, CodingKey { case name }
     private enum SavePedalKeys: String, CodingKey { case id, pedal }
     private enum DeletePedalKeys: String, CodingKey { case id }
+    private enum AddNodeKeys: String, CodingKey { case kind, after }
+    private enum RemoveNodeKeys: String, CodingKey { case node }
+    private enum MoveNodeKeys: String, CodingKey { case node, to }
 
     init(from decoder: Decoder) throws {
         let tc = try decoder.container(keyedBy: TagKey.self)
@@ -101,6 +120,21 @@ enum ClientMsg: Codable, Hashable {
         case "delete_pedal":
             let c = try decoder.container(keyedBy: DeletePedalKeys.self)
             self = .deletePedal(try c.decode(String.self, forKey: .id))
+        case "add_node":
+            let c = try decoder.container(keyedBy: AddNodeKeys.self)
+            self = .addNode(kind: try c.decode(String.self, forKey: .kind), after: try c.decodeIfPresent(String.self, forKey: .after))
+        case "remove_node":
+            let c = try decoder.container(keyedBy: RemoveNodeKeys.self)
+            self = .removeNode(try c.decode(String.self, forKey: .node))
+        case "move_node":
+            let c = try decoder.container(keyedBy: MoveNodeKeys.self)
+            self = .moveNode(node: try c.decode(String.self, forKey: .node), to: try c.decode(Int.self, forKey: .to))
+        case "undo":
+            self = .undo
+        case "redo":
+            self = .redo
+        case "edit_begin":
+            self = .editBegin
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: tc, debugDescription: "unknown ClientMsg \(other)")
         }
@@ -148,6 +182,26 @@ enum ClientMsg: Codable, Hashable {
             try tc.encode("delete_pedal", forKey: .type)
             var c = encoder.container(keyedBy: DeletePedalKeys.self)
             try c.encode(id, forKey: .id)
+        case .addNode(let kind, let after):
+            try tc.encode("add_node", forKey: .type)
+            var c = encoder.container(keyedBy: AddNodeKeys.self)
+            try c.encode(kind, forKey: .kind)
+            try c.encodeIfPresent(after, forKey: .after)
+        case .removeNode(let node):
+            try tc.encode("remove_node", forKey: .type)
+            var c = encoder.container(keyedBy: RemoveNodeKeys.self)
+            try c.encode(node, forKey: .node)
+        case .moveNode(let node, let to):
+            try tc.encode("move_node", forKey: .type)
+            var c = encoder.container(keyedBy: MoveNodeKeys.self)
+            try c.encode(node, forKey: .node)
+            try c.encode(to, forKey: .to)
+        case .undo:
+            try tc.encode("undo", forKey: .type)
+        case .redo:
+            try tc.encode("redo", forKey: .type)
+        case .editBegin:
+            try tc.encode("edit_begin", forKey: .type)
         }
     }
 }
@@ -323,9 +377,16 @@ struct PedalFile: Codable, Hashable {
 enum ServerMsg: Codable, Hashable {
     case state(StateMsg)
     case meters(MetersMsg)
+    /// A `set_param` made by another client, forwarded without rebuilding anything
+    /// (never sent back to the client that made it). For choices `value` is the option index.
+    case param(node: String, param: String, value: Double)
+    /// Sent to the client that asked for `add_node`, right after the `state` that contains the node.
+    case added(String)
     case error(message: String, node: String?)
 
     private enum TagKey: String, CodingKey { case type }
+    private enum ParamKeys: String, CodingKey { case node, param, value }
+    private enum AddedKeys: String, CodingKey { case node }
     private enum ErrorKeys: String, CodingKey { case message, node }
 
     init(from decoder: Decoder) throws {
@@ -335,6 +396,12 @@ enum ServerMsg: Codable, Hashable {
             self = .state(try StateMsg(from: decoder))
         case "meters":
             self = .meters(try MetersMsg(from: decoder))
+        case "param":
+            let c = try decoder.container(keyedBy: ParamKeys.self)
+            self = .param(node: try c.decode(String.self, forKey: .node), param: try c.decode(String.self, forKey: .param), value: try c.decode(Double.self, forKey: .value))
+        case "added":
+            let c = try decoder.container(keyedBy: AddedKeys.self)
+            self = .added(try c.decode(String.self, forKey: .node))
         case "error":
             let c = try decoder.container(keyedBy: ErrorKeys.self)
             self = .error(message: try c.decode(String.self, forKey: .message), node: try c.decodeIfPresent(String.self, forKey: .node))
@@ -352,6 +419,16 @@ enum ServerMsg: Codable, Hashable {
         case .meters(let v):
             try tc.encode("meters", forKey: .type)
             try v.encode(to: encoder)
+        case .param(let node, let param, let value):
+            try tc.encode("param", forKey: .type)
+            var c = encoder.container(keyedBy: ParamKeys.self)
+            try c.encode(node, forKey: .node)
+            try c.encode(param, forKey: .param)
+            try c.encode(value, forKey: .value)
+        case .added(let node):
+            try tc.encode("added", forKey: .type)
+            var c = encoder.container(keyedBy: AddedKeys.self)
+            try c.encode(node, forKey: .node)
         case .error(let message, let node):
             try tc.encode("error", forKey: .type)
             var c = encoder.container(keyedBy: ErrorKeys.self)
@@ -371,6 +448,11 @@ struct StateMsg: Codable, Hashable {
     /// Content of the composite pedals (id -> pedal), so they can be opened and edited.
     var pedals: [String: PedalFile]
     var audio: AudioInfo
+    /// The shared history has something to undo / redo.
+    var canUndo: Bool
+    var canRedo: Bool
+    /// The graph differs from the last loaded or saved preset.
+    var dirty: Bool
 
-    enum CodingKeys: String, CodingKey { case protocolVersion = "protocol", catalog, graph, presets, pedals, audio }
+    enum CodingKeys: String, CodingKey { case protocolVersion = "protocol", catalog, graph, presets, pedals, audio, canUndo = "can_undo", canRedo = "can_redo", dirty }
 }

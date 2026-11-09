@@ -189,14 +189,23 @@ Client → server:
 | `load_preset` / `save_preset` | `name` (+ `graph` when saving) | replies with `state` |
 | `delete_preset` | `name` | deletes `content/presets/<name>.toml`; the playing graph is unchanged; replies with `state` |
 | `save_pedal` / `delete_pedal` | `id` + `pedal` / `id` | writes or deletes `content/pedals/<id>.toml`, replies with `state` (updated catalog) |
+| `add_node` | `kind`, `after?` | inserts a pedal into a linear chain after node `after` (default: before the output); the server picks the id; replies `state` then `added`; `error` on non-linear graphs |
+| `remove_node` | `node` | removes a pedal from a linear chain and reconnects its neighbours |
+| `move_node` | `node`, `to` | moves a pedal to index `to` among the pedals (0 = after the input, clamped); input stays first, output last |
+| `undo` / `redo` | – | one step through the shared server-side history (cap 100); replies `state`; `error` if there is nothing to undo/redo |
+| `edit_begin` | – | start of a continuous gesture (knob drag): the following `set_param`s become one undo step (the step is recorded at the first one) |
 
 Server → client:
 
 | `type` | Fields |
 |---|---|
-| `state` | `protocol` (`PROTOCOL_VERSION`, currently 1), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running) |
+| `state` | `protocol` (`PROTOCOL_VERSION`, currently 2), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running), `can_undo`, `can_redo`, `dirty` (graph differs from the last load/save) |
+| `param` | `node`, `param`, `value`: a `set_param` made by another client (never echoed to its sender) |
+| `added` | `node`: the id created by `add_node`, sent only to the client that asked, right after its `state` |
 | `meters` | `in_db`, `out_db`, `dsp` (0..1), `xruns`, about 20 times per second |
 | `error` | `message` (shown to the user), `node` (optional: the node the error is about) |
+
+Broadcast: every change to the graph, presets or pedals is sent as `state` to all connected clients (the sender gets it as its reply, except `set_graph`, whose sender already has the graph). `set_param` is forwarded to the other clients as `param`; when it also changes `can_undo` or `dirty` (first change of a gesture, a choice) a `state` goes out instead. `meters` go to every client. History: one undo/redo stack of graph snapshots (cap 100) shared by all clients; pushed by `add_node`, `remove_node`, `move_node`, `set_bypass`, `set_graph` (if the graph changed), choice parameters and `edit_begin` gestures; plain number `set_param`s alone are not steps; `load_preset` clears it. `save_preset` renames the playing graph.
 
 Exact JSON examples live in `apps/desktop/ui/src/fixtures/*.json` and are regenerated with `openpedal dev-fixtures apps/desktop/ui/src/fixtures`. They are the reference.
 
@@ -297,8 +306,7 @@ This keeps one contract and later lets the iPad remote-control a desktop instanc
 **Chain view.** The iPad shows the graph as a chain: nodes in signal order from `input` to `output`.
 If the graph is not a simple chain (parallel branches, composite pedals are fine), the board shows the
 nodes in topological order and disables reordering/adding, with a note "Parallel routing: edit on the
-desktop". Adding/removing/reordering on a chain is done client-side by rewriting `node`/`edge` and
-sending `set_graph`.
+desktop". Adding/removing/reordering on a chain is done by the core (`add_node`, `remove_node`, `move_node`, protocol v2).
 
 ### 10.2 Contract changes (protocol v1)
 
@@ -311,6 +319,10 @@ sending `set_graph`.
   with a short click-free crossfade (~10 ms) between processed and dry. `input`/`output` cannot be
   bypassed (error). Saved with the preset. The web UI shows it as a toggle on the node.
 - Tuner (pitch in `meters`) is **not** in this round.
+
+### 10.2b Protocol v2 (2026-11)
+
+`PROTOCOL_VERSION = 2`: chain edits (`add_node`, `remove_node`, `move_node`), `undo`/`redo`/`edit_begin`, the server-to-client messages `param` and `added`, and `can_undo`/`can_redo`/`dirty` in `state` (see §5.4). Breaking for v1 decoders, which do not know the new server messages. Clients are thin: they send commands and render state; the core owns the chain logic (`crates/graph/src/chain.rs`) and the history, and broadcasts to every client (desktop and iPad together).
 
 ### 10.3 Versions and releases
 

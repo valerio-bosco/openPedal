@@ -291,5 +291,32 @@
   {
     "type": "delete_pedal",
     "id": "old-pedal"
+  },
+  {
+    "type": "add_node",
+    "kind": "delay",
+    "after": "dist"
+  },
+  {
+    "type": "add_node",
+    "kind": "pedal:cab-4x12"
+  },
+  {
+    "type": "remove_node",
+    "node": "dist"
+  },
+  {
+    "type": "move_node",
+    "node": "dist",
+    "to": 0
+  },
+  {
+    "type": "undo"
+  },
+  {
+    "type": "redo"
+  },
+  {
+    "type": "edit_begin"
   }
 ]

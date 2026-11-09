@@ -4,7 +4,7 @@ import Foundation
 // (contract: docs/PLAN.md §5.4 and §10.2). Do not redefine wire types here.
 
 /// Highest protocol version this app understands.
-let supportedProtocolVersion = 1
+let supportedProtocolVersion = 2
 
 extension ParamDesc: Identifiable {
     enum Tag { case number, choice, file }

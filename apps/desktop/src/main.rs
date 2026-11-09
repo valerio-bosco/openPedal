@@ -233,12 +233,17 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         presets: vec!["ambient".into(), "clean".into(), "crunch".into(), "crunch-graph".into()],
         pedals: pedals.iter().cloned().collect(),
         audio: AudioInfo { sample_rate: 48000, buffer: 96, running: true },
+        can_undo: true,
+        can_redo: false,
+        dirty: true,
     });
     write("state.json", serde_json::to_string_pretty(&state)?)?;
     let meters = ServerMsg::Meters(MetersMsg { in_db: -18.5, out_db: -12.0, dsp: 0.02, xruns: 0 });
     write("meters.json", serde_json::to_string_pretty(&meters)?)?;
     let error = ServerMsg::Error { message: "the graph contains a cycle: dist -> room -> dist".into(), node: Some("room".into()) };
     write("error.json", serde_json::to_string_pretty(&error)?)?;
+    write("param.json", serde_json::to_string_pretty(&ServerMsg::Param { node: "dist".into(), param: "gain_db".into(), value: 18.0 })?)?;
+    write("added.json", serde_json::to_string_pretty(&ServerMsg::Added { node: "delay2".into() })?)?;
 
     let (_, pedal) = pedals.first().context("need at least one pedal in content/pedals/")?.clone();
     let client = vec![
@@ -252,6 +257,13 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::SavePedal { id: "cab-4x12".into(), pedal },
         ClientMsg::DeletePreset { name: "old-sound".into() },
         ClientMsg::DeletePedal { id: "old-pedal".into() },
+        ClientMsg::AddNode { kind: "delay".into(), after: Some("dist".into()) },
+        ClientMsg::AddNode { kind: "pedal:cab-4x12".into(), after: None },
+        ClientMsg::RemoveNode { node: "dist".into() },
+        ClientMsg::MoveNode { node: "dist".into(), to: 0 },
+        ClientMsg::Undo,
+        ClientMsg::Redo,
+        ClientMsg::EditBegin,
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
     println!("fixtures written to {}", dir.display());
