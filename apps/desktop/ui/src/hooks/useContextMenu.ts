@@ -10,14 +10,14 @@ interface Actions {
   nodes: PNode[];
   /** True inside a pedal: pedals cannot be entered from there. */
   editing: boolean;
-  enterPedal: (node: PNode) => void;
+  editPedal: (node: PNode) => void;
   duplicate: (only?: string[]) => void;
   disconnect: (id: string) => void;
   removeNodes: (ids: string[]) => void;
   removeEdges: (ids: string[]) => void;
 }
 
-export function useContextMenu({ nodes, editing, enterPedal, duplicate, disconnect, removeNodes, removeEdges }: Actions) {
+export function useContextMenu({ nodes, editing, editPedal, duplicate, disconnect, removeNodes, removeEdges }: Actions) {
   const [menu, setMenu] = useState<Menu>(null);
 
   const items = (m: NonNullable<Menu>): MenuItem[] => {
@@ -30,7 +30,7 @@ export function useContextMenu({ nodes, editing, enterPedal, duplicate, disconne
     const fixed = isFixed(node.data.kind);
     const list: MenuItem[] = [];
     if (node.data.kind.startsWith(PEDAL_PREFIX) && !editing) {
-      list.push({ label: "Enter pedal", hint: "double click", onClick: () => enterPedal(node) });
+      list.push({ label: "Edit pedal…", hint: "double click", onClick: () => editPedal(node) });
     }
     list.push(
       {

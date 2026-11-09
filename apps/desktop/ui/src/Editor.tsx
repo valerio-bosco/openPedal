@@ -4,10 +4,11 @@ import { ContextMenu } from "./components/ContextMenu";
 import { Canvas } from "./components/Canvas";
 import { EditorContext } from "./components/PedalNode";
 import { Palette } from "./components/Palette";
-import { PedalDialogs } from "./components/PedalDialogs";
+import { PedalDesigner } from "./components/PedalDesigner";
 import { Toasts } from "./components/Toasts";
 import { MainToolbar, PedalToolbar } from "./components/Toolbar";
 import { TopBar } from "./components/TopBar";
+import type { PNode } from "./model";
 import { useContextMenu } from "./hooks/useContextMenu";
 import { useEngineSync } from "./hooks/useEngineSync";
 import { useGraphEditor } from "./hooks/useGraphEditor";
@@ -41,7 +42,8 @@ export function Editor() {
   const engine = useEngineSync({ server, graph, graphName, setGraphName, editing, editingRef });
   const presets = usePresets({ server, nodes, edges, graphName, setGraphName, toast });
   const pedals = usePedals({ server, graph, history, graphName, toast, markSynced: engine.markSynced, editing, setEditing });
-  const contextMenu = useContextMenu({ editing: !!editing, enterPedal: pedals.enterPedal, ...graph });
+  const editPedal = useCallback((n: PNode) => pedals.openEdit(n.data.kind), [pedals.openEdit]);
+  const contextMenu = useContextMenu({ editing: !!editing, editPedal, ...graph });
 
   const restoreLocal = useCallback(
     (s: { nodes: typeof nodes; edges: typeof edges } | undefined) => {
@@ -94,9 +96,8 @@ export function Editor() {
               <PedalToolbar
                 {...edit}
                 pedalName={editing.name}
-                onDetails={() => pedals.setDialog({ mode: "edit" })}
-                onSave={() => pedals.savePedalEdit()}
-                onExit={pedals.exitPedal}
+                onDone={() => pedals.finishInner(true)}
+                onCancel={() => pedals.finishInner(false)}
               />
             ) : (
               <MainToolbar
@@ -104,33 +105,35 @@ export function Editor() {
                 selectedCount={selCount}
                 onNew={graph.newGraph}
                 onDuplicate={duplicateSelection}
-                onCreatePedal={() => pedals.setDialog({ mode: "create", ids: selected.map((n) => n.id) })}
+                onCreatePedal={() => pedals.openCreate(selected.map((n) => n.id))}
               />
             )
           }
         />
         <div className="main">
-          <Palette catalog={server.catalogItems} onAdd={graph.addNode} onDeletePedal={pedals.deletePedal} />
+          <Palette catalog={server.catalogItems} onAdd={graph.addNode} onEditPedal={(item) => pedals.openEdit(item.kind)} onDeletePedal={pedals.deletePedal} />
           <Canvas
             graph={graph}
             catalog={server.catalog}
             ready={ready}
             toast={toast}
-            onEnterPedal={pedals.enterPedal}
+            onEditPedal={editPedal}
             onNodeMenu={contextMenu.openNode}
             onEdgeMenu={contextMenu.openEdge}
             onCloseMenu={contextMenu.close}
           />
         </div>
-        <PedalDialogs
-          dialog={pedals.dialog}
-          editing={editing}
-          nodes={nodes}
-          catalog={server.catalog}
-          onCreate={pedals.createPedal}
-          onSaveEdit={pedals.savePedalEdit}
-          onCancel={() => pedals.setDialog(null)}
-        />
+        {pedals.designer && (
+          <PedalDesigner
+            isNew={pedals.designer.id === null}
+            draft={pedals.designer.draft}
+            server={server}
+            onChange={pedals.changeDraft}
+            onEditInner={() => pedals.editInner(pedals.designer!.draft)}
+            onSave={pedals.savePedal}
+            onCancel={pedals.closeDesigner}
+          />
+        )}
         {contextMenu.menu && (
           <ContextMenu x={contextMenu.menu.x} y={contextMenu.menu.y} items={contextMenu.items(contextMenu.menu)} onClose={contextMenu.close} />
         )}

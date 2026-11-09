@@ -264,6 +264,9 @@ input:not([type]) {
 .palette-del:hover {
   color: var(--danger);
 }
+.palette-del.palette-edit:hover {
+  color: var(--accent);
+}
 .palette-empty {
   padding: 16px;
   color: var(--dim);
@@ -470,83 +473,6 @@ input:not([type]) {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
-/* dialogs */
-.modal-bg {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: grid;
-  place-items: center;
-  z-index: 40;
-}
-.modal {
-  width: min(640px, 94vw);
-  max-height: 88vh;
-  overflow: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 18px 20px;
-}
-.modal h2 {
-  margin: 0 0 12px;
-  font-size: 17px;
-}
-.form-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.form-row label {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--dim);
-  font-size: 11px;
-}
-.form-row input,
-.form-row select {
-  color: var(--text);
-  font-size: 13px;
-}
-.knob-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 12px;
-}
-.knob-table th {
-  text-align: left;
-  color: var(--dim);
-  font-weight: 500;
-  font-size: 11px;
-  padding: 4px 4px;
-}
-.knob-table td {
-  padding: 3px 4px;
-  border-top: 1px solid var(--line);
-}
-.knob-table input[type="text"],
-.knob-table input[type="number"] {
-  width: 100%;
-}
-.knob-table .num {
-  width: 78px;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.modal .err {
-  color: #ffb3b3;
-  margin-bottom: 10px;
-}
-.modal .hint {
-  color: var(--dim);
-  margin: 0 0 10px;
-}
-
 /* --- editing: delete, menu, undo --- */
 .btn-group {
   display: inline-flex;
@@ -633,4 +559,503 @@ button.danger-hover:hover:not(:disabled) {
   border-radius: 50%;
   background: #e5b93c;
   flex: none;
+}
+
+/* --- pedal designer --- */
+.designer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  display: grid;
+  grid-template-rows: 52px auto 1fr;
+  min-height: 0;
+}
+.designer .grow {
+  flex: 1;
+}
+.designer .lbl {
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.designer h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.designer .hint {
+  color: var(--dim);
+  line-height: 1.45;
+  margin: 0;
+}
+.designer .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.designer .row.between {
+  justify-content: space-between;
+}
+.designer input.num {
+  width: 78px;
+}
+.dz-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.dz-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-right: 6px;
+}
+.dz-bar #dz-name {
+  width: 220px;
+}
+.dz-sw {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.dz-sw.on {
+  border-color: #fff;
+}
+.dz-banner {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  background: #2b2326;
+  color: #ffb3b3;
+  border-bottom: 1px solid var(--danger);
+}
+.dz-main {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr) 400px;
+  min-height: 0;
+}
+.dz-col {
+  border-right: 1px solid var(--line);
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.dz-col:last-child {
+  border-right: 0;
+}
+.dz-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.dz-inner-box,
+.dz-graph-box {
+  background: #0f1013;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.dz-inner {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dz-inner .wire {
+  fill: none;
+  stroke: #4a505d;
+  stroke-width: 2;
+}
+.dz-inner .n rect {
+  fill: var(--panel);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+.dz-inner .n.sel rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  fill: #2a2418;
+}
+.dz-inner .n text {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.dz-inner .n text.k {
+  fill: var(--dim);
+  font-size: 10px;
+  font-weight: 400;
+  font-family: ui-monospace, monospace;
+}
+.dz-center {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 14px;
+  padding: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.dz-preview {
+  display: grid;
+  place-items: center;
+  padding: 10px 0;
+}
+.dz-graph-box {
+  padding: 8px 12px;
+  min-height: 200px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.dz-graph-box .range {
+  margin-left: auto;
+  color: var(--dim);
+  font: 11px ui-monospace, monospace;
+}
+.dz-graph {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.dz-graph text {
+  fill: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+}
+.dz-graph .grid {
+  stroke: rgba(255, 255, 255, 0.07);
+}
+.dz-graph .grid.zero {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+.dz-graph-empty {
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  text-align: center;
+  padding: 20px;
+}
+.dz-controls {
+  display: grid;
+  gap: 6px;
+}
+.dz-crow {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  cursor: pointer;
+}
+.dz-crow.sel {
+  border-color: var(--accent);
+}
+.dz-crow.bad {
+  border-color: var(--danger);
+}
+.dz-crow .t,
+.dz-route .now {
+  font: 10px ui-monospace, monospace;
+  color: var(--dim);
+}
+.dz-crow .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 250px;
+}
+.vicon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--panel2);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--dim);
+}
+.dz-ved {
+  display: grid;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.dz-ved input.opt {
+  width: 80px;
+}
+.dz-ved .pos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.designer .seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.designer .seg button {
+  background: #14161b;
+  border: 0;
+  border-radius: 0;
+  padding: 5px 11px;
+  color: var(--dim);
+}
+.designer .seg button.on {
+  background: #2a2d36;
+  color: #fff;
+}
+.dz-route {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #14161b;
+  border: 1px solid var(--line);
+}
+.dz-route .head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.dz-route .x {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--dim);
+  font-size: 16px;
+  padding: 0 4px;
+}
+.curvebtn {
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  height: 32px;
+  padding: 0;
+  color: var(--dim);
+  background: #14161b;
+}
+.curvebtn svg {
+  width: 34px;
+  height: 20px;
+}
+.curvebtn.on {
+  border-color: var(--accent);
+  background: rgba(255, 178, 63, 0.12);
+  color: var(--accent);
+}
+.dz-err {
+  color: #ffb3b3;
+  background: #2b2326;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.dz-picker-wrap {
+  position: relative;
+}
+.dz-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+}
+.dz-menu {
+  position: absolute;
+  z-index: 5;
+  bottom: calc(100% + 4px);
+  left: 0;
+  width: 280px;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.dz-menu .sec {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 8px 2px;
+}
+.dz-menu button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+.dz-menu button:hover:not(:disabled) {
+  background: #2a2d36;
+}
+.dz-menu small {
+  color: var(--dim);
+  font: 10px ui-monospace, monospace;
+}
+
+/* the pedal face */
+.dz-pedal {
+  --c: #d9573b;
+  position: relative;
+  width: 220px;
+  height: 330px;
+  border-radius: 26px;
+  background: radial-gradient(120% 55% at 30% 0%, rgba(255, 255, 255, 0.3), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--c) 90%, #fff), var(--c) 38%, color-mix(in srgb, var(--c) 72%, #000));
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.5), 0 24px 40px -14px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  justify-items: center;
+  padding: 18px 14px 20px;
+  gap: 8px;
+  transition: background 0.3s;
+}
+.dz-pedal h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.62);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dz-face {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+  gap: 10px 16px;
+  width: 100%;
+}
+.dz-empty {
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 11px;
+}
+.dz-pk {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.dz-pk i {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #4a4b50, #141518 70%);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  position: relative;
+  display: block;
+}
+.dz-pk i::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 1.5px);
+  top: 5px;
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: #f4f3f1;
+  transform-origin: 50% 17px;
+  transform: rotate(var(--a, 0deg));
+}
+.dz-pk span,
+.dz-ps span {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.62);
+}
+.dz-pk.sel i {
+  box-shadow: 0 0 0 2.5px #fff, 0 3px 5px rgba(0, 0, 0, 0.5);
+}
+.dz-ps {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.dz-ps .tog {
+  width: 18px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.35);
+  position: relative;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.dz-ps .tog::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 18px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(#f2f2f2, #9a9a9a);
+  transition: top 0.15s;
+}
+.dz-ps.on .tog::after {
+  top: 2px;
+}
+.dz-ps .opts {
+  display: flex;
+  gap: 6px;
+}
+.dz-ps .opts b {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a0d0d;
+}
+.dz-ps .opts b.on {
+  background: #ff3b30;
+  box-shadow: 0 0 6px #ff3b30;
+}
+.dz-ps.sel .tog,
+.dz-ps.sel .opts {
+  outline: 2.5px solid #fff;
+  outline-offset: 3px;
+  border-radius: 9px;
+}
+.dz-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 8px #ff3b30;
+}
+.dz-fs {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #d9dadc 0 42%, transparent 43%), conic-gradient(#8e9095, #f2f3f5, #8e9095, #f2f3f5, #8e9095, #f2f3f5, #8e9095);
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.32), 0 5px 9px rgba(0, 0, 0, 0.55);
 }

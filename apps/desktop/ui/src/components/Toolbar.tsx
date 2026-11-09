@@ -60,21 +60,22 @@ export function MainToolbar({ selectedCount, onNew, onDuplicate, onCreatePedal, 
 
 interface PedalProps extends EditProps {
   pedalName: string;
-  onDetails: () => void;
-  onSave: () => void;
-  onExit: () => void;
+  onDone: () => void;
+  onCancel: () => void;
 }
 
-export function PedalToolbar({ pedalName, onDetails, onSave, onExit, ...edit }: PedalProps) {
+/** Inside a pedal's inner graph: "Done" goes back to the designer with the changes, "Cancel" without. */
+export function PedalToolbar({ pedalName, onDone, onCancel, ...edit }: PedalProps) {
   return (
     <>
-      <span className="crumb">Inside pedal «{pedalName}»</span>
+      <span className="crumb">Inner graph of «{pedalName}»</span>
       <EditButtons {...edit} />
-      <button onClick={onDetails}>Details and knobs…</button>
-      <button className="primary" onClick={onSave}>
-        Save pedal
+      <button className="primary" onClick={onDone} title="Back to the pedal designer with these changes">
+        Done
       </button>
-      <button onClick={onExit}>Exit without saving</button>
+      <button onClick={onCancel} title="Back to the pedal designer, dropping the changes made here">
+        Cancel
+      </button>
     </>
   );
 }

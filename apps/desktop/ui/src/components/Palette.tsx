@@ -7,10 +7,11 @@ export const DRAG_MIME = "application/x-openpedal-kind";
 interface Props {
   catalog: CatalogItem[];
   onAdd: (kind: string) => void;
+  onEditPedal: (item: CatalogItem) => void;
   onDeletePedal: (item: CatalogItem) => void;
 }
 
-export function Palette({ catalog, onAdd, onDeletePedal }: Props) {
+export function Palette({ catalog, onAdd, onEditPedal, onDeletePedal }: Props) {
   const [query, setQuery] = useState("");
   const [closed, setClosed] = useState<Set<string>>(new Set());
 
@@ -72,6 +73,19 @@ export function Palette({ catalog, onAdd, onDeletePedal }: Props) {
                   >
                     <span className="led" />
                     <span className="palette-label">{it.label}</span>
+                    {it.composite && (
+                      <button
+                        className="palette-del palette-edit"
+                        title="Edit this pedal in the designer"
+                        aria-label={`Edit ${it.label}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditPedal(it);
+                        }}
+                      >
+                        ✎
+                      </button>
+                    )}
                     {it.composite && (
                       <button
                         className="palette-del"
