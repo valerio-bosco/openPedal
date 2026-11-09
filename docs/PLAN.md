@@ -383,3 +383,5 @@ Phases (each ends with green tests and unchanged audio renders):
 | 2 | Move files into the workspace, no behaviour change | 1 agent, sequential |
 | 3 | Effect/Control/Route in graph · protocol codegen · library crate + broadcast · core chain edits + undo · web UI split · iOS on generated types · legacy cleanup | Sonnet swarm + Haiku, Opus integrates |
 | 4 | Agnostic (custom) pedals on top of Effect/Route | to be designed |
+
+Phase 3 wave 2 done (a8b4d49): protocol v2 (chain edits, undo/redo, edit_begin, broadcast to every client, `param`/`added` messages); web UI split into hooks (a174f0c). Left for phase 3: the web editor still uses its own undo and `set_graph` — switch it to the core commands.
