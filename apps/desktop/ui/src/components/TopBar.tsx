@@ -27,6 +27,8 @@ interface Props {
   status: Status;
   presets: string[];
   graphName: string;
+  /** The graph differs from the last load / save. */
+  dirty: boolean;
   audio?: AudioInfo;
   meters?: MetersMsg;
   disabledPresets: boolean;
@@ -36,7 +38,7 @@ interface Props {
   extra?: ReactNode;
 }
 
-export function TopBar({ status, presets, graphName, audio, meters, disabledPresets, onLoadPreset, onSave, onDelete, extra }: Props) {
+export function TopBar({ status, presets, graphName, dirty, audio, meters, disabledPresets, onLoadPreset, onSave, onDelete, extra }: Props) {
   return (
     <header className="topbar">
       <div className="logo">
@@ -59,6 +61,7 @@ export function TopBar({ status, presets, graphName, audio, meters, disabledPres
           ))}
         </select>
       </label>
+      {dirty && <span className="dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
       <button onClick={onSave} disabled={disabledPresets}>
         Save preset
       </button>

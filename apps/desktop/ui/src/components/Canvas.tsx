@@ -44,6 +44,8 @@ export function Canvas({ graph, catalog, ready, toast, onEnterPedal, onNodeMenu,
           if (st.toNode && !st.isValid) toast("That cable is not valid: it would create a cycle or already exists.");
         }}
         isValidConnection={graph.isValidConnection}
+        onNodeDragStart={graph.hold}
+        onNodeDragStop={graph.release}
         onNodeDoubleClick={(_, n) => onEnterPedal(n)}
         onNodeContextMenu={(e, n) => {
           e.preventDefault();

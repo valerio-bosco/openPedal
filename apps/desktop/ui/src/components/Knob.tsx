@@ -6,6 +6,9 @@ interface Props {
   value: number;
   color: string;
   onChange: (v: number) => void;
+  /** A gesture (drag, wheel burst) starts / ends: all its changes are one undo step. */
+  onBegin?: () => void;
+  onEnd?: () => void;
 }
 
 const SIZE = 46;
@@ -23,8 +26,9 @@ function arc(from: number, to: number) {
 }
 
 /** Circular knob: vertical drag (Shift = fine), double-click to type the value. */
-export function Knob({ desc, value, color, onChange }: Props) {
+export function Knob({ desc, value, color, onChange, onBegin, onEnd }: Props) {
   const drag = useRef<{ y: number; t: number } | null>(null);
+  const wheel = useRef<number | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const t = toNorm(desc, value);
   const end = START + 270 * t;
@@ -33,6 +37,7 @@ export function Knob({ desc, value, color, onChange }: Props) {
     if (editing) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, t };
+    onBegin?.();
   };
   const onMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
@@ -40,16 +45,28 @@ export function Knob({ desc, value, color, onChange }: Props) {
     onChange(fromNorm(desc, drag.current.t + (drag.current.y - e.clientY) / px));
   };
   const onUp = () => {
+    if (!drag.current) return;
     drag.current = null;
+    onEnd?.();
   };
+  // a burst of wheel ticks is one gesture: it ends when the wheel stays still for a moment
   const onWheel = (e: React.WheelEvent) => {
+    if (wheel.current === undefined) onBegin?.();
+    else window.clearTimeout(wheel.current);
+    wheel.current = window.setTimeout(() => {
+      wheel.current = undefined;
+      onEnd?.();
+    }, 400);
     onChange(fromNorm(desc, t - Math.sign(e.deltaY) * 0.02));
   };
 
   const commit = (text: string) => {
     setEditing(false);
     const v = parseFloat(text.replace(",", "."));
-    if (Number.isFinite(v)) onChange(Math.min(desc.max, Math.max(desc.min, v)));
+    if (!Number.isFinite(v)) return;
+    onBegin?.();
+    onChange(Math.min(desc.max, Math.max(desc.min, v)));
+    onEnd?.();
   };
 
   return (

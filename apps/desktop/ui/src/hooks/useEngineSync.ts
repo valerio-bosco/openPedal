@@ -1,18 +1,20 @@
-// Keeps the engine and the editor in step: loads the graph the server sends, sends `set_graph`
-// when the structure changes, and sends the lightest possible update when a snapshot is restored.
+// Keeps the engine and the editor in step: loads the graph the server sends (start-up, preset,
+// undo / redo, edits by another client) and sends `set_graph` when the structure changes.
+//
+// History is the core's (see PLAN.md §5.4): this hook never records steps. The debounce below
+// yields exactly one `set_graph` per structural user action. Node positions are not part of
+// `structureKey`, so moving a node sends nothing and is never an undo step; the positions travel
+// along with the next structural edit or with `save_preset`.
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import type { Edge } from "@xyflow/react";
-import type { Snapshot } from "../history";
 import type { StateMsg } from "../generated/protocol";
-import { flowToGraph, paramValue, specsToFlow, structureKey, type PNode } from "../model";
+import { flowToGraph, specsToFlow, structureKey, type PNode } from "../model";
 import type { GraphEditor } from "./useGraphEditor";
-import type { HistoryControl } from "./useHistory";
 import type { useServer } from "./useServer";
 
 interface Deps {
   server: ReturnType<typeof useServer>;
   graph: GraphEditor;
-  history: HistoryControl;
   graphName: string;
   setGraphName: (name: string) => void;
   /** Non-null while editing inside a pedal: the main graph is then held elsewhere and nothing is sent. */
@@ -20,8 +22,8 @@ interface Deps {
   editingRef: MutableRefObject<unknown>;
 }
 
-export function useEngineSync({ server, graph, history, graphName, setGraphName, editing, editingRef }: Deps) {
-  const { catalog, catalogItems, send, sendParam, handlers } = server;
+export function useEngineSync({ server, graph, graphName, setGraphName, editing, editingRef }: Deps) {
+  const { catalog, catalogItems, send, handlers } = server;
   const { nodes, edges, setNodes, setEdges, tidyIfOverlapping } = graph;
   /** Structure last sent to (or received from) the engine. */
   const lastKey = useRef("");
@@ -31,27 +33,59 @@ export function useEngineSync({ server, graph, history, graphName, setGraphName,
     lastKey.current = structureKey(ns, es, catalog);
   }, [catalog]);
 
-  // --- the server sent a graph (start-up, preset loaded, saved, deleted) ---
-  handlers.current.graph = (m: StateMsg) => {
+  // --- the server sent a graph (start-up, preset loaded, undo / redo, another client's edit) ---
+  handlers.current.graph = (m: StateMsg, keep) => {
     // inside a pedal the main graph stays the one held in `parent`
     if (editingRef.current) return;
     setGraphName(m.graph.name);
     const f = specsToFlow(m.graph.node, m.graph.edge);
     const cat = new Map(m.catalog.map((c) => [c.kind, c]));
     lastKey.current = structureKey(f.nodes, f.edges, cat);
-    setNodes(f.nodes);
-    setEdges(f.edges);
-    // a loaded preset is a new starting point; the same graph (e.g. after a save) is not
-    if (!history.same(f)) {
-      history.reset({ ...f, name: m.graph.name });
-      // automatic tidying is not an edit to undo
-      tidyIfOverlapping((ns, es) => history.reset({ nodes: ns, edges: es }));
-    }
+    // Positions belong to the client: while the graph has a history or unsaved changes, a node that
+    // is already on screen keeps its place (so undoing "add pedal" does not also undo the layout
+    // moves). A freshly loaded preset (no history, clean) takes the server's positions.
+    const keepPlaces = m.can_undo || m.can_redo || m.dirty;
+    setNodes((cur) => {
+      const old = new Map(cur.map((n) => [n.id, n]));
+      return f.nodes.map((n) => {
+        const prev = old.get(n.id);
+        if (!prev) return n;
+        // parameters the user is still turning are newer than this state
+        const params = { ...n.data.params };
+        for (const [k, v] of Object.entries(prev.data.params)) if (keep?.has(`${n.id}\u0000${k}`)) params[k] = v;
+        return {
+          ...n,
+          data: { ...n.data, params },
+          selected: prev.selected,
+          measured: prev.measured,
+          ...(keepPlaces ? { position: prev.position } : {}),
+        };
+      });
+    });
+    setEdges((cur) => {
+      const sel = new Set(cur.filter((e) => e.selected).map((e) => e.id));
+      return f.edges.map((e) => (sel.has(e.id) ? { ...e, selected: true } : e));
+    });
+    // automatic tidying is not an edit (and positions alone are never history steps)
+    if (!keepPlaces) tidyIfOverlapping(() => {});
   };
   handlers.current.nodeError = (node, message) =>
     setNodes((ns) => ns.map((n) => (n.id === node ? { ...n, data: { ...n.data, error: message } } : n)));
+  // another client turned a knob: show it live (a choice arrives as its option index)
+  handlers.current.param = (node, param, value) => {
+    if (editingRef.current) return;
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (n.id !== node) return n;
+        const desc = catalog.get(n.data.kind)?.params.find((p) => p.id === param);
+        if (!desc || desc.kind === "file") return n;
+        const v = desc.kind === "choice" ? (desc.options[value] ?? n.data.params[param]) : value;
+        return { ...n, data: { ...n.data, params: { ...n.data.params, [param]: v } } };
+      }),
+    );
+  };
 
-  // --- structure changed: new graph to the engine ---
+  // --- structure changed: new graph to the engine (one `set_graph`, 150 ms after the last change) ---
   useEffect(() => {
     if (catalogItems.length === 0 || editing) return;
     const key = structureKey(nodes, edges, catalog);
@@ -64,37 +98,5 @@ export function useEngineSync({ server, graph, history, graphName, setGraphName,
     return () => window.clearTimeout(h);
   }, [nodes, edges, catalog, catalogItems.length, graphName, setNodes, send, editing]);
 
-  /** Restores the graph to a snapshot and tells the engine in the lightest way possible. */
-  const restore = useCallback(
-    (s: Snapshot) => {
-      const prev = new Map(nodes.map((n) => [n.id, n]));
-      setNodes(s.nodes);
-      setEdges(s.edges);
-      if (editingRef.current) return; // inside a pedal everything is sent on save
-      const name = s.name ?? graphName;
-      setGraphName(name);
-      const key = structureKey(s.nodes, s.edges, catalog);
-      if (key !== lastKey.current) {
-        lastKey.current = key;
-        send({ type: "set_graph", graph: flowToGraph(name, s.nodes, s.edges) });
-        return;
-      }
-      // same structure: only the changed parameters are needed, without rebuilding the sound
-      for (const n of s.nodes) {
-        const before = prev.get(n.id);
-        const item = catalog.get(n.data.kind);
-        if (!before || !item) continue;
-        if (!!n.data.bypass !== !!before.data.bypass) send({ type: "set_bypass", node: n.id, bypass: !!n.data.bypass });
-        for (const p of item.params) {
-          if (p.kind === "file") continue;
-          const now = n.data.params[p.id];
-          if (now === before.data.params[p.id]) continue;
-          sendParam(n.id, p.id, paramValue(p, now));
-        }
-      }
-    },
-    [nodes, catalog, graphName, setNodes, setEdges, setGraphName, send, sendParam, editingRef],
-  );
-
-  return { markSynced, restore };
+  return { markSynced };
 }

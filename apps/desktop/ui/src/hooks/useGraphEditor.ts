@@ -1,7 +1,7 @@
 // The graph being edited: React Flow nodes and cables, selection, and every edit operation on them.
 import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { useEdgesState, useNodesState, useReactFlow, type Connection as FlowConnection, type Edge } from "@xyflow/react";
-import { INPUT, OUTPUT, type CatalogItem, type ParamValue } from "../generated/protocol";
+import { INPUT, OUTPUT, type CatalogItem, type ClientMsg, type ParamValue } from "../generated/protocol";
 import { X_SCALE, edgeId, isFixed, paramValue, specToNode, uniqueId, wouldCycle, type PNode } from "../model";
 import { hasOverlap, tidyPositions } from "../lib/layout";
 
@@ -9,13 +9,15 @@ interface Deps {
   catalog: Map<string, CatalogItem>;
   /** True while editing inside a pedal: edits are not sent to the engine. */
   editingRef: MutableRefObject<unknown>;
-  send: (msg: { type: "set_bypass"; node: string; bypass: boolean }) => void;
+  send: (msg: ClientMsg) => void;
+  /** Start / end of a user interaction: graphs from the server wait until it ends. */
+  hold: () => void;
+  release: () => void;
   sendParam: (node: string, param: string, value: number) => void;
   toast: (text: string) => void;
-  setGraphName: (name: string) => void;
 }
 
-export function useGraphEditor({ catalog, editingRef, send, sendParam, toast, setGraphName }: Deps) {
+export function useGraphEditor({ catalog, editingRef, send, hold, release, sendParam, toast }: Deps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<PNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const flow = useReactFlow<PNode, Edge>();
@@ -42,15 +44,14 @@ export function useGraphEditor({ catalog, editingRef, send, sendParam, toast, se
     [flow, tidy],
   );
 
-  /** Empty graph: only Guitar connected to Amp (you hear the clean sound). Undo with Ctrl+Z. */
+  /** Empty graph: only Guitar connected to Amp (you hear the clean sound). Undo with Ctrl+Z. The name is kept (the core's undo keeps it too); the dirty dot shows the change. */
   const newGraph = useCallback(() => {
     const nIn = specToNode({ id: "in", type: INPUT, pos: [0, 0], params: {} });
     const nOut = specToNode({ id: "out", type: OUTPUT, pos: [300, 0], params: {} });
     setNodes([nIn, nOut]);
     setEdges([{ id: edgeId("in", "out"), source: "in", target: "out" }]);
-    setGraphName("new");
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.6, maxZoom: 1 }), 50);
-  }, [flow, setNodes, setEdges, setGraphName]);
+  }, [flow, setNodes, setEdges]);
 
   // --- deletion ---
   const removeNodes = useCallback(
@@ -133,8 +134,19 @@ export function useGraphEditor({ catalog, editingRef, send, sendParam, toast, se
     [setNodes, send, editingRef],
   );
   const removeNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
+  /**
+   * A knob gesture starts: the core makes everything up to `endEdit` one undo step. Inside a pedal
+   * nothing reaches the core, so there is no `edit_begin`.
+   */
+  const beginEdit = useCallback(() => {
+    hold();
+    if (!editingRef.current) send({ type: "edit_begin" });
+  }, [hold, send, editingRef]);
   /** What the pedal components need from the editor. */
-  const pedalContext = useMemo(() => ({ catalog, setParam, setBypass, removeNode }), [catalog, setParam, setBypass, removeNode]);
+  const pedalContext = useMemo(
+    () => ({ catalog, setParam, setBypass, removeNode, beginEdit, endEdit: release }),
+    [catalog, setParam, setBypass, removeNode, beginEdit, release],
+  );
 
   // --- adding, duplicating ---
   const addNode = useCallback(
@@ -194,6 +206,8 @@ export function useGraphEditor({ catalog, editingRef, send, sendParam, toast, se
     selectedEdgeCount,
     tidy,
     tidyIfOverlapping,
+    hold,
+    release,
     newGraph,
     removeNodes,
     removeEdges,

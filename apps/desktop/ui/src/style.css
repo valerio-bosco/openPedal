@@ -626,3 +626,11 @@ button.danger-hover:hover:not(:disabled) {
   background: #c0392b;
   border-color: #c0392b;
 }
+
+.dirty {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5b93c;
+  flex: none;
+}

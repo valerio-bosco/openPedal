@@ -1,14 +1,12 @@
-// History for undo / redo: snapshots of the graph (nodes, positions, parameters, cables).
-// A continuous edit (turning a knob, dragging) becomes a single step because
-// the snapshot is recorded only when the graph stays still for a moment (see App.tsx).
+// Local history for undo / redo inside a composite pedal (see hooks/useHistory.ts): snapshots of the
+// pedal's inner graph. A continuous edit (turning a knob, dragging) becomes a single step because
+// the snapshot is recorded only when the graph stays still for a moment.
 import type { Edge } from "@xyflow/react";
 import type { PNode } from "./model";
 
 export interface Snapshot {
   nodes: PNode[];
   edges: Edge[];
-  /** Graph name (e.g. "new" after the New button): restored by undo. */
-  name?: string;
 }
 
 const LIMIT = 100;
@@ -24,8 +22,7 @@ function contentKey(s: Snapshot): string {
 function clean(s: Snapshot): Snapshot {
   return {
     nodes: s.nodes.map((n) => ({ ...n, selected: false, dragging: false, data: { ...n.data, error: undefined } })),
-    edges: s.edges.map((e) => ({ ...e, selected: false })),
-    name: s.name,
+    edges: s.edges.map((e) => ({ ...e, selected: false }))
   };
 }
 
@@ -39,14 +36,8 @@ export class History {
   reset(s: Snapshot) {
     this.past = [];
     this.future = [];
-    // without a name (e.g. after automatic tidying) the previous one is kept
-    this.current = clean({ ...s, name: s.name ?? this.current?.name });
+    this.current = clean(s);
     this.key = contentKey(s);
-  }
-
-  /** true if `s` is the state already recorded. */
-  same(s: Snapshot): boolean {
-    return contentKey(s) === this.key;
   }
 
   /** Records `s` if it changed since the last snapshot; true if it recorded. */

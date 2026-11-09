@@ -6,7 +6,7 @@ import { flowToGraph, type PNode } from "../model";
 import { buildPedal, editedPedal, pedalInnerGraph } from "../lib/pedal";
 import type { PedalForm } from "../components/PedalDialog";
 import type { GraphEditor } from "./useGraphEditor";
-import type { HistoryControl, HistoryScope } from "./useHistory";
+import type { HistoryControl } from "./useHistory";
 import type { useServer } from "./useServer";
 
 /** Editing state for "inside the pedal": the main graph stays in `parent`. */
@@ -17,8 +17,6 @@ export interface Editing {
   description: string;
   knobs: KnobSpec[];
   parent: { nodes: PNode[]; edges: Edge[] };
-  /** History of the main graph, restored when leaving the pedal. */
-  parentHistory: HistoryScope;
 }
 
 export type Dialog = { mode: "create"; ids: string[] } | { mode: "edit" } | null;
@@ -68,8 +66,8 @@ export function usePedals({ server, graph, history, graphName, toast, markSynced
       description: p.description,
       knobs: p.knob,
       parent: { nodes, edges },
-      parentHistory: history.detach(inner),
     });
+    history.reset(inner);
     setNodes(inner.nodes);
     setEdges(inner.edges);
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.3 }), 50);
@@ -79,7 +77,6 @@ export function usePedals({ server, graph, history, graphName, toast, markSynced
     if (!editing) return;
     setNodes(editing.parent.nodes);
     setEdges(editing.parent.edges);
-    history.restore(editing.parentHistory);
     setEditing(null);
     window.setTimeout(() => flow.fitView({ duration: 250, padding: 0.2 }), 50);
   };

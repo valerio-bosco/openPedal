@@ -9,11 +9,14 @@ export interface EditorCtx {
   setParam: (nodeId: string, paramId: string, value: ParamValue) => void;
   setBypass: (nodeId: string, bypass: boolean) => void;
   removeNode: (nodeId: string) => void;
+  /** A knob gesture starts / ends (the core records it as one undo step). */
+  beginEdit: () => void;
+  endEdit: () => void;
 }
-export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {}, setBypass: () => {}, removeNode: () => {} });
+export const EditorContext = createContext<EditorCtx>({ catalog: new Map(), setParam: () => {}, setBypass: () => {}, removeNode: () => {}, beginEdit: () => {}, endEdit: () => {} });
 
 function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
-  const { catalog, setParam, setBypass, removeNode } = useContext(EditorContext);
+  const { catalog, setParam, setBypass, removeNode, beginEdit, endEdit } = useContext(EditorContext);
   const item = catalog.get(data.kind);
   const color = CATEGORY_COLOR[item?.category ?? "utility"];
   const hasIn = data.kind !== INPUT && data.kind !== PEDAL_IN;
@@ -57,7 +60,7 @@ function PedalNodeView({ id, data, selected }: NodeProps<PNode>) {
             const v = paramValue(p, data.params[p.id]);
             return (
               <div className="param" key={p.id}>
-                {p.kind === "number" && <Knob desc={p} value={v} color={color} onChange={(x) => setParam(id, p.id, x)} />}
+                {p.kind === "number" && <Knob desc={p} value={v} color={color} onChange={(x) => setParam(id, p.id, x)} onBegin={beginEdit} onEnd={endEdit} />}
                 {p.kind === "choice" && (
                   <select
                     className="nodrag nopan param-select"

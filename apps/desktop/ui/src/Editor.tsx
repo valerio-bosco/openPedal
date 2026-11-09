@@ -30,33 +30,44 @@ export function Editor() {
     catalog: server.catalog,
     editingRef,
     send: server.send,
+    hold: server.hold,
+    release: server.release,
     sendParam: server.sendParam,
     toast,
-    setGraphName,
   });
   const { nodes, edges, selected, tidy, duplicate } = graph;
-  const history = useHistory(nodes, edges, graphName);
-  const engine = useEngineSync({ server, graph, history, graphName, setGraphName, editing, editingRef });
+  // The main graph's undo / redo is the core's (shared with the iPad); inside a pedal it is local.
+  const history = useHistory(nodes, edges, !!editing);
+  const engine = useEngineSync({ server, graph, graphName, setGraphName, editing, editingRef });
   const presets = usePresets({ server, nodes, edges, graphName, setGraphName, toast });
   const pedals = usePedals({ server, graph, history, graphName, toast, markSynced: engine.markSynced, editing, setEditing });
   const contextMenu = useContextMenu({ editing: !!editing, enterPedal: pedals.enterPedal, ...graph });
 
+  const restoreLocal = useCallback(
+    (s: { nodes: typeof nodes; edges: typeof edges } | undefined) => {
+      if (!s) return;
+      graph.setNodes(s.nodes);
+      graph.setEdges(s.edges);
+    },
+    [graph.setNodes, graph.setEdges],
+  );
+  const { send } = server;
   const undo = useCallback(() => {
-    const s = history.undo();
-    if (s) engine.restore(s);
-  }, [history.undo, engine.restore]);
+    if (editingRef.current) restoreLocal(history.undo());
+    else send({ type: "undo" });
+  }, [history.undo, restoreLocal, send]);
   const redo = useCallback(() => {
-    const s = history.redo();
-    if (s) engine.restore(s);
-  }, [history.redo, engine.restore]);
+    if (editingRef.current) restoreLocal(history.redo());
+    else send({ type: "redo" });
+  }, [history.redo, restoreLocal, send]);
   const duplicateSelection = useCallback(() => duplicate(), [duplicate]);
   useShortcuts({ duplicate: duplicateSelection, undo, redo });
 
   const ready = server.catalogItems.length > 0;
   const selCount = selected.length;
   const edit = {
-    canUndo: history.canUndo,
-    canRedo: history.canRedo,
+    canUndo: editing ? history.canUndo : server.canUndo,
+    canRedo: editing ? history.canRedo : server.canRedo,
     canDelete: selCount + graph.selectedEdgeCount > 0,
     onUndo: undo,
     onRedo: redo,
@@ -71,6 +82,7 @@ export function Editor() {
           status={server.status}
           presets={server.presets}
           graphName={graphName}
+          dirty={server.dirty && !editing}
           audio={server.audio}
           meters={server.meters}
           disabledPresets={!ready || !!editing}
