@@ -385,3 +385,78 @@ Phases (each ends with green tests and unchanged audio renders):
 | 4 | Agnostic (custom) pedals on top of Effect/Route | to be designed |
 
 Phase 3 wave 2 done (a8b4d49): protocol v2 (chain edits, undo/redo, edit_begin, broadcast to every client, `param`/`added` messages); web UI split into hooks (a174f0c). Phase 3 done (fb8f406): the desktop editor uses the core undo/redo and dirty flag; local history only inside composite-pedal editing. Next: phase 4 (custom pedals), mockup "openPedal Pedal Designer".
+
+## 12. Phase 4: custom pedals (planned 2026-11-09)
+
+Approved design: mockup "openPedal Pedal Designer". A custom pedal = an inner graph of existing blocks
+(linear on iPad, any shape on desktop) + **controls** chosen by the user, each driving one or more inner
+parameters through a map. Open-ended by design: control kinds, map kinds and effect sources are tagged
+enums, so envelope/LFO controls, drawn curves and a `formula` source can be added later without changing
+the structure. Created and edited on both desktop and iPad.
+
+### 12.1 Pedal file v2 (`content/pedals/<id>.toml`)
+
+```toml
+version = 2
+name = "Grit Box"
+category = "drive"
+description = "..."
+color = "#d9573b"          # optional enamel colour
+
+[[node]] / [[edge]]        # as today, with the implicit pedal_in / pedal_out
+
+[[control]]
+id = "grit"
+label = "Grit"
+kind = "knob"              # "knob" | "switch" | "selector"
+default = 0.55             # knob 0..1 · switch true/false · selector option index
+[[control.route]]
+target = "drive.gain_db"
+map = "linear"             # knob: "linear" | "log" | "inverse"
+min = 6
+max = 40
+
+[[control]]
+id = "voice"
+label = "Voice"
+kind = "selector"
+options = ["Smooth", "Crunch", "Fuzz"]
+default = 1
+[[control.route]]
+target = "drive.shape"
+values = ["soft", "asym", "hard"]   # one per option (numbers or choice names)
+
+[[control]]
+id = "boost"
+label = "Boost"
+kind = "switch"
+default = false
+[[control.route]]
+target = "drive.level_db"
+off = 0
+on = 6
+mode = "add"               # "set" (default) or "add" (offset on top of the other routes / the block value)
+```
+
+v1 pedal files (`[[knob]]` with `label/target/min/max/default`) are read as v2 knobs with one linear route
+and written back as v2 (rule §11.3).
+
+### 12.2 Protocol v3
+
+- Catalog: a custom pedal's controls are exposed as today's `ParamDesc`: knob → number 0..1, switch →
+  choice `["off","on"]`, selector → choice with its options. `CatalogItem` gains optional `color`.
+- `state.pedals` and `save_pedal` carry the v2 pedal file (with `control`, `color`, `version`).
+- New client message `analyze_pedal { pedal, values: { <control id>: number } }` (works for an unsaved draft)
+  and `analyze_node { node }` (a node of the playing graph with its current values) → server replies
+  `response { freq: [f32], db: [f32] }`: magnitude response measured offline (never on the audio thread) by
+  rendering a low-level test signal through a compiled copy of the effect, FFT, ~128 log-spaced points
+  20 Hz-20 kHz.
+- `PROTOCOL_VERSION = 3`.
+
+### 12.3 Work split
+
+| Wave | Work | Owner files |
+|---|---|---|
+| A | Core: file v2 + v1 reading, Map::{Log, Inverse}, switch/selector routes (set/add), registry/compile/resolve, catalog projection + colour, analysis, protocol v3, fixtures, generated types | crates/**, generated, fixtures, apps/desktop/src (dev-fixtures) |
+| B1 | Desktop pedal designer (replaces PedalDialog), per the mockup | apps/desktop/ui/src/** |
+| B2 | iPad: "Merge into a pedal" (multi-select on the board), designer sheet, edit custom pedal, enamel colour | apps/ios/Sources/** |
