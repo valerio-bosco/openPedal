@@ -1,0 +1,11 @@
+{
+  "type": "tonelab_jobs",
+  "jobs": [
+    {
+      "id": "2026-11-24-demo-song",
+      "title": "Demo song",
+      "created": "2026-11-24T10:00:00+01:00",
+      "duration_s": 60.0
+    }
+  ]
+}

@@ -65,6 +65,7 @@ export function useServer(toast: (text: string) => void) {
         if (m.node) handlers.current.nodeError(m.node, m.message);
         return;
       }
+      if (m.type !== "state") return; // the Tone Lab messages are handled by its panel
       if (m.protocol > PROTOCOL_VERSION) {
         toast(`This server speaks protocol ${m.protocol}, newer than this interface (${PROTOCOL_VERSION}). Update the interface.`);
         return;

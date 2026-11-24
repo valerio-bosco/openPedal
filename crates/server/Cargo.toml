@@ -10,6 +10,7 @@ openpedal-graph.workspace = true
 openpedal-protocol.workspace = true
 openpedal-library.workspace = true
 openpedal-engine.workspace = true
+openpedal-tonematch.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 tokio.workspace = true

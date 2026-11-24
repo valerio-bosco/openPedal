@@ -1086,6 +1086,7 @@ dependencies = [
  "openpedal-graph",
  "openpedal-library",
  "openpedal-protocol",
+ "openpedal-tonematch",
  "rust-embed",
  "serde",
  "serde_json",

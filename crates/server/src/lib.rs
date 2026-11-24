@@ -7,6 +7,8 @@
 mod app;
 mod assets;
 pub mod mock;
+mod tonelab;
+pub mod tonelab_mock;
 
 pub use app::{run, ServerOptions};
 pub use openpedal_engine::EngineHandle;

@@ -699,5 +699,48 @@
   },
   {
     "type": "edit_begin"
+  },
+  {
+    "type": "tonelab_caps"
+  },
+  {
+    "type": "tonelab_jobs"
+  },
+  {
+    "type": "tonelab_start",
+    "source": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  },
+  {
+    "type": "tonelab_open",
+    "job": "2026-11-24-demo-song"
+  },
+  {
+    "type": "tonelab_pick",
+    "job": "2026-11-24-demo-song",
+    "start": 8.0,
+    "end": 28.0,
+    "channel": "mid",
+    "label": "riff"
+  },
+  {
+    "type": "tonelab_record_di",
+    "job": "2026-11-24-demo-song",
+    "part": "p1",
+    "seconds": 20.0
+  },
+  {
+    "type": "tonelab_fit",
+    "job": "2026-11-24-demo-song",
+    "part": "p1"
+  },
+  {
+    "type": "tonelab_save_preset",
+    "job": "2026-11-24-demo-song",
+    "part": "p1",
+    "name": "cryogen-riff"
+  },
+  {
+    "type": "tonelab_cancel",
+    "job": "2026-11-24-demo-song"
   }
 ]

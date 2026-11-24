@@ -254,6 +254,23 @@ fn write_fixtures(dir: &Path) -> Result<()> {
     write("response.json", serde_json::to_string_pretty(&response)?)?;
     write("added.json", serde_json::to_string_pretty(&ServerMsg::Added { node: "delay2".into() })?)?;
 
+    // Tone Lab (protocol v4): the same fake job the mock server answers with.
+    use server::tonelab_mock::{demo_fit, demo_job, demo_templates, DEMO_JOB};
+    use openpedal_protocol::{TonelabJobSummary, TonelabStage};
+    let job = demo_job();
+    let tonelab: Vec<(&str, ServerMsg)> = vec![
+        ("tonelab_caps.json", ServerMsg::TonelabCaps { available: true, youtube: true, device: "cuda".into(), reason: None }),
+        ("tonelab_caps_unavailable.json", ServerMsg::TonelabCaps { available: false, youtube: false, device: String::new(), reason: Some("the tonelab tool was not found at tools/tonelab/bin/tonelab (run openpedal from the repository root, or set OPENPEDAL_TONELAB)".into()) }),
+        ("tonelab_jobs.json", ServerMsg::TonelabJobs { jobs: vec![TonelabJobSummary { id: job.id.clone(), title: job.title.clone(), created: "2026-11-24T10:00:00+01:00".into(), duration_s: job.duration_s }] }),
+        ("tonelab_progress.json", ServerMsg::TonelabProgress { job: DEMO_JOB.into(), stage: TonelabStage::Separate, message: "separating the stems (a minute or two on the GPU)".into(), fraction: None }),
+        ("tonelab_progress_fit.json", ServerMsg::TonelabProgress { job: DEMO_JOB.into(), stage: TonelabStage::Fit, message: "  screen fuzz            cost 2.31 (84 renders)".into(), fraction: Some(0.25) }),
+        ("tonelab_job.json", ServerMsg::TonelabJob { job }),
+        ("tonelab_fit_result.json", ServerMsg::TonelabFitResult { job: DEMO_JOB.into(), part: "p1".into(), fit: demo_fit(), templates: demo_templates() }),
+    ];
+    for (name, msg) in tonelab {
+        write(name, serde_json::to_string_pretty(&msg)?)?;
+    }
+
     let (_, pedal) = pedals.iter().find(|(id, _)| id == "cab-4x12").context("need content/pedals/cab-4x12.toml")?.clone();
     let (_, custom) = pedals.iter().find(|(id, _)| id == "grit-box").context("need content/pedals/grit-box.toml")?.clone();
     let client = vec![
@@ -277,6 +294,15 @@ fn write_fixtures(dir: &Path) -> Result<()> {
         ClientMsg::AnalyzePedal { pedal: custom, values: [("grit".to_string(), 0.8), ("voice".to_string(), 1.0), ("boost".to_string(), 1.0)].into() },
         ClientMsg::AnalyzeNode { node: "dist".into() },
         ClientMsg::EditBegin,
+        ClientMsg::TonelabCaps,
+        ClientMsg::TonelabJobs,
+        ClientMsg::TonelabStart { source: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into() },
+        ClientMsg::TonelabOpen { job: DEMO_JOB.into() },
+        ClientMsg::TonelabPick { job: DEMO_JOB.into(), start: 8.0, end: 28.0, channel: openpedal_protocol::TonelabChannel::Mid, label: "riff".into() },
+        ClientMsg::TonelabRecordDi { job: DEMO_JOB.into(), part: "p1".into(), seconds: 20.0 },
+        ClientMsg::TonelabFit { job: DEMO_JOB.into(), part: "p1".into() },
+        ClientMsg::TonelabSavePreset { job: DEMO_JOB.into(), part: "p1".into(), name: "cryogen-riff".into() },
+        ClientMsg::TonelabCancel { job: DEMO_JOB.into() },
     ];
     write("client-messages.json", serde_json::to_string_pretty(&client)?)?;
     println!("fixtures written to {}", dir.display());
