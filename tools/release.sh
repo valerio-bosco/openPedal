@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Releases one openPedal product: runs the checks, bumps its version, regenerates its
-# changelog with git-cliff, then commits `chore(release): <product> vX.Y.Z` and creates the
-# annotated tag `<product>-vX.Y.Z`. It never pushes. See docs/RELEASING.md.
+# Releases one openPedal product: runs the checks, bumps its version, then commits
+# `chore(release): <product> vVERSION` and creates the annotated tag `<product>-vVERSION`.
+# A stable release (X.Y.Z, on master) also regenerates the changelog with git-cliff; a dev
+# pre-release (X.Y.Z-dev.N, on dev) leaves it alone. It never pushes. See docs/RELEASING.md.
 #
-# Usage: tools/release.sh <desktop|ios> <X.Y.Z> [--dry-run] [--skip-checks]
+# Usage: tools/release.sh <desktop|ios> <X.Y.Z|X.Y.Z-dev.N|X.Y.Z-dev|next-dev> [--dry-run] [--skip-checks]
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: tools/release.sh <desktop|ios> <X.Y.Z> [--dry-run] [--skip-checks]
+Usage: tools/release.sh <desktop|ios> <version> [--dry-run] [--skip-checks]
 
   desktop   binary + web UI: workspace version in Cargo.toml, tag desktop-vX.Y.Z, apps/desktop/CHANGELOG.md
   ios       iPad app: version in apps/ios/Info.plist (+ build number), tag ios-vX.Y.Z, apps/ios/CHANGELOG.md
+
+  version   X.Y.Z          stable release, only on master (regenerates the changelog)
+            X.Y.Z-dev.N    dev pre-release, only on dev (changelog untouched)
+            next-dev       on dev: the next -dev.N of the upcoming version (the minor after
+                           the latest stable tag, or the dev series already in progress)
+            X.Y.Z-dev      on dev: the next -dev.N of X.Y.Z
 
   --dry-run      print what would happen and change nothing (a dirty tree or another
                  branch only produces a warning)
@@ -73,13 +80,13 @@ case "$product" in
     prefix=desktop
     other_scope=ios
     changelog=apps/desktop/CHANGELOG.md
-    version_files=(Cargo.toml Cargo.lock apps/desktop/CHANGELOG.md)
+    version_files=(Cargo.toml Cargo.lock)
     ;;
   ios)
     prefix=ios
     other_scope=ui
     changelog=apps/ios/CHANGELOG.md
-    version_files=(apps/ios/Info.plist apps/ios/CHANGELOG.md)
+    version_files=(apps/ios/Info.plist)
     ;;
   *)
     usage >&2
@@ -87,18 +94,89 @@ case "$product" in
     ;;
 esac
 
-if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+num='(0|[1-9][0-9]*)'
+core_re="^$num\.$num\.$num\$"
+stable_tag_re="^$prefix-v$num\.$num\.$num\$"
+
+# Version of this product in the working tree (X.Y.Z or X.Y.Z-dev.N).
+current_version() {
+  if [ "$product" = desktop ]; then
+    python3 - "$root/Cargo.toml" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'^\[workspace\.package\]\n(?:(?!\[).*\n)*?^version = "([^"]*)"', text, re.M)
+print(m.group(1) if m else "")
+PY
+  else
+    python3 - "$root/apps/ios/Info.plist" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'<key>CFBundleShortVersionString</key>\s*<string>([^<]*)</string>', text)
+print(m.group(1) if m else "")
+PY
+  fi
+}
+
+# Greatest X.Y.Z among the lines on stdin, or nothing.
+max_core() { sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1; }
+
+# Next -dev.N for the upcoming version $1 (X.Y.Z): one more than the highest existing N.
+next_dev_for() {
+  local core="$1" last
+  last="$(git tag --list "$prefix-v$core-dev.*" | sed -n "s/^$prefix-v$core-dev\.\([0-9][0-9]*\)\$/\1/p" | sort -n | tail -n 1)"
+  echo "$core-dev.$(( ${last:-0} + 1 ))"
+}
+
+# The upcoming stable version: continue a dev series already in progress, else the minor
+# after the latest stable tag (or after the version in the tree when there is no stable tag).
+upcoming_core() {
+  local stable dev major minor
+  stable="$(git tag --list "$prefix-v*" | grep -E "$stable_tag_re" | sed "s/^$prefix-v//" | max_core || true)"
+  if [ -z "$stable" ]; then
+    stable="$(current_version | sed 's/-.*//')"
+    [[ "$stable" =~ $core_re ]] || die "cannot read the current $product version"
+  fi
+  dev="$(git tag --list "$prefix-v*-dev.*" | sed -nE "s/^$prefix-v($num\.$num\.$num)-dev\..*/\1/p" | max_core || true)"
+  if [ -n "$dev" ] && [ "$(printf '%s\n%s\n' "$stable" "$dev" | max_core)" = "$dev" ] && [ "$dev" != "$stable" ]; then
+    echo "$dev"
+  else
+    IFS=. read -r major minor _ <<<"$stable"
+    echo "$major.$((minor + 1)).0"
+  fi
+}
+
+case "$version" in
+  next-dev) version="$(next_dev_for "$(upcoming_core)")" ;;
+  *-dev)
+    core="${version%-dev}"
+    [[ "$core" =~ $core_re ]] || die "version must be X.Y.Z-dev, got '$version'"
+    version="$(next_dev_for "$core")"
+    ;;
+esac
+
+if [[ "$version" =~ $core_re ]]; then
+  kind=stable
+  core="$version"
+  want_branch=master
+elif [[ "$version" =~ ^$num\.$num\.$num-dev\.[1-9][0-9]*$ ]]; then
+  kind=dev
+  core="${version%-dev.*}"
+  want_branch=dev
+else
   usage >&2
-  die "version must be X.Y.Z (e.g. 0.2.0), got '${version:-nothing}'"
+  die "version must be X.Y.Z, X.Y.Z-dev.N, X.Y.Z-dev or next-dev, got '${version:-nothing}'"
 fi
+[ "$kind" = stable ] && version_files+=("$changelog")
 
 tag="$prefix-v$version"
-tag_pattern="$prefix-v[0-9]*"
+# Only stable tags delimit the changelog: -dev.N tags are ignored, so a stable release lists
+# everything since the previous stable tag.
+tag_pattern="$stable_tag_re"
 
 # Preconditions.
 branch="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$branch" != master ]; then
-  require "not on master (on '$branch')"
+if [ "$branch" != "$want_branch" ]; then
+  require "a $kind release ($version) is made on $want_branch, not on '$branch'"
 fi
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   require "the working tree has uncommitted changes"
@@ -123,7 +201,7 @@ RULE="$rule" awk '{ print } /^commit_parsers = \[/ { print ENVIRON["RULE"] }' cl
 grep -qF "$rule" "$config" || die "could not add the scope rule to cliff.toml (no commit_parsers?)"
 cliff_args=(--config "$config" --tag-pattern "$tag_pattern" --tag "$tag")
 
-echo "Releasing $product $version as $tag"
+echo "Releasing $product $version ($kind) as $tag"
 
 # 1. Checks.
 if [ "$skip_checks" -eq 1 ]; then
@@ -155,7 +233,9 @@ if not dry:
 PY
   step "refresh Cargo.lock" nix develop -c cargo update --workspace --offline
 else
-  python3 - "$version" "$dry_run" "$root/apps/ios/Info.plist" <<'PY'
+  # Apple wants a numeric CFBundleShortVersionString: a dev release gets its X.Y.Z and only
+  # the build number tells builds apart.
+  python3 - "$core" "$dry_run" "$root/apps/ios/Info.plist" <<'PY'
 import re, sys
 version, dry, path = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 text = open(path, encoding="utf-8").read()
@@ -189,7 +269,9 @@ PY
 fi
 
 # 3. Changelog for this product, with the new version on the unreleased commits.
-if [ "$dry_run" -eq 1 ]; then
+if [ "$kind" = dev ]; then
+  echo "changelog: not touched for a dev pre-release"
+elif [ "$dry_run" -eq 1 ]; then
   echo "[dry-run] changelog: git-cliff ${cliff_args[*]} --output $changelog"
   "${cliff[@]}" "${cliff_args[@]}" --output "$tmp/preview.md"
   awk '/^## \[/ { n++ } n == 1' "$tmp/preview.md" > "$tmp/section.md"
@@ -210,4 +292,4 @@ if [ "$dry_run" -eq 1 ]; then
 else
   echo "Created commit and tag $tag. Nothing was pushed."
 fi
-echo "To publish (you run this): git push origin master $tag"
+echo "To publish (you run this): git push origin $want_branch $tag"
