@@ -264,3 +264,7 @@
   padding: 1px 5px;
   border-radius: 4px;
 }
+
+.tl-error { color: #ff8a7a; margin: 6px 0; }
+.tl-cli { margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
+.tl-cli pre { margin: 6px 0; padding: 6px 8px; overflow-x: auto; user-select: all; }

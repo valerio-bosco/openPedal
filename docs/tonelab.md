@@ -72,6 +72,21 @@ For setup and the commands in detail, see [the developer README](../tools/tonela
    openpedal check content/presets/my-tone.toml
    ```
 
+## Recording from the panel
+
+The Tone Lab panel in the app has a "Record my take" button, but recording from the panel is not
+available yet: the server answers that it cannot, and the panel shows the command to use instead.
+Record from the command line, then put the file into the job folder (by default
+`~/.local/share/openpedal/tonelab/jobs/<job>`; the folder is set by `[paths] jobs` in `tonelab.toml`):
+
+```
+openpedal --record take.wav --seconds 20
+cp take.wav <job folder>/parts/<part>/di-user.wav
+```
+
+The left channel of the recording is the dry guitar, which is what the fit reads. Reopen the song in the
+panel and the part says "your recording".
+
 ## Tips
 
 - **Pick a section where the guitar is exposed.** A riff with no drums or vocals on top works best. Use the

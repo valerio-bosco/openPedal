@@ -1,8 +1,9 @@
 // Browser-only fallback for the Tone Lab panel (no server at all, "Demo" mode): answers the Tone Lab
 // messages with a fake job so the whole flow can be tried. Audio files do not exist in this mode.
-import type { Job, Part, TemplateRow, TonelabClientMsg, TonelabServerMsg } from "./types";
+import type { TonelabJobInfo, TonelabPart, TonelabStage, TonelabTemplateResult } from "../../generated/protocol";
+import type { TonelabClientMsg, TonelabEvent } from "../../ws";
 
-const DEMO: Job = {
+const DEMO: TonelabJobInfo = {
   id: "2026-11-24-demo-song",
   title: "Demo song",
   source_kind: "file",
@@ -20,7 +21,10 @@ const DEMO: Job = {
   parts: [],
 };
 
-const TEMPLATES: TemplateRow[] = [
+const RECORD_UNAVAILABLE =
+  "recording the DI from the live input is not available yet: record it with `openpedal --record` and put the dry channel into parts/<part>/di-user.wav";
+
+const TEMPLATES: TonelabTemplateResult[] = [
   { template: "fuzz-octave", error_db: 1.9, renders: 352, stage: "fit" },
   { template: "fuzz", error_db: 2.1, renders: 348, stage: "fit" },
   { template: "overdrive", error_db: 3.4, renders: 61, stage: "screen" },
@@ -30,16 +34,16 @@ const TEMPLATES: TemplateRow[] = [
 ];
 
 export class TonelabLocalMock {
-  private job: Job | undefined;
+  private job: TonelabJobInfo | undefined;
   private timers: number[] = [];
-  constructor(private emit: (m: TonelabServerMsg) => void) {}
+  constructor(private emit: (m: TonelabEvent) => void) {}
 
   stop() {
     this.timers.forEach((t) => window.clearTimeout(t));
     this.timers = [];
   }
 
-  private steps(job: string, plan: [import("./types").Stage, string][], done: () => void, ms = 350) {
+  private steps(job: string, plan: [TonelabStage, string][], done: () => void, ms = 350) {
     plan.forEach(([stage, message], i) => {
       this.timers.push(
         window.setTimeout(() => {
@@ -77,7 +81,7 @@ export class TonelabLocalMock {
       case "tonelab_pick": {
         const job = this.job;
         if (!job) return;
-        const part: Part = {
+        const part: TonelabPart = {
           id: `p${job.parts.length + 1}`,
           label: m.label,
           start: m.start,
@@ -86,6 +90,7 @@ export class TonelabLocalMock {
           notes: Math.round((m.end - m.start) * 4.5),
           has_user_di: false,
           has_synth_di: true,
+          fit: null,
         };
         return this.steps(
           job.id,
@@ -99,13 +104,9 @@ export class TonelabLocalMock {
           },
         );
       }
-      case "tonelab_record_di": {
-        const part = this.job?.parts.find((p) => p.id === m.part);
-        return this.steps(m.job, [["record", "Recording your take"]], () => {
-          if (part) part.has_user_di = true;
-          this.sendJob();
-        }, 800);
-      }
+      case "tonelab_record_di":
+        // like the real server today
+        return this.emit({ type: "error", message: RECORD_UNAVAILABLE });
       case "tonelab_fit": {
         const part = this.job?.parts.find((p) => p.id === m.part);
         return this.steps(

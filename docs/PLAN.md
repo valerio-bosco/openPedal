@@ -200,7 +200,7 @@ Server → client:
 
 | `type` | Fields |
 |---|---|
-| `state` | `protocol` (`PROTOCOL_VERSION`, currently 3), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running), `can_undo`, `can_redo`, `dirty` (graph differs from the last load/save) |
+| `state` | `protocol` (`PROTOCOL_VERSION`, currently 4), `catalog` (blocks + pedals, with parameters), `graph`, `presets`, `pedals` (content of composite pedals), `audio` (sample rate, buffer, running), `can_undo`, `can_redo`, `dirty` (graph differs from the last load/save) |
 | `param` | `node`, `param`, `value`: a `set_param` made by another client (never echoed to its sender) |
 | `response` | `freq`, `db`: reply to `analyze_pedal` / `analyze_node` (about 128 log-spaced points, 20 Hz-20 kHz), sent only to the client that asked |
 | `added` | `node`: the id created by `add_node`, sent only to the client that asked, right after its `state` |

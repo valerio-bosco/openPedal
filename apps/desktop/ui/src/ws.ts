@@ -1,8 +1,14 @@
 // Connection to the engine: WebSocket `/ws` with reconnection. If the server does not respond
 // at startup, it falls back to the fake server (mock) and keeps retrying in the background.
 import { MockServer } from "./mock";
-import type { ClientMsg, ServerMsg } from "./generated/protocol";
-import { isTonelabType, type TonelabClientMsg, type TonelabServerMsg } from "./components/tonelab/types";
+import { isServerMsg, type ClientMsg, type ServerMsg } from "./generated/protocol";
+
+/** The Tone Lab family of the protocol (docs/PLAN.md §14.5). */
+export type TonelabClientMsg = Extract<ClientMsg, { type: `tonelab_${string}` }>;
+export type TonelabServerMsg = Extract<ServerMsg, { type: `tonelab_${string}` }>;
+/** What the Tone Lab panel listens to: its own messages and the server's `error`s (a failed step answers with one). */
+export type TonelabEvent = TonelabServerMsg | Extract<ServerMsg, { type: "error" }>;
+export const isTonelabMsg = (m: ServerMsg): m is TonelabServerMsg => m.type.startsWith("tonelab_");
 
 export type Status = "connecting" | "online" | "mock" | "offline";
 
@@ -25,7 +31,6 @@ export class Connection {
   private retry = 1000;
   private timers: number[] = [];
   private params = new Map<string, Pending>();
-  private tonelab = new Set<(m: TonelabServerMsg) => void>();
 
   constructor(
     private onMsg: (m: ServerMsg) => void,
@@ -81,8 +86,7 @@ export class Connection {
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(String(ev.data));
-        if (isTonelabType(m?.type)) this.tonelab.forEach((f) => f(m as TonelabServerMsg));
-        else this.onMsg(m as ServerMsg);
+        if (isServerMsg(m)) this.onMsg(m);
       } catch {
         /* invalid message: ignored */
       }
@@ -115,16 +119,11 @@ export class Connection {
     else this.mock?.handle(msg);
   }
 
-  /** Tone Lab messages (not in the generated protocol yet): sent to the server only; the panel has its own demo fallback. */
+  /** Tone Lab messages go to the server only (the panel has its own demo fallback): false when there is no connection. */
   sendTonelab(msg: TonelabClientMsg): boolean {
     if (this.ws?.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify(msg));
     return true;
-  }
-
-  onTonelab(f: (m: TonelabServerMsg) => void): () => void {
-    this.tonelab.add(f);
-    return () => this.tonelab.delete(f);
   }
 
   /** `set_param` limited to about 60 messages per second per knob; the last value always gets through. */

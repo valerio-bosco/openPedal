@@ -11,10 +11,9 @@ import {
   type ServerMsg,
   type StateMsg,
 } from "../generated/protocol";
-import type { TonelabClientMsg, TonelabServerMsg } from "../components/tonelab/types";
 import { fixturePedals } from "../mock";
 import { IMPLICIT_ITEMS } from "../model";
-import { Connection, type Status } from "../ws";
+import { Connection, isTonelabMsg, type Status, type TonelabClientMsg, type TonelabEvent } from "../ws";
 
 /** Reactions that depend on the editor, installed by the hooks that own that state. */
 export interface ServerHandlers {
@@ -35,6 +34,8 @@ export function useServer(toast: (text: string) => void) {
   const [meters, setMeters] = useState<MetersMsg>();
   const [status, setStatus] = useState<Status>("connecting");
   const conn = useRef<Connection>(undefined);
+  /** Tone Lab panel listeners: they get every `tonelab_*` message. */
+  const tonelabSubs = useRef(new Set<(m: TonelabEvent) => void>());
   const [history, setHistory] = useState({ canUndo: false, canRedo: false, dirty: false });
   const handlers = useRef<ServerHandlers>({ graph: () => {}, nodeError: () => {}, param: () => {}, response: () => {} });
   /** Number of user interactions (knob drag, node drag) that must not be disturbed by an incoming graph. */
@@ -63,10 +64,11 @@ export function useServer(toast: (text: string) => void) {
       if (m.type === "response") return handlers.current.response(m.freq, m.db);
       if (m.type === "error") {
         toast(m.message);
+        tonelabSubs.current.forEach((f) => f(m));
         if (m.node) handlers.current.nodeError(m.node, m.message);
         return;
       }
-      if (m.type !== "state") return; // the Tone Lab messages are handled by its panel
+      if (isTonelabMsg(m)) return tonelabSubs.current.forEach((f) => f(m));
       if (m.protocol > PROTOCOL_VERSION) {
         toast(`This server speaks protocol ${m.protocol}, newer than this interface (${PROTOCOL_VERSION}). Update the interface.`);
         return;
@@ -141,7 +143,10 @@ export function useServer(toast: (text: string) => void) {
   const tonelab = useMemo(
     () => ({
       send: (m: TonelabClientMsg) => conn.current?.sendTonelab(m) ?? false,
-      subscribe: (f: (m: TonelabServerMsg) => void) => conn.current?.onTonelab(f) ?? (() => {}),
+      subscribe: (f: (m: TonelabEvent) => void) => {
+        tonelabSubs.current.add(f);
+        return () => void tonelabSubs.current.delete(f);
+      },
     }),
     [],
   );

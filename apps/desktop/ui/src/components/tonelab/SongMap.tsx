@@ -2,15 +2,15 @@
 import { useEffect, useRef, useState } from "react";
 import { fileUrl } from "./useTonelab";
 import { KIND_COLOR, KIND_TEXT, clock, db, tickStep } from "./format";
-import type { Channel, Job } from "./types";
+import type { TonelabChannel, TonelabJobInfo } from "../../generated/protocol";
 
 interface Props {
-  job: Job;
+  job: TonelabJobInfo;
   disabled: boolean;
-  onPick: (start: number, end: number, channel: Channel, label: string) => void;
+  onPick: (start: number, end: number, channel: TonelabChannel, label: string) => void;
 }
 
-const CHANNELS: { id: Channel; label: string; hint: string }[] = [
+const CHANNELS: { id: TonelabChannel; label: string; hint: string }[] = [
   { id: "mid", label: "Middle", hint: "What is in the centre of the stereo image" },
   { id: "left", label: "Left", hint: "Only the left speaker" },
   { id: "right", label: "Right", hint: "Only the right speaker" },
@@ -18,7 +18,7 @@ const CHANNELS: { id: Channel; label: string; hint: string }[] = [
 
 export function SongMap({ job, disabled, onPick }: Props) {
   const [sel, setSel] = useState<[number, number]>();
-  const [channel, setChannel] = useState<Channel>("mid");
+  const [channel, setChannel] = useState<TonelabChannel>("mid");
   const [label, setLabel] = useState("");
   const [pos, setPos] = useState<number>();
   const [playing, setPlaying] = useState<"selection" | "mix">();

@@ -1,13 +1,12 @@
-import type { SectionKind } from "./types";
 
-export const KIND_COLOR: Record<SectionKind, string> = {
+export const KIND_COLOR: Record<string, string> = {
   centre: "#4cc38a",
   double: "#ffb23f",
   wide: "#5aa9ff",
   none: "#3a3e4a",
 };
 
-export const KIND_TEXT: Record<SectionKind, string> = {
+export const KIND_TEXT: Record<string, string> = {
   centre: "Centre: one guitar in the middle (easiest to copy)",
   double: "Double: the same part on both sides",
   wide: "Wide: spread across the stereo field",
