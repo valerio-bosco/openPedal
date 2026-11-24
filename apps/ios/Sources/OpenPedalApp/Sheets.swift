@@ -133,6 +133,13 @@ struct AboutSheet: View {
                     row("Sample rate", String(format: "%.0f Hz", host.route.sampleRate))
                     row("IO buffer", "\(host.route.bufferFrames) frames")
                     row("Strategy", host.route.strategy)
+                    row("Guitar level", String(format: "%.0f dBFS", host.levels.input))
+                    row("Output level", String(format: "%.0f dBFS", host.levels.output))
+                    if let status = host.testStatus {
+                        Text(status).font(.headline).foregroundStyle(.orange)
+                    } else {
+                        Button("Test routing (strum for 20 s)") { host.runRoutingTest() }
+                    }
                     if let notice = host.notice { Text(notice).font(.footnote).foregroundStyle(.orange) }
                 } header: {
                     Text("Audio output")

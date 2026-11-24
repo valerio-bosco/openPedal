@@ -13,14 +13,54 @@ enum OutputMode: String, CaseIterable, Identifiable {
     var label: String { self == .interface ? "Interface" : "iPad speaker" }
 }
 
-/// How "iPad speaker" is achieved. Change `AudioHost.speakerStrategy` after the device test.
-enum SpeakerStrategy: String {
-    /// `.playAndRecord` + `.defaultToSpeaker` + `overrideOutputAudioPort(.speaker)`, then the USB
-    /// input is requested again (the override may move the input to the built-in mic).
+/// How "iPad speaker" is achieved. iOS gives no documented way to split a USB interface's input from
+/// its output, so `applySession()` tries these in order and keeps the first that gives USB input +
+/// built-in speaker output. The diagnostics log says which one worked on the device.
+enum SpeakerStrategy: String, CaseIterable {
+    /// `.playAndRecord` + `.defaultToSpeaker`, USB input requested first, `overrideOutputAudioPort(.speaker)`
+    /// last (any later route change clears an override).
+    case overrideLast
+    /// Same, but the USB input is requested after the override (the override may move the input to the
+    /// built-in mic).
     case override
     /// `.multiRoute`: USB input and built-in speaker at the same time, with an explicit channel map
     /// on the output unit (guitar from the USB port, sound to the speaker channels only).
     case multiRoute
+}
+
+/// Peak levels in dBFS, for the readout in the About sheet.
+struct Levels: Equatable {
+    var input: Float = -120
+    var output: Float = -120
+}
+
+/// Appends timestamped lines to `Documents/audio-diagnostics.txt` (the previous run is kept as
+/// `audio-diagnostics.prev.txt`), and to the system log. Read it from a computer with
+/// `ifuse --container dev.openpedal.app <dir>`.
+final class DiagLog {
+    private let url: URL?
+    private let start = Date()
+
+    init() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        url = docs?.appendingPathComponent("audio-diagnostics.txt")
+        if let url, let docs {
+            let prev = docs.appendingPathComponent("audio-diagnostics.prev.txt")
+            try? FileManager.default.removeItem(at: prev)
+            try? FileManager.default.moveItem(at: url, to: prev)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        log("start \(Date())")
+    }
+
+    func log(_ line: String) {
+        let text = String(format: "%7.2f ", Date().timeIntervalSince(start)) + line + "\n"
+        NSLog("openPedal audio: %@", line)
+        guard let url, let h = try? FileHandle(forWritingTo: url) else { return }
+        h.seekToEndOfFile()
+        h.write(Data(text.utf8))
+        try? h.close()
+    }
 }
 
 /// What iOS actually did, for the readout in the About sheet.
@@ -57,13 +97,11 @@ final class AudioHost: ObservableObject {
     @Published private(set) var route = RouteInfo()
     /// A message for the user (feedback mute, interruption, failed re-route); nil when all is fine.
     @Published private(set) var notice: String?
+    @Published private(set) var levels = Levels()
+    /// Progress of `runRoutingTest()`; nil when no test is running.
+    @Published private(set) var testStatus: String?
 
-    /// Strategy used for `.speaker`. Start with `.override`; if the device test shows the input stays
-    /// on the built-in mic, set this to `.multiRoute`.
-    static let speakerStrategy: SpeakerStrategy = .override
-    /// If `.override` leaves the input on the built-in mic while a USB interface is present, try
-    /// `.multiRoute` once before muting.
-    static let fallbackToMultiRoute = true
+    let diag = DiagLog()
 
     private static let outputKey = "audio.output"
     /// Largest buffer we expect from iOS (it is normally 64-512 frames).
@@ -83,6 +121,21 @@ final class AudioHost: ObservableObject {
     private var pendingReconfigure: Task<Void, Never>?
     private var activeStrategy: SpeakerStrategy?
     private var observing = false
+    /// Our own session calls make iOS post configuration changes too; reacting to those would
+    /// restart the engine forever. Ignore them until this time.
+    private var ignoreChangesUntil = Date.distantPast
+    private var testing = false
+    /// Peak since the last read, written by the audio callbacks: [0] guitar input, [1] output.
+    private let peaks: UnsafeMutablePointer<Float> = {
+        let p = UnsafeMutablePointer<Float>.allocate(capacity: 2)
+        p.initialize(repeating: 0, count: 2)
+        return p
+    }()
+    private var meterTask: Task<Void, Never>?
+    /// While set, the meter task also writes the levels to the diagnostics log once a second.
+    private var logLevelsUntil = Date.distantPast
+    private var levelWindow = Levels()
+    private var levelTicks = 0
 
     init() {
         let saved = UserDefaults.standard.string(forKey: Self.outputKey)
@@ -110,6 +163,7 @@ final class AudioHost: ObservableObject {
     }
 
     private func bringUp() {
+        diag.log("bring up, output mode \(outputMode.rawValue)")
         do {
             try applySession()
 
@@ -129,11 +183,88 @@ final class AudioHost: ObservableObject {
             core = handle
             try buildGraph(handle: handle, sampleRate: sampleRate)
             try engine.start()
+            ignoreChangesUntil = Date().addingTimeInterval(1.5)
             observeRoute()
             refreshRoute()
+            startMeters()
             state = .running(port: openpedal_port(handle))
+            diag.log("running")
         } catch {
+            diag.log("bring up failed: \(error)")
             fail("\(error.localizedDescription)")
+        }
+    }
+
+    // MARK: Meters and diagnostics
+
+    private func startMeters() {
+        guard meterTask == nil else { return }
+        logLevelsUntil = Date().addingTimeInterval(20)
+        meterTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+                self?.readMeters()
+            }
+        }
+    }
+
+    private static func dB(_ x: Float) -> Float { x > 1e-6 ? 20 * log10(x) : -120 }
+
+    private func readMeters() {
+        let now = Levels(input: Self.dB(peaks[0]), output: Self.dB(peaks[1]))
+        peaks[0] = 0
+        peaks[1] = 0
+        levels = now
+        levelWindow.input = max(levelWindow.input, now.input)
+        levelWindow.output = max(levelWindow.output, now.output)
+        levelTicks += 1
+        if levelTicks >= 4 {
+            if Date() < logLevelsUntil {
+                diag.log(String(format: "levels in %.0f dBFS, out %.0f dBFS", levelWindow.input, levelWindow.output))
+            }
+            levelWindow = Levels()
+            levelTicks = 0
+        }
+    }
+
+    private static func describe(_ ports: [AVAudioSessionPortDescription]?) -> String {
+        guard let ports, !ports.isEmpty else { return "none" }
+        return ports.map { "\($0.portName) [\($0.portType.rawValue), \($0.channels?.count ?? 0) ch]" }.joined(separator: ", ")
+    }
+
+    private func logSession(_ what: String) {
+        let s = AVAudioSession.sharedInstance()
+        diag.log("\(what): category \(s.category.rawValue), mode \(s.mode.rawValue), in \(Self.describe(s.currentRoute.inputs)), out \(Self.describe(s.currentRoute.outputs)), available in \(Self.describe(s.availableInputs)), \(Int(s.sampleRate)) Hz")
+    }
+
+    /// Plays every route for 5 s each while the user strums, logging what iOS did and the levels,
+    /// then goes back to the chosen output. The result is in the diagnostics log.
+    func runRoutingTest() {
+        guard core != nil, !testing else { return }
+        testing = true
+        let steps: [SpeakerStrategy?] = [nil] + SpeakerStrategy.allCases
+        Task { @MainActor in
+            for (i, step) in steps.enumerated() {
+                let name = step?.rawValue ?? "interface"
+                testStatus = "Strum now: \(i + 1)/\(steps.count) \(name)"
+                diag.log("TEST step \(name)")
+                engine.stop()
+                do {
+                    try applySession(strategy: step)
+                    if let handle = core { try buildGraph(handle: handle, sampleRate: coreSampleRate) }
+                    try engine.start()
+                } catch {
+                    diag.log("TEST step \(name) failed: \(error)")
+                }
+                logSession("TEST \(name)")
+                refreshRoute()
+                logLevelsUntil = Date().addingTimeInterval(5)
+                try? await Task.sleep(for: .seconds(5))
+            }
+            diag.log("TEST done")
+            testStatus = nil
+            testing = false
+            reconfigure()
         }
     }
 
@@ -141,11 +272,24 @@ final class AudioHost: ObservableObject {
 
     /// Configures the session for `outputMode` and leaves it active. Does not touch the engine.
     private func applySession() throws {
-        try applySession(strategy: outputMode == .speaker ? Self.speakerStrategy : nil)
-        // The override can move the input to the built-in mic: that would be speaker + mic = feedback.
-        if outputMode == .speaker, activeStrategy == .override, Self.fallbackToMultiRoute,
-           Self.usbInput() != nil, !Self.inputIsUSB() {
-            try applySession(strategy: .multiRoute)
+        guard outputMode == .speaker else {
+            try applySession(strategy: nil)
+            logSession("session interface")
+            return
+        }
+        // Keep the first strategy that gives USB input + speaker output. Without an interface any of
+        // them lands on the built-in mic, which refreshRoute() mutes (speaker + mic = feedback).
+        for (i, strategy) in SpeakerStrategy.allCases.enumerated() {
+            do {
+                try applySession(strategy: strategy)
+            } catch {
+                diag.log("session \(strategy.rawValue) failed: \(error)")
+                continue
+            }
+            logSession("session \(strategy.rawValue)")
+            let inputOK = Self.inputIsUSB() || Self.usbInput() == nil
+            if inputOK && Self.outputHasSpeaker() { return }
+            if i == SpeakerStrategy.allCases.count - 1 { diag.log("no strategy gave USB in + speaker out") }
         }
     }
 
@@ -157,7 +301,7 @@ final class AudioHost: ObservableObject {
         case nil:
             // .measurement turns off the system's input processing (AGC, EQ, noise reduction).
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothA2DP])
-        case .override:
+        case .override, .overrideLast:
             // .measurement can force the receiver / a very low volume once the speaker is forced, so use
             // .default here. No Bluetooth option: the speaker must stay the one output.
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
@@ -167,13 +311,24 @@ final class AudioHost: ObservableObject {
         try session.setPreferredSampleRate(48000)
         try session.setPreferredIOBufferDuration(0.0027) // ~128 frames at 48 kHz
         try session.setActive(true)
-        if strategy == .override {
+        switch strategy {
+        case .overrideLast:
+            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
             try session.overrideOutputAudioPort(.speaker)
-        } else if strategy == nil {
+        case .override:
+            try session.overrideOutputAudioPort(.speaker)
+            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+        case .multiRoute:
+            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+        case nil:
             try session.overrideOutputAudioPort(.none)
+            // Prefer the USB interface for input when it is connected.
+            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
         }
-        // Prefer the USB interface for input when it is connected (again after the override).
-        if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+    }
+
+    private static func outputHasSpeaker() -> Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
     }
 
     private static func usbInput() -> AVAudioSessionPortDescription? {
@@ -187,9 +342,10 @@ final class AudioHost: ObservableObject {
     /// Re-applies the session and rebuilds the engine graph (the input format changes when the
     /// interface is plugged or unplugged, so the old connections would be invalid). The Rust core keeps running.
     private func reconfigure() {
-        guard core != nil, !reconfiguring else { return }
+        guard core != nil, !reconfiguring, !testing else { return }
         reconfiguring = true
         defer { reconfiguring = false }
+        diag.log("reconfigure, output mode \(outputMode.rawValue)")
         engine.stop()
         do {
             try applySession()
@@ -197,9 +353,21 @@ final class AudioHost: ObservableObject {
             try engine.start()
             notice = nil
         } catch {
+            diag.log("reconfigure failed: \(error)")
             notice = "Audio route failed: \(error.localizedDescription)"
         }
+        ignoreChangesUntil = Date().addingTimeInterval(1.5)
+        logLevelsUntil = Date().addingTimeInterval(10)
         refreshRoute()
+    }
+
+    /// For notifications that our own session calls also trigger.
+    private func externalChange(_ what: String) {
+        guard !testing, Date() >= ignoreChangesUntil else { return }
+        // iOS stops the engine on a real configuration change; if it still runs, there is nothing to fix.
+        if what == "engine configuration" && engine.isRunning { return }
+        diag.log("\(what) -> reconfigure")
+        scheduleReconfigure()
     }
 
     /// Waits a moment: iOS sends several notifications for one plug/unplug.
@@ -226,17 +394,22 @@ final class AudioHost: ObservableObject {
             MainActor.assumeIsolated { self?.interrupted(type: raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:))) }
         }
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: session, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleReconfigure() }
+            MainActor.assumeIsolated {
+                self?.diag.log("media services reset")
+                self?.scheduleReconfigure()
+            }
         }
         center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleReconfigure() }
+            MainActor.assumeIsolated { self?.externalChange("engine configuration") }
         }
     }
 
     private func routeChanged(reason: AVAudioSession.RouteChangeReason?) {
+        diag.log("route change, reason \(reason.map { String($0.rawValue) } ?? "?")")
         switch reason {
         case .newDeviceAvailable, .oldDeviceUnavailable:
-            scheduleReconfigure()
+            // A plug or unplug is always real: not subject to ignoreChangesUntil.
+            if !testing { scheduleReconfigure() }
         default:
             // Includes the changes our own category/override calls cause: only refresh, never re-apply
             // (that would loop).
@@ -247,8 +420,10 @@ final class AudioHost: ObservableObject {
     private func interrupted(type: AVAudioSession.InterruptionType?) {
         switch type {
         case .began:
+            diag.log("interruption began")
             notice = "Audio interrupted"
         case .ended:
+            diag.log("interruption ended")
             scheduleReconfigure()
         default:
             break
@@ -267,8 +442,10 @@ final class AudioHost: ObservableObject {
             input: name(current.inputs), output: name(current.outputs),
             sampleRate: session.sampleRate, bufferFrames: Int((session.ioBufferDuration * session.sampleRate).rounded()),
             strategy: activeStrategy?.rawValue ?? "interface")
-        let feedback = outputMode == .speaker && current.inputs.contains { $0.portType == .builtInMic }
+        let onSpeaker = testing ? Self.outputHasSpeaker() : outputMode == .speaker
+        let feedback = onSpeaker && current.inputs.contains { $0.portType == .builtInMic }
         engine.mainMixerNode.outputVolume = feedback ? 0 : 1
+        if feedback { diag.log("muted: built-in mic input with speaker output") }
         if feedback {
             notice = "Output muted: the guitar input is the iPad microphone, which would feed back through the speaker. Plug in the interface or choose Interface."
         } else if notice?.hasPrefix("Output muted") == true {
@@ -320,6 +497,8 @@ final class AudioHost: ObservableObject {
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
         let channels = Int(inputFormat.channelCount)
         let pickChannel = min(guitarInputIndex(), max(channels - 1, 0))
+        let peaks = self.peaks
+        diag.log("graph: input \(channels) ch at \(Int(inputFormat.sampleRate)) Hz, guitar channel \(pickChannel), output \(engine.outputNode.outputFormat(forBus: 0).channelCount) ch")
 
         // Input: copy the guitar channel. Captures only values and raw pointers (no `self`).
         let sink = AVAudioSinkNode { _, frameCount, bufferList in
@@ -337,6 +516,9 @@ final class AudioHost: ObservableObject {
                 let c = min(pickChannel, stride - 1)
                 for i in 0..<Int(frames) { input[i] = data[i * stride + c] }
             }
+            var peak = peaks[0]
+            for i in 0..<Int(frames) { peak = max(peak, abs(input[i])) }
+            peaks[0] = peak
             return noErr
         }
 
@@ -352,6 +534,9 @@ final class AudioHost: ObservableObject {
                 return noErr
             }
             openpedal_process(handle, input, left, right, frameCount)
+            var peak = peaks[1]
+            for i in 0..<Int(frameCount) { peak = max(peak, abs(left[i])) }
+            peaks[1] = peak
             return noErr
         }
 
