@@ -1,0 +1,5 @@
+[[param]]
+node = "ghost"
+key = "gain_db"
+min = 0
+max = 1

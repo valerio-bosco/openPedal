@@ -30,6 +30,8 @@ usage:
   openpedal ports                                 list the audio ports of the sound cards
   openpedal check PRESET...                       check presets without opening the audio
   openpedal render PRESET IN.wav OUT.wav          apply a preset to a recording (channel 1 = dry)
+  openpedal tone-match JOB-DIR --part ID [--di FILE] [--validate-di FILE] [--templates DIR] [--template NAME] [--budget N]
+                                                  fit a chain template to a part of a Tone Lab job
 
 recording options (while playing):
   --record FILE.wav    save dry (left) and processed (right)
@@ -130,6 +132,7 @@ fn run() -> Result<()> {
             "--seconds" => {
                 seconds = args.next().context("--seconds needs a number")?.parse().context("--seconds needs a number")?
             }
+            "tone-match" => return tone_match(args.collect()),
             "render" => {
                 let mut next = || args.next().map(PathBuf::from).context("usage: render PRESET IN.wav OUT.wav");
                 return render(&next()?, &next()?, &next()?);
@@ -325,6 +328,51 @@ fn check_presets(paths: Vec<PathBuf>) -> Result<()> {
         }
     }
     anyhow::ensure!(ok, "some presets are not valid");
+    Ok(())
+}
+
+/// `openpedal tone-match`: fits chain templates to a part of a Tone Lab job folder.
+fn tone_match(args: Vec<String>) -> Result<()> {
+    use openpedal_tonematch::{fit_job, FitOptions};
+    let usage = "usage: tone-match JOB-DIR --part ID [--di FILE] [--validate-di FILE] [--templates DIR] [--template NAME] [--budget N]";
+    let mut opts = FitOptions::default();
+    let (mut job, mut part) = (None, None);
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        let mut value = |what: &str| it.next().with_context(|| format!("{what} needs a value"));
+        match arg.as_str() {
+            "--part" => part = Some(value("--part")?),
+            "--di" => opts.di = Some(PathBuf::from(value("--di")?)),
+            "--validate-di" => opts.validate_di = Some(PathBuf::from(value("--validate-di")?)),
+            "--templates" => opts.templates_dir = PathBuf::from(value("--templates")?),
+            "--template" => opts.template = Some(value("--template")?),
+            "--budget" => opts.budget = value("--budget")?.parse().context("--budget needs a number")?,
+            _ if arg.starts_with("--") => anyhow::bail!("unknown option {arg}\n{usage}"),
+            _ => job = Some(PathBuf::from(arg)),
+        }
+    }
+    let (job, part) = (job.context(usage)?, part.context(usage)?);
+    openpedal_tonematch::lower_priority();
+    let summary = fit_job(&job, &part, &opts, &|line| println!("{line}"))?;
+    println!("\n{:<16} {:>9} {:>9}  stage", "template", "error dB", "holdout");
+    for r in &summary.rows {
+        let hold = r.holdout_error_db.map(|h| format!("{h:.2}")).unwrap_or_else(|| "-".into());
+        println!("{:<16} {:>9.2} {:>9}  {}", r.template, r.error_db, hold, r.stage);
+    }
+    let r = &summary.report;
+    println!(
+        "\nbest: {} (cost {:.2}, error {:.2} dB{}{}) in {:.0} s, {} renders",
+        r.template,
+        summary.cost,
+        r.error_db,
+        r.holdout_error_db.map(|h| format!(", holdout {h:.2} dB")).unwrap_or_default(),
+        r.validate_error_db.map(|v| format!(", validation {v:.2} dB")).unwrap_or_default(),
+        r.seconds,
+        r.renders
+    );
+    if let Some(dir) = &summary.out_dir {
+        println!("written to {}", dir.display());
+    }
     Ok(())
 }
 

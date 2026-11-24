@@ -1,0 +1,41 @@
+name = "rec"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+
+[[node]]
+id = "drive"
+type = "drive"
+params = { shape = "asym", gain_db = 6, level_db = -6 }
+
+[[node]]
+id = "stack"
+type = "tonestack"
+params = { model = "marshall", bass = 0.5, mid = 0.5, treble = 0.5 }
+
+[[node]]
+id = "cab"
+type = "cab"
+params = { low_hz = 120, high_hz = 8000, mid_db = 0, presence_db = 0, seed = 3 }
+
+[[node]]
+id = "out"
+type = "output"
+
+[[edge]]
+from = "in"
+to = "drive"
+
+[[edge]]
+from = "drive"
+to = "stack"
+
+[[edge]]
+from = "stack"
+to = "cab"
+
+[[edge]]
+from = "cab"
+to = "out"

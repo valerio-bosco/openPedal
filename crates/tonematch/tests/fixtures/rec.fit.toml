@@ -1,0 +1,31 @@
+[[param]]
+node = "drive"
+key = "gain_db"
+min = 0
+max = 24
+
+[[param]]
+node = "stack"
+key = "bass"
+min = 0
+max = 1
+
+[[param]]
+node = "stack"
+key = "treble"
+min = 0
+max = 1
+
+[[param]]
+node = "cab"
+key = "low_hz"
+min = 60
+max = 200
+log = true
+
+[[param]]
+node = "cab"
+key = "high_hz"
+min = 2500
+max = 12000
+log = true
