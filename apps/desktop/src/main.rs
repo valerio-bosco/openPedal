@@ -29,7 +29,7 @@ usage:
                                                   web interface (node editor) in the browser
   openpedal ports                                 list the audio ports of the sound cards
   openpedal check PRESET...                       check presets without opening the audio
-  openpedal render PRESET IN.wav OUT.wav          apply a preset to a recording (channel 1 = dry)
+  openpedal render PRESET IN.wav OUT.wav          apply a preset to a recording (left = dry, right = processed)
   openpedal separate IN.wav OUT-DIR --weights FILE [--start S --end S] [--threads N]
                                                   split a recording into stems (Demucs htdemucs_6s), float32 WAVs
   openpedal tone-match JOB-DIR --part ID [--di FILE] [--validate-di FILE] [--templates DIR] [--template NAME] [--budget N]
