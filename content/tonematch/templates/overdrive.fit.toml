@@ -1,0 +1,78 @@
+# Fit ranges for overdrive (see docs/PLAN.md §14.2). Numeric params only.
+[[param]]
+node = "tight"
+key = "freq"
+min = 50
+max = 200
+log = true
+
+[[param]]
+node = "stack"
+key = "bass"
+min = 0
+max = 1
+log = false
+
+[[param]]
+node = "stack"
+key = "mid"
+min = 0
+max = 1
+log = false
+
+[[param]]
+node = "stack"
+key = "treble"
+min = 0
+max = 1
+log = false
+
+[[param]]
+node = "od"
+key = "gain_db"
+min = 0
+max = 30
+log = false
+
+
+[[param]]
+node = "amp"
+key = "gain_db"
+min = 6
+max = 24
+log = false
+
+[[param]]
+node = "cab"
+key = "low_hz"
+min = 60
+max = 200
+log = true
+
+[[param]]
+node = "cab"
+key = "high_hz"
+min = 2500
+max = 12000
+log = true
+
+[[param]]
+node = "cab"
+key = "mid_db"
+min = -8
+max = 8
+log = false
+
+[[param]]
+node = "cab"
+key = "presence_db"
+min = -8
+max = 8
+log = false
+
+[[param]]
+node = "room"
+key = "mix"
+min = 0
+max = 0.4
+log = false
