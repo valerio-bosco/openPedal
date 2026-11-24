@@ -194,3 +194,17 @@ def test_low_notes_need_a_silent_bass_and_a_stable_pitch(tmp_path):
     job2 = make_job(tmp_path / "g", glide, glide)
     sf.write(str(job2.stem("bass")), np.zeros((len(glide), 2), np.float32), SR, subtype="FLOAT")
     assert an.analyse(job2)["low_notes"] == []
+
+
+def test_caps_json_and_progress_lines(tmp_path, monkeypatch, capsys):
+    from tonelab import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: {
+        "sources": {"youtube": True}, "gpu": {"device": "cpu"}, "paths": {"jobs": str(tmp_path)}})
+    assert cli.main(["caps", "--json"]) == 0
+    caps = json.loads(capsys.readouterr().out)
+    assert caps == {"youtube": True, "device": "cpu", "jobs_dir": str(tmp_path)}
+    cli.progress("fit", None, "hello world")
+    cli.progress("fit", 0.5, "half")
+    err = capsys.readouterr().err.splitlines()
+    assert err == ["PROGRESS fit - hello world", "PROGRESS fit 0.500 half"]
