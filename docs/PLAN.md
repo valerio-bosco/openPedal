@@ -705,7 +705,7 @@ to its embedded core over the local WebSocket, as it already does for everything
 | 0 | `spike/ios-cxx` | Sonnet | prove C++17 (+ Eigen) compiles into `libopenpedal.a` for iOS from Linux: a tiny crate with `cc` building a C++ file that uses Eigen, called from `crates/ffi` behind a feature, through `apps/ios/scripts/build-core.sh` and `xtool.sh dev build`; write `docs/spikes/ios-cxx.md` | `spikes/ios-cxx/**`, `docs/spikes/ios-cxx.md`, minimal edits in build-core.sh behind a flag | done 3f68c19: go (docs/spikes/ios-cxx.md) |
 | 1 | `feat/separate-native` | Sonnet | crate `openpedal-separate`: demucs.cpp via `cc`, safe API `separate(stereo: &[f32;2xN], sr) -> Stems`, excerpt mode, progress callback, weights from a path; desktop CLI `openpedal separate` for testing | `crates/separate/**`, vendored sources under `third_party/` | in progress |
 | 1 | `feat/tonelab-rust` | Sonnet | crate `openpedal-tonelab`: job folder IO (§14.2), analysis (sections, stereo kind, tempo, key), pYIN transcription, Karplus-Strong synth DI + spectral match (port of tools/tonelab transcribe.py/synth.py/analyse.py); parity tests vs the Python outputs | `crates/tonelab/**` | in progress |
-| 1 | `feat/tonelab-backend` | Sonnet | server `TonelabBackend` trait: `Python` (current code) and `Native` (separate + tonelab + tonematch in-process); selected at runtime (iOS: always native); caps on iOS: youtube false | `crates/server/**`, `crates/ffi/**` | in progress (stubs behind feature native-tonelab) |
+| 1 | `feat/tonelab-backend` | Sonnet | server `TonelabBackend` trait: `Python` (current code) and `Native` (separate + tonelab + tonematch in-process); selected at runtime (iOS: always native); caps on iOS: youtube false | `crates/server/**`, `crates/ffi/**` | done b3df54a (native adapter stubbed; wire at merge of the two crates) |
 | 2 | `feat/ios-tonelab-ui` | Sonnet | SwiftUI Tone Lab (Liquid Glass): import (document picker, AVAudioFile → mix.wav), waveform + region selection, separate excerpt, song map, channel, progress/cancel, A/B player, save preset | `apps/ios/Sources/OpenPedalApp/ToneLab/**`, one entry in Toolbar | todo |
 | 2 | `feat/ios-record-di` | Sonnet | AudioHost records the guitar channel with a count-in to `di-user.wav` (preallocated buffer, no allocation on the audio thread) | `apps/ios/Sources/OpenPedalApp/AudioHost.swift`, `Recorder.swift` | todo |
 | 2 | `chore/ios-weights` | Haiku | bundle the separation weights in the app (build-core.sh sync + resources), size check, README | `apps/ios/scripts/**`, `apps/ios/README.md` | todo |
@@ -753,3 +753,13 @@ pub fn transcribe(mono: &[f32], sr: u32) -> Vec<Note>;
 pub fn synth_di(notes: &[Note], sr: u32, match_di: Option<&[f32]>) -> Vec<f32>;
 ```
 `openpedal-tonelab` depends on `openpedal-separate` only for the `Stems` type (or re-exports it).
+
+**iOS start flow (from `feat/tonelab-backend`).** Swift decodes the song with AVAudioFile and writes
+`<data_dir>/tonelab/jobs/<id>/mix.wav`, then sends `tonelab_start { source: "<that path>" }`; the native
+backend only accepts that shape. Separation is lazy: `tonelab_pick` separates `start-2 s..end+2 s` when
+the stems do not cover the pick, records the offset (`stems/excerpt.json`), analyses best-effort, picks,
+synthesises the DI. `tonelab_record_di` on native succeeds when Swift has already written
+`parts/<id>/di-user.wav`. FFI: `openpedal_set_demucs_weights(path)` before `openpedal_start*` selects the
+native backend. Merge TODO: forward the server's `native-tonelab` feature from `crates/ffi` next to
+`separate`, replace `native_adapter.rs` stubs with `DemucsCpp::load` and the `openpedal-tonelab` calls,
+swap the local `Stems`/`Separator` for the crate's.
