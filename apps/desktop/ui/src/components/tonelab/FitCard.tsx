@@ -3,13 +3,15 @@ import { useState } from "react";
 import { ABPlayer } from "./ABPlayer";
 import { clock, db } from "./format";
 import { fileUrl, type FitResult } from "./useTonelab";
-import type { FitSummary, Job, Part } from "./types";
+import type { TonelabFit, TonelabJobInfo, TonelabPart } from "../../generated/protocol";
 
 interface Props {
-  job: Job;
-  part: Part;
+  job: TonelabJobInfo;
+  part: TonelabPart;
   result?: FitResult;
   busy: boolean;
+  /** The server refused to record this part from the panel. */
+  recordError?: string;
   onRecord: (seconds: number) => void;
   onFit: () => void;
   onSave: (name: string) => void;
@@ -17,13 +19,13 @@ interface Props {
 
 const COUNTDOWN_S = 2;
 
-function diText(p: Part): string {
+function diText(p: TonelabPart): string {
   if (p.has_user_di) return "your recording";
   if (p.has_synth_di) return "the synthetic input";
   return "nothing yet (the synthetic input is still being built)";
 }
 
-function Numbers({ fit }: { fit: FitSummary }) {
+function Numbers({ fit }: { fit: TonelabFit }) {
   return (
     <ul className="tl-numbers">
       <li data-testid="err">
@@ -43,10 +45,11 @@ function Numbers({ fit }: { fit: FitSummary }) {
   );
 }
 
-export function FitCard({ job, part, result, busy, onRecord, onFit, onSave }: Props) {
+export function FitCard({ job, part, result, busy, recordError, onRecord, onFit, onSave }: Props) {
   const fit = result?.fit ?? part.fit ?? undefined;
   const [name, setName] = useState(`${job.title} ${part.label}`.replace(/[\\/]/g, "-").trim());
   const secs = Math.ceil(part.end - part.start);
+  const [upload, setUpload] = useState(false);
 
   return (
     <div className="tl-fit" data-part={part.id}>
@@ -64,10 +67,30 @@ export function FitCard({ job, part, result, busy, onRecord, onFit, onSave }: Pr
         >
           {part.has_user_di ? "Record again" : "Record my take"}
         </button>
+        <button data-act="upload" aria-expanded={upload} onClick={() => setUpload((u) => !u)}>
+          Upload my take
+        </button>
         <button className="primary" disabled={busy || (!part.has_user_di && !part.has_synth_di)} data-act="fit" onClick={onFit}>
           {fit ? "Fit again" : "Fit this part"}
         </button>
       </div>
+      {recordError && (
+        <p className="tl-error" role="alert" data-testid="record-error">
+          {recordError}
+        </p>
+      )}
+      {(upload || recordError) && (
+        <div className="tl-cli" data-testid="record-cli">
+          <p>
+            Recording from this panel is not available yet. Record your take on the command line, then copy it into the job folder (by default{" "}
+            <code>~/.local/share/openpedal/tonelab/jobs/{job.id}</code>):
+          </p>
+          <pre>{`openpedal --record take.wav --seconds ${secs}\ncp take.wav <job folder>/parts/${part.id}/di-user.wav`}</pre>
+          <p className="hint">
+            The recording keeps your dry guitar on the left channel, which is the one the fit reads. Reopen the song afterwards and this part will say "your recording".
+          </p>
+        </div>
+      )}
       <p className="hint">
         A recording of you playing this part ({secs} s, after a {COUNTDOWN_S} s countdown) makes the preset fit your own guitar. Without one, a synthetic input built from the detected notes is used.
       </p>

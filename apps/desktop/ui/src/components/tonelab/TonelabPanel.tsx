@@ -116,6 +116,7 @@ export function TonelabPanel({ transport, demo, toast, onClose }: Props) {
                           part={p}
                           result={t.results[`${job.id}/${p.id}`]}
                           busy={t.busy}
+                          recordError={t.recordError?.job === job.id && t.recordError.part === p.id ? t.recordError.message : undefined}
                           onRecord={(s) => t.record(job.id, p.id, s)}
                           onFit={() => t.fit(job.id, p.id)}
                           onSave={(name) => {

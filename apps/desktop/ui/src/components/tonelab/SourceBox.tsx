@@ -1,6 +1,6 @@
 // Where a song comes from: a file (drop or pick), or a link when the server allows it.
 import { useRef, useState } from "react";
-import type { TonelabCaps } from "./types";
+import type { TonelabCaps } from "./useTonelab";
 
 interface Props {
   caps: TonelabCaps;
