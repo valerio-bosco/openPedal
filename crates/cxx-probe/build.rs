@@ -20,7 +20,7 @@ fn main() {
         b.cpp_set_stdlib(None).flag("-stdlib=libc++");
         // Headers of the SDK's libc++ (the nixpkgs clang is unwrapped: no implicit paths).
         b.flag("-isysroot").flag(&sdk);
-        b.flag("-isystem").flag(&format!("{sdk}/usr/include/c++/v1"));
+        b.flag("-isystem").flag(format!("{sdk}/usr/include/c++/v1"));
         // Exceptions and RTTI stay on (default): Eigen/std need them only on error paths.
         println!("cargo:rustc-link-lib=c++");
     } else {
