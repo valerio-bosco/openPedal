@@ -26,7 +26,7 @@ pub struct FitOptions {
     pub di: Option<PathBuf>,
     /// Another real DI to render the fitted preset on, compared with the target.
     pub validate_di: Option<PathBuf>,
-    /// Evaluations of the full fit (default 350); screening uses about a sixth of it.
+    /// Evaluations of the full fit (default 350, 2 restarts); screening has its own budget.
     pub budget: usize,
     pub threads: usize,
     /// Length of the densest window used for fitting.
@@ -55,7 +55,7 @@ pub struct TemplateResult {
     /// Spectral error on the fitting window, dB.
     pub error_db: f32,
     pub holdout_error_db: Option<f32>,
-    /// `screen` (about 60 renders) or `fit` (full budget).
+    /// `screen` (max(60, 6 x params) renders) or `fit` (full budget).
     pub stage: &'static str,
     pub renders: usize,
 }
@@ -77,6 +77,8 @@ pub struct Report {
     pub bands_hz: Vec<f32>,
     pub diff_db: Vec<f32>,
     pub renders: usize,
+    /// Renders spent on each template (screening plus full fit).
+    pub templates: Vec<TemplateResult>,
     pub seconds: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validate_error_db: Option<f32>,
@@ -99,6 +101,11 @@ pub struct SignalFit {
     pub template: Template,
     pub values: Vec<f32>,
     pub summary: FitSummary,
+}
+
+/// Screening budget per template: enough to get past the initial simplex of `n + 1` renders.
+pub fn screen_budget(n_params: usize) -> usize {
+    60.max(6 * n_params)
 }
 
 /// Start of the window of `len` samples with the most energy (steps of half a second).
@@ -142,7 +149,7 @@ impl Problem<'_> {
     }
 
     /// Optimises from `start` (parameter values) within `budget` evaluations.
-    fn optimise(&self, start: &[f32], budget: usize) -> (Minimum, Vec<f32>) {
+    fn optimise(&self, start: &[f32], budget: usize, restarts: usize) -> (Minimum, Vec<f32>) {
         let mut analyzer = Analyzer::new(self.sr);
         let mut f = |x: &[f64]| -> f64 {
             let values = self.template.values_from_unit(x);
@@ -151,7 +158,7 @@ impl Problem<'_> {
                 Err(_) => 1e3,
             }
         };
-        let min = optim::minimize(&mut f, &self.template.unit_from_values(start), budget, 2);
+        let min = optim::minimize(&mut f, &self.template.unit_from_values(start), budget, restarts);
         let values = self.template.values_from_unit(&min.x);
         (min, values)
     }
@@ -208,20 +215,21 @@ pub fn fit_signals(
     let hold_feat = holdout.then(|| Analyzer::new(sr).analyze(&target[split..]));
 
     let full_budget = opts.budget.max(20);
-    let screen_budget = (full_budget * 60 / 350).max(20);
     let mut renders = 0usize;
 
     // Screening.
     let starts: Vec<Vec<f32>> = templates.iter().map(|t| t.initial(pedals)).collect();
     let mut stage: Vec<(Vec<f32>, f32, usize)> = starts.iter().map(|s| (s.clone(), f32::MAX, 0)).collect();
-    let mut stage_name = "fit";
     if templates.len() > 1 {
-        stage_name = "screen";
-        progress(&format!("screening {} templates with ~{screen_budget} renders each", templates.len()));
+        progress(&format!(
+            "screening {} templates with max(60, 6 x params) renders each, no restarts",
+            templates.len()
+        ));
         let jobs: Vec<usize> = (0..templates.len()).collect();
         let results = parallel(&jobs, opts.threads, |&i| {
+            let screen_budget = screen_budget(templates[i].params.len());
             let p = Problem { template: &templates[i], pedals, di: fit_di, target: &target_feat, sr };
-            let (min, values) = p.optimise(&starts[i], screen_budget);
+            let (min, values) = p.optimise(&starts[i], screen_budget, 0);
             progress(&format!("  screen {:<14} cost {:.2} ({} renders)", templates[i].name, min.value, min.evals));
             (values, min.value as f32, min.evals)
         });
@@ -241,7 +249,7 @@ pub fn fit_signals(
     ));
     let fits = parallel(&finalists, opts.threads, |&i| {
         let p = Problem { template: &templates[i], pedals, di: fit_di, target: &target_feat, sr };
-        let (min, values) = p.optimise(&stage[i].0, full_budget);
+        let (min, values) = p.optimise(&stage[i].0, full_budget, 2);
         progress(&format!("  fit    {:<14} cost {:.2} ({} renders)", templates[i].name, min.value, min.evals));
         (values, min.value as f32, min.evals)
     });
@@ -249,6 +257,7 @@ pub fn fit_signals(
     // Re-measure each finalist with the rounded values it would be saved with.
     struct Final {
         index: usize,
+        renders: usize,
         values: Vec<f32>,
         cost: f32,
         error: f32,
@@ -259,6 +268,7 @@ pub fn fit_signals(
     let mut an = Analyzer::new(sr);
     for (&i, (values, _, evals)) in finalists.iter().zip(fits) {
         renders += evals;
+        let template_renders = evals + if templates.len() > 1 { stage[i].2 } else { 0 } + 1 + usize::from(holdout);
         let t = &templates[i];
         let rounded: Vec<f32> = t.params.iter().zip(&values).map(|(p, v)| p.round(*v)).collect();
         let p = Problem { template: t, pedals, di: fit_di, target: &target_feat, sr };
@@ -270,6 +280,7 @@ pub fn fit_signals(
         renders += 1 + usize::from(holdout);
         finals.push(Final {
             index: i,
+            renders: template_renders,
             values: rounded,
             cost: features::cost(&feat, &target_feat),
             error: features::spectral_error(&feat, &target_feat),
@@ -286,7 +297,7 @@ pub fn fit_signals(
             error_db: f.error,
             holdout_error_db: f.holdout,
             stage: "fit",
-            renders: 0,
+            renders: f.renders,
         });
     }
     for &i in &order {
@@ -295,7 +306,6 @@ pub fn fit_signals(
             rows.push(TemplateResult { template: templates[i].name.clone(), error_db: stage[i].1, holdout_error_db: None, stage: "screen", renders: stage[i].2 });
         }
     }
-    let _ = stage_name;
 
     let best = &finals[0];
     let template = templates[best.index].clone();
@@ -309,6 +319,7 @@ pub fn fit_signals(
         bands_hz: band_centres().iter().map(|f| f.round()).collect(),
         diff_db: features::diff_db(&best.feat, &target_feat).iter().map(|d| (d * 100.0).round() / 100.0).collect(),
         renders,
+        templates: rows.clone(),
         seconds: t0.elapsed().as_secs_f32(),
         validate_error_db: None,
     };

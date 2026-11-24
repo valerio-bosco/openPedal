@@ -354,10 +354,10 @@ fn tone_match(args: Vec<String>) -> Result<()> {
     let (job, part) = (job.context(usage)?, part.context(usage)?);
     openpedal_tonematch::lower_priority();
     let summary = fit_job(&job, &part, &opts, &|line| println!("{line}"))?;
-    println!("\n{:<16} {:>9} {:>9}  stage", "template", "error dB", "holdout");
+    println!("\n{:<16} {:>9} {:>9} {:>8}  stage", "template", "error dB", "holdout", "renders");
     for r in &summary.rows {
         let hold = r.holdout_error_db.map(|h| format!("{h:.2}")).unwrap_or_else(|| "-".into());
-        println!("{:<16} {:>9.2} {:>9}  {}", r.template, r.error_db, hold, r.stage);
+        println!("{:<16} {:>9.2} {:>9} {:>8}  {}", r.template, r.error_db, hold, r.renders, r.stage);
     }
     let r = &summary.report;
     println!(
