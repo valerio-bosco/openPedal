@@ -13,7 +13,7 @@ struct OpenPedalApp: App {
                     ProgressView("Starting audio engine...")
                 case .running(let port):
                     Group {
-                        if let store { RootView(store: store, host: host) } else { ProgressView() }
+                        if let store { RootView(store: store) } else { ProgressView() }
                     }
                     .onAppear { if store == nil { store = Store(port: port) } }
                 case .failed(let message):
@@ -33,7 +33,6 @@ struct OpenPedalApp: App {
 
 struct RootView: View {
     let store: Store
-    @ObservedObject var host: AudioHost
     @State private var showAdd = false
     @State private var showAbout = false
     @State private var expanded = false
@@ -61,7 +60,7 @@ struct RootView: View {
             ZStack(alignment: .top) {
                 Ambient(tint: tint)
                 VStack(spacing: 0) {
-                    ToolbarView(store: store, host: host, showAbout: $showAbout)
+                    ToolbarView(store: store, showAbout: $showAbout)
                         .frame(height: 52)
                         .padding(.horizontal, 20).padding(.top, 8)
                     // The board is laid out once at its final size; the resize is a transform (BoardScale)
@@ -84,19 +83,6 @@ struct RootView: View {
                     }
                 }
                 .animation(.smooth, value: store.banner)
-                .overlay(alignment: .top) {
-                    if let text = host.notice {
-                        Label(text, systemImage: "speaker.slash.fill")
-                            .font(.callout.weight(.semibold))
-                            .multilineTextAlignment(.leading)
-                            .padding(.horizontal, 18).padding(.vertical, 10)
-                            .glassEffect(.regular.tint(.orange.opacity(0.35)), in: RoundedRectangle(cornerRadius: 22))
-                            .padding(.top, store.banner == nil ? 72 : 124)
-                            .padding(.horizontal, 40)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .animation(.smooth, value: host.notice)
 
                 // Floats over the bottom of the screen: its height animates without moving the board.
                 if showInspector {
@@ -125,7 +111,7 @@ struct RootView: View {
             DesignerView(store: store, session: session)
         }
         .sheet(isPresented: $showAdd) { AddPedalSheet(store: store) }
-        .sheet(isPresented: $showAbout) { AboutSheet(store: store, host: host) }
+        .sheet(isPresented: $showAbout) { AboutSheet(store: store) }
     }
 }
 

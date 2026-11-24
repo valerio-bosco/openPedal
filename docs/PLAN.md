@@ -493,6 +493,12 @@ USB input; fall back to `.multiRoute` if the override also steals the input), a 
 the current input/output route, and handling of route changes (plug/unplug). It can only be verified
 on the iPad: the user installs and tests.
 
+*Outcome (2026-11-24): dropped.* Tested on the iPad with a routing test of three strategies: iOS
+treats the Scarlett as a wired headset and keeps input and output on the same device (forcing the
+speaker moves the input to the built-in mic; `.multiRoute` does not list the speaker). Bluetooth
+output works but its latency is unusable for playing. The feature was removed; what stayed is the
+hot-plug fix (fresh engine with the Scarlett's 2 input channels, no reconfigure loop).
+
 **Famous tones.** Research first (interviews, rig rundowns, gear wikis, live footage), write the findings
 and sources to `docs/tones/<song>.md` (guitars, pedals, amp, which part plays what), then build the
 preset(s) and check them with `openpedal render` on the user's recordings. Missing DSP blocks (e.g. a
