@@ -1099,6 +1099,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "openpedal-separate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+]
+
+[[package]]
 name = "openpedal-server"
 version = "0.1.0"
 dependencies = [
