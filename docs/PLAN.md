@@ -805,7 +805,7 @@ tones the first tests missed (clean compressed, Fuzz Face, modulation) and clean
 | 3a | `feat/dsp-fuzzface` | Sonnet | blocks `fuzzface` (two-transistor fuzz, germanium/silicon choice, cleans up with the input level like the real one) and `treblebooster` (Rangemaster style) | `crates/dsp/src/{fuzzface,treblebooster}.rs`, their lines in `crates/dsp/src/lib.rs` | done 963e8e0 |
 | 3a | `feat/templates-comp` | Haiku | templates with the existing `compressor`: `clean-comp`, `crunch-comp` (+ `.fit.toml`) | `content/tonematch/templates/{clean-comp,crunch-comp}.*` | done 55c3f5d |
 | 3a | `feat/separate-quality` | Sonnet | cleaner excerpt stems: measure margins (2/5/8 s) and Demucs shifts (1/2) on Cryogen 8-28 s vs the full-song Python stem (correlation, note count after transcription: full-song 131); pick the best within ~1.3x today's time; apply in `openpedal-separate` + `native_backend::MARGIN_S` | `crates/separate/**`, `crates/server/src/native_backend.rs` (constants only) | in progress |
-| 3b | `feat/templates-more` | Haiku | after 3a: templates `fuzzface`, `fuzzface-vibe`, `phaser-crunch`, `treble-boost`, `wah-crunch` | `content/tonematch/templates/**` (new files) | todo |
+| 3b | `feat/templates-more` | Haiku | after 3a: templates `fuzzface`, `fuzzface-vibe`, `phaser-crunch`, `treble-boost`, `wah-crunch` | `content/tonematch/templates/**` (new files) | in progress |
 
 Both DSP branches add lines next to each other in `crates/dsp/src/lib.rs` and may regenerate the same
 fixtures: Opus resolves at merge (keep both, regenerate fixtures, re-bless nothing existing). New blocks get
