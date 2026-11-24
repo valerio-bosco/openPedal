@@ -1,0 +1,49 @@
+{
+  "type": "tonelab_fit_result",
+  "job": "2026-11-24-demo-song",
+  "part": "p1",
+  "fit": {
+    "template": "fuzz-octave",
+    "error_db": 1.89,
+    "holdout_error_db": null,
+    "validate_error_db": 5.33
+  },
+  "templates": [
+    {
+      "template": "fuzz-octave",
+      "error_db": 1.89,
+      "renders": 412,
+      "stage": "fit"
+    },
+    {
+      "template": "fuzz",
+      "error_db": 1.92,
+      "renders": 410,
+      "stage": "fit"
+    },
+    {
+      "template": "highgain",
+      "error_db": 3.4,
+      "renders": 61,
+      "stage": "screen"
+    },
+    {
+      "template": "overdrive",
+      "error_db": 4.1,
+      "renders": 61,
+      "stage": "screen"
+    },
+    {
+      "template": "crunch",
+      "error_db": 5.2,
+      "renders": 61,
+      "stage": "screen"
+    },
+    {
+      "template": "clean",
+      "error_db": 7.8,
+      "renders": 61,
+      "stage": "screen"
+    }
+  ]
+}

@@ -10,7 +10,12 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use openpedal_graph::model::{GraphFile, PedalFile};
-use openpedal_protocol::{codegen, AudioInfo, ClientMsg, MetersMsg, ServerMsg, PROTOCOL_VERSION};
+use openpedal_protocol::{
+    codegen, AudioInfo, ClientMsg, MetersMsg, ServerMsg, TonelabFit, TonelabJobInfo, TonelabJobSummary, TonelabStage, TonelabTemplateResult, PROTOCOL_VERSION,
+};
+
+const TONELAB_FIXTURES: [&str; 7] =
+    ["tonelab_caps", "tonelab_caps_unavailable", "tonelab_jobs", "tonelab_progress", "tonelab_progress_fit", "tonelab_job", "tonelab_fit_result"];
 
 fn fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/ui/src/fixtures").join(format!("{name}.json"));
@@ -80,7 +85,7 @@ fn server_messages_round_trip() {
     // below; every other part goes through the Rust types.
     let state = fixture("state");
     assert_eq!(state["protocol"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 3);
+    assert_eq!(PROTOCOL_VERSION, 4);
     for key in ["can_undo", "can_redo", "dirty"] {
         assert!(state[key].is_boolean(), "state.{key}");
     }
@@ -99,7 +104,7 @@ fn fixtures_match_the_schema() {
     for c in fixture("catalog").as_array().unwrap() {
         assert_valid(&v, "catalog item", c);
     }
-    for name in ["state", "meters", "error", "param", "response", "added"] {
+    for name in ["state", "meters", "error", "param", "response", "added"].into_iter().chain(TONELAB_FIXTURES) {
         assert_valid(&v, name, &fixture(name));
     }
     // and the schema is not vacuous
@@ -142,4 +147,46 @@ fn fixtures_carry_a_v2_custom_pedal_and_the_analysis_messages() {
     let msgs = fixture("client-messages");
     let types: Vec<&str> = msgs.as_array().unwrap().iter().map(|m| m["type"].as_str().unwrap()).collect();
     assert!(types.contains(&"analyze_pedal") && types.contains(&"analyze_node"));
+}
+
+#[test]
+fn tonelab_messages_round_trip() {
+    let caps = fixture("tonelab_caps");
+    let msg = ServerMsg::TonelabCaps { available: true, youtube: caps["youtube"].as_bool().unwrap(), device: caps["device"].as_str().unwrap().into(), reason: None };
+    assert_eq!(wire(&msg), caps);
+    let off = fixture("tonelab_caps_unavailable");
+    assert_eq!(off["available"], false);
+    let msg = ServerMsg::TonelabCaps { available: false, youtube: false, device: String::new(), reason: off["reason"].as_str().map(Into::into) };
+    assert_eq!(wire(&msg), off);
+
+    let jobs = fixture("tonelab_jobs");
+    let list: Vec<TonelabJobSummary> = serde_json::from_value(jobs["jobs"].clone()).unwrap();
+    assert_eq!(wire(&ServerMsg::TonelabJobs { jobs: list }), jobs);
+
+    for name in ["tonelab_progress", "tonelab_progress_fit"] {
+        let p = fixture(name);
+        let stage: TonelabStage = serde_json::from_value(p["stage"].clone()).unwrap();
+        let fraction = p["fraction"].as_f64().map(|f| f as f32);
+        let msg = ServerMsg::TonelabProgress { job: p["job"].as_str().unwrap().into(), stage, message: p["message"].as_str().unwrap().into(), fraction };
+        assert_eq!(wire(&msg), p, "{name}");
+    }
+
+    let job = fixture("tonelab_job");
+    let info: TonelabJobInfo = serde_json::from_value(job["job"].clone()).unwrap();
+    assert!(!info.sections.is_empty() && info.parts.iter().any(|p| p.fit.is_some()));
+    assert_eq!(wire(&ServerMsg::TonelabJob { job: info }), job);
+
+    let result = fixture("tonelab_fit_result");
+    let msg = ServerMsg::TonelabFitResult {
+        job: result["job"].as_str().unwrap().into(),
+        part: result["part"].as_str().unwrap().into(),
+        fit: serde_json::from_value::<TonelabFit>(result["fit"].clone()).unwrap(),
+        templates: serde_json::from_value::<Vec<TonelabTemplateResult>>(result["templates"].clone()).unwrap(),
+    };
+    assert_eq!(wire(&msg), result);
+
+    let types: Vec<String> = fixture("client-messages").as_array().unwrap().iter().map(|m| m["type"].as_str().unwrap().to_string()).collect();
+    for t in ["tonelab_caps", "tonelab_jobs", "tonelab_start", "tonelab_open", "tonelab_pick", "tonelab_record_di", "tonelab_fit", "tonelab_save_preset", "tonelab_cancel"] {
+        assert!(types.iter().any(|x| x == t), "client-messages.json lacks {t}");
+    }
 }

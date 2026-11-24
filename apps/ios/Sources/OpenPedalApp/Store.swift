@@ -142,6 +142,8 @@ final class Store {
         case .response(let freq, let db):
             analysis.freq = freq
             analysis.db = db
+        case .tonelabCaps, .tonelabJobs, .tonelabProgress, .tonelabJob, .tonelabFitResult:
+            break // Tone Lab (protocol v4) has no iPad client yet
         case .state(let s):
             if catalog != s.catalog {
                 catalog = s.catalog

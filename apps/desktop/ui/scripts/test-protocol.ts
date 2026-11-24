@@ -21,6 +21,13 @@ for (const name of ["state", "meters", "error", "param", "response", "added"]) {
   assert.ok(isServerMsg(m), `${name}.json rejected`);
   assert.equal((m as { type: string }).type, name);
 }
+for (const name of ["tonelab_caps", "tonelab_caps_unavailable", "tonelab_jobs", "tonelab_progress", "tonelab_progress_fit", "tonelab_job", "tonelab_fit_result"]) {
+  const m = fixture(name);
+  assert.ok(isServerMsg(m), `${name}.json rejected`);
+  assert.ok((m as { type: string }).type.startsWith("tonelab_") && name.startsWith((m as { type: string }).type), `${name}.json has the wrong type`);
+}
+assert.ok(!isServerMsg({ type: "tonelab_progress", job: "a", stage: "bogus", message: "", fraction: null }));
+assert.ok(!isClientMsg({ type: "tonelab_pick", job: "a", start: 0, end: 1, channel: "centre", label: "" }));
 assert.equal((fixture("state") as { protocol: number }).protocol, PROTOCOL_VERSION);
 
 // The guards must also reject malformed messages.

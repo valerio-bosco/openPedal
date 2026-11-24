@@ -1,0 +1,7 @@
+{
+  "type": "tonelab_progress",
+  "job": "2026-11-24-demo-song",
+  "stage": "separate",
+  "message": "separating the stems (a minute or two on the GPU)",
+  "fraction": null
+}

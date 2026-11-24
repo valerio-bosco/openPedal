@@ -1,0 +1,7 @@
+{
+  "type": "tonelab_caps",
+  "available": false,
+  "youtube": false,
+  "device": "",
+  "reason": "the tonelab tool was not found at tools/tonelab/bin/tonelab (run openpedal from the repository root, or set OPENPEDAL_TONELAB)"
+}

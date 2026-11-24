@@ -1,0 +1,7 @@
+{
+  "type": "tonelab_caps",
+  "available": true,
+  "youtube": true,
+  "device": "cuda",
+  "reason": null
+}

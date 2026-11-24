@@ -4,7 +4,7 @@
 import Foundation
 
 enum OpenPedalProtocol {
-    static let version = 3
+    static let version = 4
     static let input = "input"
     static let output = "output"
     static let pedalPrefix = "pedal:"
@@ -86,6 +86,26 @@ enum ClientMsg: Codable, Hashable {
     /// Call once at the start of a continuous gesture (a knob drag): the `set_param` messages
     /// that follow become a single undo step.
     case editBegin
+    /// Asks what Tone Lab can do on this machine. Replies with `tonelab_caps`.
+    case tonelabCaps
+    /// Lists the Tone Lab jobs. Replies with `tonelab_jobs`.
+    case tonelabJobs
+    /// Starts a job from a URL or from a path returned by `POST /tonelab/upload`: fetch, separate and
+    /// analyse. Replies with `tonelab_progress` messages, then `tonelab_job`.
+    case tonelabStart(String)
+    /// Reads a job from disk. Replies with `tonelab_job`.
+    case tonelabOpen(String)
+    /// Picks a part of the song (a time range and a stereo channel), transcribes it and builds a
+    /// synthetic DI. Replies with `tonelab_progress` messages, then `tonelab_job`.
+    case tonelabPick(job: String, start: Double, end: Double, channel: TonelabChannel, label: String)
+    /// Records the live guitar input into `parts/<part>/di-user.wav`, then replies with `tonelab_job`.
+    case tonelabRecordDi(job: String, part: String, seconds: Double)
+    /// Fits a preset to a part. Replies with `tonelab_progress` messages, then `tonelab_fit_result`.
+    case tonelabFit(job: String, part: String)
+    /// Saves the fitted preset of a part into the library under `name` (like `save_preset`).
+    case tonelabSavePreset(job: String, part: String, name: String)
+    /// Stops the step running for a job (`tonelab_progress` with stage `cancelled`).
+    case tonelabCancel(String)
 
     private enum TagKey: String, CodingKey { case type }
     private enum SetParamKeys: String, CodingKey { case node, param, value }
@@ -101,6 +121,13 @@ enum ClientMsg: Codable, Hashable {
     private enum MoveNodeKeys: String, CodingKey { case node, to }
     private enum AnalyzePedalKeys: String, CodingKey { case pedal, values }
     private enum AnalyzeNodeKeys: String, CodingKey { case node }
+    private enum TonelabStartKeys: String, CodingKey { case source }
+    private enum TonelabOpenKeys: String, CodingKey { case job }
+    private enum TonelabPickKeys: String, CodingKey { case job, start, end, channel, label }
+    private enum TonelabRecordDiKeys: String, CodingKey { case job, part, seconds }
+    private enum TonelabFitKeys: String, CodingKey { case job, part }
+    private enum TonelabSavePresetKeys: String, CodingKey { case job, part, name }
+    private enum TonelabCancelKeys: String, CodingKey { case job }
 
     init(from decoder: Decoder) throws {
         let tc = try decoder.container(keyedBy: TagKey.self)
@@ -152,6 +179,31 @@ enum ClientMsg: Codable, Hashable {
             self = .analyzeNode(try c.decode(String.self, forKey: .node))
         case "edit_begin":
             self = .editBegin
+        case "tonelab_caps":
+            self = .tonelabCaps
+        case "tonelab_jobs":
+            self = .tonelabJobs
+        case "tonelab_start":
+            let c = try decoder.container(keyedBy: TonelabStartKeys.self)
+            self = .tonelabStart(try c.decode(String.self, forKey: .source))
+        case "tonelab_open":
+            let c = try decoder.container(keyedBy: TonelabOpenKeys.self)
+            self = .tonelabOpen(try c.decode(String.self, forKey: .job))
+        case "tonelab_pick":
+            let c = try decoder.container(keyedBy: TonelabPickKeys.self)
+            self = .tonelabPick(job: try c.decode(String.self, forKey: .job), start: try c.decode(Double.self, forKey: .start), end: try c.decode(Double.self, forKey: .end), channel: try c.decode(TonelabChannel.self, forKey: .channel), label: try c.decode(String.self, forKey: .label))
+        case "tonelab_record_di":
+            let c = try decoder.container(keyedBy: TonelabRecordDiKeys.self)
+            self = .tonelabRecordDi(job: try c.decode(String.self, forKey: .job), part: try c.decode(String.self, forKey: .part), seconds: try c.decode(Double.self, forKey: .seconds))
+        case "tonelab_fit":
+            let c = try decoder.container(keyedBy: TonelabFitKeys.self)
+            self = .tonelabFit(job: try c.decode(String.self, forKey: .job), part: try c.decode(String.self, forKey: .part))
+        case "tonelab_save_preset":
+            let c = try decoder.container(keyedBy: TonelabSavePresetKeys.self)
+            self = .tonelabSavePreset(job: try c.decode(String.self, forKey: .job), part: try c.decode(String.self, forKey: .part), name: try c.decode(String.self, forKey: .name))
+        case "tonelab_cancel":
+            let c = try decoder.container(keyedBy: TonelabCancelKeys.self)
+            self = .tonelabCancel(try c.decode(String.self, forKey: .job))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: tc, debugDescription: "unknown ClientMsg \(other)")
         }
@@ -228,6 +280,47 @@ enum ClientMsg: Codable, Hashable {
             try c.encode(node, forKey: .node)
         case .editBegin:
             try tc.encode("edit_begin", forKey: .type)
+        case .tonelabCaps:
+            try tc.encode("tonelab_caps", forKey: .type)
+        case .tonelabJobs:
+            try tc.encode("tonelab_jobs", forKey: .type)
+        case .tonelabStart(let source):
+            try tc.encode("tonelab_start", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabStartKeys.self)
+            try c.encode(source, forKey: .source)
+        case .tonelabOpen(let job):
+            try tc.encode("tonelab_open", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabOpenKeys.self)
+            try c.encode(job, forKey: .job)
+        case .tonelabPick(let job, let start, let end, let channel, let label):
+            try tc.encode("tonelab_pick", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabPickKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(start, forKey: .start)
+            try c.encode(end, forKey: .end)
+            try c.encode(channel, forKey: .channel)
+            try c.encode(label, forKey: .label)
+        case .tonelabRecordDi(let job, let part, let seconds):
+            try tc.encode("tonelab_record_di", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabRecordDiKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(part, forKey: .part)
+            try c.encode(seconds, forKey: .seconds)
+        case .tonelabFit(let job, let part):
+            try tc.encode("tonelab_fit", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabFitKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(part, forKey: .part)
+        case .tonelabSavePreset(let job, let part, let name):
+            try tc.encode("tonelab_save_preset", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabSavePresetKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(part, forKey: .part)
+            try c.encode(name, forKey: .name)
+        case .tonelabCancel(let job):
+            try tc.encode("tonelab_cancel", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabCancelKeys.self)
+            try c.encode(job, forKey: .job)
         }
     }
 }
@@ -476,12 +569,27 @@ enum ServerMsg: Codable, Hashable {
     case response(freq: [Double], db: [Double])
     /// Sent to the client that asked for `add_node`, right after the `state` that contains the node.
     case added(String)
+    /// Reply to `tonelab_caps`.
+    case tonelabCaps(available: Bool, youtube: Bool, device: String, reason: String?)
+    /// Reply to `tonelab_jobs`.
+    case tonelabJobs([TonelabJobSummary])
+    /// Progress of a running step. `fraction` is 0..1, or null when unknown.
+    case tonelabProgress(job: String, stage: TonelabStage, message: String, fraction: Double?)
+    /// A job as it is on disk now.
+    case tonelabJob(TonelabJobInfo)
+    /// A fit finished.
+    case tonelabFitResult(job: String, part: String, fit: TonelabFit, templates: [TonelabTemplateResult])
     case error(message: String, node: String?)
 
     private enum TagKey: String, CodingKey { case type }
     private enum ParamKeys: String, CodingKey { case node, param, value }
     private enum ResponseKeys: String, CodingKey { case freq, db }
     private enum AddedKeys: String, CodingKey { case node }
+    private enum TonelabCapsKeys: String, CodingKey { case available, youtube, device, reason }
+    private enum TonelabJobsKeys: String, CodingKey { case jobs }
+    private enum TonelabProgressKeys: String, CodingKey { case job, stage, message, fraction }
+    private enum TonelabJobKeys: String, CodingKey { case job }
+    private enum TonelabFitResultKeys: String, CodingKey { case job, part, fit, templates }
     private enum ErrorKeys: String, CodingKey { case message, node }
 
     init(from decoder: Decoder) throws {
@@ -500,6 +608,21 @@ enum ServerMsg: Codable, Hashable {
         case "added":
             let c = try decoder.container(keyedBy: AddedKeys.self)
             self = .added(try c.decode(String.self, forKey: .node))
+        case "tonelab_caps":
+            let c = try decoder.container(keyedBy: TonelabCapsKeys.self)
+            self = .tonelabCaps(available: try c.decode(Bool.self, forKey: .available), youtube: try c.decode(Bool.self, forKey: .youtube), device: try c.decode(String.self, forKey: .device), reason: try c.decodeIfPresent(String.self, forKey: .reason))
+        case "tonelab_jobs":
+            let c = try decoder.container(keyedBy: TonelabJobsKeys.self)
+            self = .tonelabJobs(try c.decode([TonelabJobSummary].self, forKey: .jobs))
+        case "tonelab_progress":
+            let c = try decoder.container(keyedBy: TonelabProgressKeys.self)
+            self = .tonelabProgress(job: try c.decode(String.self, forKey: .job), stage: try c.decode(TonelabStage.self, forKey: .stage), message: try c.decode(String.self, forKey: .message), fraction: try c.decodeIfPresent(Double.self, forKey: .fraction))
+        case "tonelab_job":
+            let c = try decoder.container(keyedBy: TonelabJobKeys.self)
+            self = .tonelabJob(try c.decode(TonelabJobInfo.self, forKey: .job))
+        case "tonelab_fit_result":
+            let c = try decoder.container(keyedBy: TonelabFitResultKeys.self)
+            self = .tonelabFitResult(job: try c.decode(String.self, forKey: .job), part: try c.decode(String.self, forKey: .part), fit: try c.decode(TonelabFit.self, forKey: .fit), templates: try c.decode([TonelabTemplateResult].self, forKey: .templates))
         case "error":
             let c = try decoder.container(keyedBy: ErrorKeys.self)
             self = .error(message: try c.decode(String.self, forKey: .message), node: try c.decodeIfPresent(String.self, forKey: .node))
@@ -532,6 +655,35 @@ enum ServerMsg: Codable, Hashable {
             try tc.encode("added", forKey: .type)
             var c = encoder.container(keyedBy: AddedKeys.self)
             try c.encode(node, forKey: .node)
+        case .tonelabCaps(let available, let youtube, let device, let reason):
+            try tc.encode("tonelab_caps", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabCapsKeys.self)
+            try c.encode(available, forKey: .available)
+            try c.encode(youtube, forKey: .youtube)
+            try c.encode(device, forKey: .device)
+            try c.encodeIfPresent(reason, forKey: .reason)
+        case .tonelabJobs(let jobs):
+            try tc.encode("tonelab_jobs", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabJobsKeys.self)
+            try c.encode(jobs, forKey: .jobs)
+        case .tonelabProgress(let job, let stage, let message, let fraction):
+            try tc.encode("tonelab_progress", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabProgressKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(stage, forKey: .stage)
+            try c.encode(message, forKey: .message)
+            try c.encodeIfPresent(fraction, forKey: .fraction)
+        case .tonelabJob(let job):
+            try tc.encode("tonelab_job", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabJobKeys.self)
+            try c.encode(job, forKey: .job)
+        case .tonelabFitResult(let job, let part, let fit, let templates):
+            try tc.encode("tonelab_fit_result", forKey: .type)
+            var c = encoder.container(keyedBy: TonelabFitResultKeys.self)
+            try c.encode(job, forKey: .job)
+            try c.encode(part, forKey: .part)
+            try c.encode(fit, forKey: .fit)
+            try c.encode(templates, forKey: .templates)
         case .error(let message, let node):
             try tc.encode("error", forKey: .type)
             var c = encoder.container(keyedBy: ErrorKeys.self)
@@ -558,4 +710,100 @@ struct StateMsg: Codable, Hashable {
     var dirty: Bool
 
     enum CodingKeys: String, CodingKey { case protocolVersion = "protocol", catalog, graph, presets, pedals, audio, canUndo = "can_undo", canRedo = "can_redo", dirty }
+}
+
+/// Which side of the stereo image a part is taken from.
+enum TonelabChannel: String, Codable, Hashable, CaseIterable {
+    case mid
+    case left
+    case right
+}
+
+/// The result of a fit.
+struct TonelabFit: Codable, Hashable {
+    var template: String
+    /// Spectral error on the fit window, in dB.
+    var errorDb: Double
+    /// Error on the held-out 30 % (only when fitted on a real recording).
+    var holdoutErrorDb: Double?
+    /// Error on another real DI given for validation.
+    var validateErrorDb: Double?
+
+    enum CodingKeys: String, CodingKey { case template, errorDb = "error_db", holdoutErrorDb = "holdout_error_db", validateErrorDb = "validate_error_db" }
+}
+
+/// Everything the interface needs about one job.
+struct TonelabJobInfo: Codable, Hashable {
+    var id: String
+    var title: String
+    /// `file` or `youtube`.
+    var sourceKind: String
+    var durationS: Double
+    var tempoBpm: Double?
+    var key: String?
+    var sections: [TonelabSection]
+    var parts: [TonelabPart]
+
+    enum CodingKeys: String, CodingKey { case id, title, sourceKind = "source_kind", durationS = "duration_s", tempoBpm = "tempo_bpm", key, sections, parts }
+}
+
+/// A job in the list.
+struct TonelabJobSummary: Codable, Hashable {
+    var id: String
+    var title: String
+    var created: String
+    var durationS: Double
+
+    enum CodingKeys: String, CodingKey { case id, title, created, durationS = "duration_s" }
+}
+
+/// A part of the song the user picked.
+struct TonelabPart: Codable, Hashable {
+    var id: String
+    var label: String
+    var start: Double
+    var end: Double
+    var channel: TonelabChannel
+    /// Number of transcribed notes.
+    var notes: Int
+    var hasUserDi: Bool
+    var hasSynthDi: Bool
+    var fit: TonelabFit?
+
+    enum CodingKeys: String, CodingKey { case id, label, start, end, channel, notes, hasUserDi = "has_user_di", hasSynthDi = "has_synth_di", fit }
+}
+
+/// A stretch of the song with guitar in it.
+struct TonelabSection: Codable, Hashable {
+    var start: Double
+    var end: Double
+    /// `centre`, `double`, `wide` or `none`.
+    var kind: String
+    var guitarDb: Double
+    var corr: Double
+
+    enum CodingKeys: String, CodingKey { case start, end, kind, guitarDb = "guitar_db", corr }
+}
+
+/// What a `tonelab_progress` message is about.
+enum TonelabStage: String, Codable, Hashable, CaseIterable {
+    case fetch
+    case separate
+    case analyse
+    case parts
+    case synth
+    case record
+    case fit
+    case cancelled
+}
+
+/// One template of a fit, as in the final table.
+struct TonelabTemplateResult: Codable, Hashable {
+    var template: String
+    var errorDb: Double
+    var renders: Int
+    /// `screen` or `fit`.
+    var stage: String
+
+    enum CodingKeys: String, CodingKey { case template, errorDb = "error_db", renders, stage }
 }
