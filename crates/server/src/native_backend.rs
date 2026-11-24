@@ -10,6 +10,7 @@
 #![cfg_attr(not(feature = "native-tonelab"), allow(dead_code))]
 
 use std::path::{Path, PathBuf};
+#[cfg(not(feature = "native-tonelab"))]
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -23,14 +24,18 @@ use crate::tonelab_backend::{run_fit, Ctx, TonelabBackend};
 /// Seconds of context separated on each side of a picked part.
 pub const MARGIN_S: f32 = 2.0;
 
-/// Mirror of `openpedal_separate::Stems` (§15).
-#[allow(dead_code)] // read by the real adapter after the merge
+#[cfg(feature = "native-tonelab")]
+pub use openpedal_separate::{Separator, Stems};
+
+/// Same shapes as `openpedal_separate::{Stems, Separator}`, so the default build (and its tests)
+/// does not compile the C++ code.
+#[cfg(not(feature = "native-tonelab"))]
 pub struct Stems {
     pub sample_rate: u32,
     pub stems: Vec<(String, [Vec<f32>; 2])>,
 }
 
-/// Mirror of `openpedal_separate::Separator` (§15).
+#[cfg(not(feature = "native-tonelab"))]
 pub trait Separator: Send + Sync {
     fn separate(&self, left: &[f32], right: &[f32], sample_rate: u32, progress: &mut dyn FnMut(f32, &str), cancel: &AtomicBool) -> Result<Stems>;
 }
@@ -207,7 +212,7 @@ const NEW_JOB_KEY: &str = crate::tonelab::NEW_JOB;
 mod tests {
     use super::*;
     use crate::tonelab::Step;
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct FakeSep;
     impl Separator for FakeSep {

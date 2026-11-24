@@ -5,8 +5,8 @@ edition.workspace = true
 description = "openPedal HTTP and WebSocket server for the interface"
 
 [features]
-# Tone Lab in process (docs/PLAN.md §15): off until openpedal-separate and openpedal-tonelab are merged.
-native-tonelab = []
+# Tone Lab in process (docs/PLAN.md §15): Demucs C++ separation + the Rust analysis. Off by default (compiles C++).
+native-tonelab = ["dep:openpedal-separate", "dep:openpedal-tonelab"]
 
 [dependencies]
 openpedal-dsp.workspace = true
@@ -15,6 +15,8 @@ openpedal-protocol.workspace = true
 openpedal-library.workspace = true
 openpedal-engine.workspace = true
 openpedal-tonematch.workspace = true
+openpedal-separate = { workspace = true, optional = true }
+openpedal-tonelab = { workspace = true, optional = true }
 anyhow.workspace = true
 axum.workspace = true
 tokio.workspace = true
