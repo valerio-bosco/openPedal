@@ -28,6 +28,8 @@
           qpwgraph # to see the audio connections
           nodejs # only needed to develop the UI (apps/desktop/ui/); not needed to run openPedal
           git-cliff # changelogs, used by tools/release.sh
+          eigen # header-only C++ (spike docs/spikes/ios-cxx.md), found through EIGEN_INCLUDE_DIR
+          llvmPackages.clang-unwrapped # clang that targets arm64-apple-ios (opt-in C++ in the iOS core)
         ];
         # libjack2 is only needed to build (headers and jack.pc); at runtime
         # PipeWire's libjack wins thanks to LD_LIBRARY_PATH, like `pw-jack` does.
@@ -35,6 +37,7 @@
 
         # openPedal speaks JACK: PipeWire's libjack connects it to the PipeWire graph.
         # (The buffer size is set in openpedal.toml, not here.)
+        EIGEN_INCLUDE_DIR = "${pkgs.eigen}/include/eigen3";
         LD_LIBRARY_PATH = "${pkgs.pipewire.jack}/lib";
       };
     };
