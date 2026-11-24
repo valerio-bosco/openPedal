@@ -29,7 +29,7 @@ struct PartCard: View {
                 Text("\(tlClock(part.start)) to \(tlClock(part.end)), \(part.channel.rawValue), \(part.notes) notes")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            Label { Text("The fit will use ").foregroundStyle(.secondary) + Text(diText).bold() } icon: { Image(systemName: "guitars") }
+            Label { Text("\(Text("The fit will use ").foregroundStyle(.secondary))\(Text(diText).bold())") } icon: { Image(systemName: "guitars") }
                 .font(.callout)
             Text("A recording of you playing this part (\(seconds) s, after a 2 s countdown) makes the preset fit your own guitar. Play it dry, on the guitar input. Without one, a synthetic input built from the detected notes is used.")
                 .font(.footnote).foregroundStyle(.secondary)
@@ -108,7 +108,7 @@ struct PartCard: View {
     }
 
     private func line(_ number: String, _ text: String) -> some View {
-        (Text(number).bold() + Text(" ") + Text(text).foregroundStyle(.secondary)).font(.callout)
+        Text("\(Text(number).bold()) \(Text(text).foregroundStyle(.secondary))").font(.callout)
     }
 
     private func table(_ r: ToneLabFitResult) -> some View {
