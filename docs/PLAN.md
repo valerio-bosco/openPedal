@@ -476,3 +476,25 @@ and written back as v2 (rule §11.3).
 Phase 4 done (da919a7): core (pedal file v2, routes, analysis, protocol v3), desktop pedal designer
 (`components/PedalDesigner.tsx`, e2e `tools/e2e/designer.mjs`), iPad "Merge into a pedal" + designer
 (`apps/ios/Sources/OpenPedalApp/Designer/`). Next ideas: formula source, envelope/LFO controls, drawn curves.
+
+## 13. Two parallel tracks (planned 2026-11-24)
+
+Two branches off master, each in its own worktree, with no shared files.
+
+| Branch | Goal | Owner files |
+|---|---|---|
+| `feat/ios-speaker-output` | iPad: guitar into the Scarlett (USB-C), sound out of the iPad's own speakers instead of the interface's headphone jack | `apps/ios/**` |
+| `feat/presets-famous-tones` | Presets that recreate famous guitar tones, starting with Muse "Cryogen" (*The Wow! Signal*, 2026), as accurate as possible and one preset per distinct guitar part | `content/presets/**`, `docs/tones/**` |
+
+**iOS output.** iOS normally routes both input and output to the USB interface when one is
+connected. The work: an output setting in the app (Interface / iPad speaker), using
+`AVAudioSession` (`overrideOutputAudioPort(.speaker)` with `.defaultToSpeaker`, then re-select the
+USB input; fall back to `.multiRoute` if the override also steals the input), a visible readout of
+the current input/output route, and handling of route changes (plug/unplug). It can only be verified
+on the iPad: the user installs and tests.
+
+**Famous tones.** Research first (interviews, rig rundowns, gear wikis, live footage), write the findings
+and sources to `docs/tones/<song>.md` (guitars, pedals, amp, which part plays what), then build the
+preset(s) and check them with `openpedal render` on the user's recordings. Missing DSP blocks (e.g. a
+whammy/pitch shifter) are reported, not added on this branch. Exact matching needs a reference clip of
+the song in `recordings/`.
