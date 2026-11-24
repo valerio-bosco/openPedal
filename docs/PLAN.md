@@ -793,3 +793,21 @@ highgain 2.38 dB, holdout 2.90 dB (user DI); Pink Floyd "Another Brick in the Wa
 DI; Fuzz Face, wah, Uni-Vibe missing). Next candidates: templates clean-comp, fuzz-face, a modulation one;
 blocks compressor in templates, wah, uni-vibe, phaser; better excerpt separation. Separation time on the
 device: ask the user.
+
+### 15.3 Wave 3: more tones (planned 2026-11-24)
+
+User verdict on the iPad: separation ~1 min, fit ~40 s, results "sound good". Goal of wave 3: cover the
+tones the first tests missed (clean compressed, Fuzz Face, modulation) and cleaner excerpt stems.
+
+| Wave | Branch | Model | Work | Owns | Status |
+|---|---|---|---|---|---|
+| 3a | `feat/dsp-modulation` | Sonnet | blocks `phaser` (4/6-stage, Phase 90/95 style), `univibe` (4 lamp-modulated phase stages + chorus/vibrato mode), `wah` (resonant band-pass; `mode` fixed position or auto = envelope follower; no pedal control yet) | `crates/dsp/src/{phaser,univibe,wah}.rs`, their lines in `crates/dsp/src/lib.rs` | todo |
+| 3a | `feat/dsp-fuzzface` | Sonnet | blocks `fuzzface` (two-transistor fuzz, germanium/silicon choice, cleans up with the input level like the real one) and `treblebooster` (Rangemaster style) | `crates/dsp/src/{fuzzface,treblebooster}.rs`, their lines in `crates/dsp/src/lib.rs` | todo |
+| 3a | `feat/templates-comp` | Haiku | templates with the existing `compressor`: `clean-comp`, `crunch-comp` (+ `.fit.toml`) | `content/tonematch/templates/{clean-comp,crunch-comp}.*` | todo |
+| 3a | `feat/separate-quality` | Sonnet | cleaner excerpt stems: measure margins (2/5/8 s) and Demucs shifts (1/2) on Cryogen 8-28 s vs the full-song Python stem (correlation, note count after transcription: full-song 131); pick the best within ~1.3x today's time; apply in `openpedal-separate` + `native_backend::MARGIN_S` | `crates/separate/**`, `crates/server/src/native_backend.rs` (constants only) | todo |
+| 3b | `feat/templates-more` | Haiku | after 3a: templates `fuzzface`, `fuzzface-vibe`, `phaser-crunch`, `treble-boost`, `wah-crunch` | `content/tonematch/templates/**` (new files) | todo |
+
+Both DSP branches add lines next to each other in `crates/dsp/src/lib.rs` and may regenerate the same
+fixtures: Opus resolves at merge (keep both, regenerate fixtures, re-bless nothing existing). New blocks get
+golden renders only through presets; add unit tests per block (no NaN/denormals, bounded output, parameter
+sweeps, live set_param without clicks).
