@@ -112,7 +112,9 @@ final class AudioHost: ObservableObject {
 
     private var core: OpaquePointer?
     private var coreSampleRate = 48000.0
-    private let engine = AVAudioEngine()
+    /// Replaced on every graph rebuild: after a hot-plug the old engine keeps the previous input format
+    /// (it read 1 channel from the 2-channel Scarlett).
+    private var engine = AVAudioEngine()
     private var inputBuffer: UnsafeMutablePointer<Float>?
     private var sink: AVAudioSinkNode?
     private var source: AVAudioSourceNode?
@@ -287,7 +289,7 @@ final class AudioHost: ObservableObject {
                 continue
             }
             logSession("session \(strategy.rawValue)")
-            let inputOK = Self.inputIsUSB() || Self.usbInput() == nil
+            let inputOK = Self.inputIsExternal() || Self.externalInput() == nil
             if inputOK && Self.outputHasSpeaker() { return }
             if i == SpeakerStrategy.allCases.count - 1 { diag.log("no strategy gave USB in + speaker out") }
         }
@@ -313,17 +315,17 @@ final class AudioHost: ObservableObject {
         try session.setActive(true)
         switch strategy {
         case .overrideLast:
-            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+            try Self.selectExternalInput(session)
             try session.overrideOutputAudioPort(.speaker)
         case .override:
             try session.overrideOutputAudioPort(.speaker)
-            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+            try Self.selectExternalInput(session)
         case .multiRoute:
-            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+            try Self.selectExternalInput(session)
         case nil:
             try session.overrideOutputAudioPort(.none)
             // Prefer the USB interface for input when it is connected.
-            if let usb = Self.usbInput() { try session.setPreferredInput(usb) }
+            try Self.selectExternalInput(session)
         }
     }
 
@@ -331,12 +333,22 @@ final class AudioHost: ObservableObject {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
     }
 
-    private static func usbInput() -> AVAudioSessionPortDescription? {
-        AVAudioSession.sharedInstance().availableInputs?.first { $0.portType == .usbAudio }
+    /// The audio interface's input. iPadOS 26 reports the Scarlett Solo as `MicrophoneWired` (with a
+    /// `Headphones` output), not `USBAudio`, so anything but the built-in mic counts.
+    private static func externalInput() -> AVAudioSessionPortDescription? {
+        let inputs = AVAudioSession.sharedInstance().availableInputs ?? []
+        return inputs.first { $0.portType == .usbAudio } ?? inputs.first { $0.portType != .builtInMic }
     }
 
-    private static func inputIsUSB() -> Bool {
-        AVAudioSession.sharedInstance().currentRoute.inputs.contains { $0.portType == .usbAudio }
+    private static func inputIsExternal() -> Bool {
+        AVAudioSession.sharedInstance().currentRoute.inputs.contains { $0.portType != .builtInMic }
+    }
+
+    /// Selects the interface's input and asks for all its channels (the guitar is on channel 2).
+    private static func selectExternalInput(_ session: AVAudioSession) throws {
+        guard let port = externalInput() else { return }
+        try session.setPreferredInput(port)
+        try? session.setPreferredInputNumberOfChannels(min(2, session.maximumInputNumberOfChannels))
     }
 
     /// Re-applies the session and rebuilds the engine graph (the input format changes when the
@@ -399,8 +411,13 @@ final class AudioHost: ObservableObject {
                 self?.scheduleReconfigure()
             }
         }
-        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.externalChange("engine configuration") }
+        // object nil: the engine is replaced on rebuilds, so check it is the current one.
+        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] note in
+            let sender = note.object as AnyObject?
+            MainActor.assumeIsolated {
+                guard let self, sender === self.engine else { return }
+                self.externalChange("engine configuration")
+            }
         }
     }
 
@@ -459,7 +476,7 @@ final class AudioHost: ObservableObject {
         guard activeStrategy == .multiRoute else { return Self.guitarChannel }
         var offset = 0
         for port in AVAudioSession.sharedInstance().currentRoute.inputs {
-            if port.portType == .usbAudio { break }
+            if port.portType != .builtInMic { break }
             offset += port.channels?.count ?? 0
         }
         return offset + Self.guitarChannel
@@ -489,16 +506,19 @@ final class AudioHost: ObservableObject {
             input.initialize(repeating: 0, count: capacity)
             inputBuffer = input
         }
-        // A rebuild (route change): drop the old nodes first. The engine is stopped by the caller.
-        if let sink { engine.detach(sink) }
-        if let source { engine.detach(source) }
+        // A rebuild (route change): start from a fresh engine. The old one is stopped by the caller.
+        if sink != nil || source != nil {
+            engine = AVAudioEngine()
+            sink = nil
+            source = nil
+        }
         let maxFrames = Self.maxFrames
 
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
         let channels = Int(inputFormat.channelCount)
         let pickChannel = min(guitarInputIndex(), max(channels - 1, 0))
         let peaks = self.peaks
-        diag.log("graph: input \(channels) ch at \(Int(inputFormat.sampleRate)) Hz, guitar channel \(pickChannel), output \(engine.outputNode.outputFormat(forBus: 0).channelCount) ch")
+        diag.log("graph: hardware input \(engine.inputNode.inputFormat(forBus: 0).channelCount) ch, input \(channels) ch at \(Int(inputFormat.sampleRate)) Hz, guitar channel \(pickChannel), output \(engine.outputNode.outputFormat(forBus: 0).channelCount) ch")
 
         // Input: copy the guitar channel. Captures only values and raw pointers (no `self`).
         let sink = AVAudioSinkNode { _, frameCount, bufferList in
