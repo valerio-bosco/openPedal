@@ -2,6 +2,8 @@
 pub mod dsp;
 pub mod job;
 pub mod pyin;
+pub mod synth;
 pub mod transcribe;
 pub use job::*;
 pub use transcribe::transcribe;
+pub use synth::synth_di;
