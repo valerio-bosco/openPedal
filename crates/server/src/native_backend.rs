@@ -338,7 +338,7 @@ mod tests {
         let r = b.pick_part(&Ctx { step: &step, progress: &sink }, "song1", 8.0, 28.0, TonelabChannel::Mid, "");
         assert!(matches!(r, Err(StepError::Cancelled)));
         assert!(ops.log.lock().unwrap().iter().all(|l| !l.starts_with("pick")));
-        assert!(!step.cancel_flag().load(Ordering::SeqCst) == false);
+        assert!(step.cancel_flag().load(Ordering::SeqCst));
         let _ = std::fs::remove_dir_all(root);
     }
 

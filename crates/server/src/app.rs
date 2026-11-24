@@ -95,7 +95,7 @@ impl AppState {
         let graph = engine.graph();
         let session = Session { undo: vec![], redo: vec![], saved: graph, pending_edit: None, last_dirty: false };
         let tx = broadcast::channel(BROADCAST_BACKLOG).0;
-        let tonelab = Arc::new(Tonelab::new(tx.clone(), library.clone(), engine.audio().running, tool, "tools/tonelab/bin/tonelab".into()));
+        let tonelab = Arc::new(Tonelab::new(tx.clone(), library.clone(), engine.audio().running, tool, "tools/tonelab/bin/tonelab".into(), tonelab::native_config()));
         Self { engine, library, session: Mutex::new(session), tx, tonelab, next_client: AtomicU64::new(1) }
     }
 

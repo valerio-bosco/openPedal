@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "openPedal HTTP and WebSocket server for the interface"
 
+[features]
+# Tone Lab in process (docs/PLAN.md §15): off until openpedal-separate and openpedal-tonelab are merged.
+native-tonelab = []
+
 [dependencies]
 openpedal-dsp.workspace = true
 openpedal-graph.workspace = true

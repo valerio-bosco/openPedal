@@ -5,9 +5,9 @@
 //! progress goes to the client that asked, results to every client. One step at a time per job.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -26,12 +26,11 @@ use openpedal_protocol::{
 };
 
 use crate::app::{AppState, Broadcast};
+use crate::tonelab_backend::{Ctx, PythonBackend, TonelabBackend};
 use crate::tonelab_mock::Demo;
 
 /// Where the tool lives, relative to the repository root the server runs from.
 const REPO_TOOL: &str = "tools/tonelab/bin/tonelab";
-/// Chain templates, relative to the repository root.
-const TEMPLATES_DIR: &str = "content/tonematch/templates";
 /// Largest upload accepted (a long song as WAV).
 const MAX_UPLOAD: usize = 1 << 30;
 /// Largest piece of a file sent in one response (a `Range` request without an end gets this much).
@@ -48,8 +47,8 @@ pub struct ToolCaps {
 }
 
 enum Mode {
-    /// The real tool, at this path.
-    Tool(PathBuf),
+    /// A backend: the Python tool or the native one.
+    Backend(Arc<dyn TonelabBackend>),
     /// Fixtures instead of Python (no tool and no audio: the interface's tests).
     Demo,
     /// Not available, with the reason.
@@ -59,12 +58,25 @@ enum Mode {
 /// A running step of a job: lets `tonelab_cancel` stop it.
 pub(crate) struct Step {
     cancelled: AtomicBool,
-    child: Mutex<Option<Arc<Mutex<Child>>>>,
+    pub(crate) child: Mutex<Option<Arc<Mutex<Child>>>>,
 }
 
 impl Step {
-    fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         Arc::new(Step { cancelled: AtomicBool::new(false), child: Mutex::new(None) })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_tests() -> Arc<Self> {
+        Self::new()
+    }
+
+    pub(crate) fn set_child(&self, child: Option<Arc<Mutex<Child>>>) {
+        *self.child.lock().unwrap_or_else(|e| e.into_inner()) = child;
+    }
+
+    pub(crate) fn cancel_flag(&self) -> &AtomicBool {
+        &self.cancelled
     }
 
     pub(crate) fn cancel(&self) {
@@ -79,6 +91,7 @@ impl Step {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum StepError {
     Cancelled,
     Failed(String),
@@ -90,11 +103,82 @@ impl From<anyhow::Error> for StepError {
     }
 }
 
+/// What the host chose for the native backend (set by the iOS FFI, or by `OPENPEDAL_TONELAB=native` on the desktop).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeConfig {
+    pub jobs_dir: PathBuf,
+    /// The Demucs weights file.
+    pub weights: Option<PathBuf>,
+}
+
+static NATIVE_CONFIG: Mutex<Option<NativeConfig>> = Mutex::new(None);
+
+/// Makes every server started afterwards use the native backend (called by the iOS FFI start).
+pub fn set_native_tonelab(config: Option<NativeConfig>) {
+    *NATIVE_CONFIG.lock().unwrap_or_else(|e| e.into_inner()) = config;
+}
+
+pub(crate) fn native_config() -> Option<NativeConfig> {
+    NATIVE_CONFIG.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub(crate) enum Choice {
+    Backend(Arc<dyn TonelabBackend>),
+    Demo,
+    Off(String),
+}
+
+/// The native setup for `OPENPEDAL_TONELAB=native` on the desktop: weights from
+/// `$OPENPEDAL_DEMUCS_WEIGHTS`, jobs in `$OPENPEDAL_TONELAB_JOBS` or the library's `tonelab/jobs`.
+fn desktop_native_config(library: &Library) -> NativeConfig {
+    let jobs_dir = std::env::var_os("OPENPEDAL_TONELAB_JOBS").map(PathBuf::from).unwrap_or_else(|| library.root().join("tonelab/jobs"));
+    NativeConfig { jobs_dir, weights: std::env::var_os("OPENPEDAL_DEMUCS_WEIGHTS").map(PathBuf::from) }
+}
+
+#[cfg(feature = "native-tonelab")]
+fn native_backend(cfg: NativeConfig, library: &Library) -> Choice {
+    let Some(weights) = cfg.weights.clone().filter(|w| w.is_file()) else {
+        return Choice::Off(format!("the separation weights were not found ({}): set OPENPEDAL_DEMUCS_WEIGHTS", cfg.weights.as_ref().map_or("not set".into(), |w| w.display().to_string())));
+    };
+    let loader = Box::new(move || crate::native_adapter::load_separator(&weights));
+    Choice::Backend(Arc::new(crate::native_backend::NativeBackend::new(cfg.jobs_dir, library.clone(), Arc::new(crate::native_adapter::TonelabJobOps), loader)))
+}
+
+#[cfg(not(feature = "native-tonelab"))]
+fn native_backend(_cfg: NativeConfig, _library: &Library) -> Choice {
+    Choice::Off("this build has no native Tone Lab (cargo feature native-tonelab)".into())
+}
+
+/// Backend selection: the host's native setup wins (iOS); then `OPENPEDAL_TONELAB`: `native`,
+/// `mock`, `none` or a path to the Python tool; then the tool in the repository; then fixtures
+/// when there is no audio engine; otherwise off.
+pub(crate) fn choose_backend(tool_env: Option<&str>, repo_tool: &Path, audio: bool, native: Option<NativeConfig>, library: &Library) -> Choice {
+    if let Some(cfg) = native {
+        return native_backend(cfg, library);
+    }
+    let python = |p: PathBuf| Choice::Backend(Arc::new(PythonBackend::new(p, library.clone())));
+    match tool_env {
+        Some("native") => native_backend(desktop_native_config(library), library),
+        Some("mock") => Choice::Demo,
+        Some("none") => Choice::Off("disabled by OPENPEDAL_TONELAB=none".into()),
+        Some(path) if !path.is_empty() => {
+            let p = PathBuf::from(path);
+            if p.is_file() {
+                python(p)
+            } else {
+                Choice::Off(format!("OPENPEDAL_TONELAB points to {path}, which does not exist"))
+            }
+        }
+        _ if repo_tool.is_file() => python(repo_tool.to_path_buf()),
+        _ if !audio => Choice::Demo,
+        _ => Choice::Off(format!("the tonelab tool was not found at {REPO_TOOL} (run openpedal from the repository root, or set OPENPEDAL_TONELAB)")),
+    }
+}
+
 pub struct Tonelab {
     tx: broadcast::Sender<Broadcast>,
     library: Library,
     mode: Mode,
-    caps: Mutex<Option<ToolCaps>>,
     steps: Mutex<HashMap<String, Arc<Step>>>,
     pub(crate) demo: Demo,
 }
@@ -151,7 +235,7 @@ fn f32_of(v: &Value, key: &str) -> Option<f32> {
     v.get(key).and_then(Value::as_f64).map(|x| x as f32)
 }
 
-fn read_json(path: &Path) -> Result<Value> {
+pub(crate) fn read_json(path: &Path) -> Result<Value> {
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     serde_json::from_str(&text).with_context(|| format!("error in {}", path.display()))
 }
@@ -268,30 +352,36 @@ fn newest_user_di(jobs_dir: &Path) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-fn last_message(stderr: &[String]) -> String {
+pub(crate) fn last_message(stderr: &[String]) -> String {
     stderr.iter().rev().find(|l| !l.trim().is_empty()).cloned().unwrap_or_else(|| "the tool failed without a message".into())
 }
 
 impl Tonelab {
-    /// `tool_env` is `$OPENPEDAL_TONELAB`: a path to the tool, `mock` (fixtures) or `none` (off).
+    /// `tool_env` is `$OPENPEDAL_TONELAB`: a path to the tool, `mock` (fixtures), `none` (off) or
+    /// `native` (in process). `native` = the native setup when it is chosen by the host (iOS).
     /// `audio` = a real audio engine is running (without it and without the tool, fixtures answer).
-    pub fn new(tx: broadcast::Sender<Broadcast>, library: Library, audio: bool, tool_env: Option<String>, repo_tool: PathBuf) -> Self {
-        let mode = match tool_env.as_deref() {
-            Some("mock") => Mode::Demo,
-            Some("none") => Mode::Off("disabled by OPENPEDAL_TONELAB=none".into()),
-            Some(path) if !path.is_empty() => {
-                let p = PathBuf::from(path);
-                if p.is_file() {
-                    Mode::Tool(p)
-                } else {
-                    Mode::Off(format!("OPENPEDAL_TONELAB points to {path}, which does not exist"))
-                }
-            }
-            _ if repo_tool.is_file() => Mode::Tool(repo_tool),
-            _ if !audio => Mode::Demo,
-            _ => Mode::Off(format!("the tonelab tool was not found at {REPO_TOOL} (run openpedal from the repository root, or set OPENPEDAL_TONELAB)")),
+    pub fn new(tx: broadcast::Sender<Broadcast>, library: Library, audio: bool, tool_env: Option<String>, repo_tool: PathBuf, native: Option<NativeConfig>) -> Self {
+        let mode = match choose_backend(tool_env.as_deref(), &repo_tool, audio, native, &library) {
+            Choice::Backend(b) => Mode::Backend(b),
+            Choice::Demo => Mode::Demo,
+            Choice::Off(r) => Mode::Off(r),
         };
-        Self { tx, library, mode, caps: Mutex::new(None), steps: Mutex::new(HashMap::new()), demo: Demo::new() }
+        Self { tx, library, mode, steps: Mutex::new(HashMap::new()), demo: Demo::new() }
+    }
+
+    /// With a ready-made backend (tests).
+    #[allow(dead_code)]
+    pub fn with_backend(tx: broadcast::Sender<Broadcast>, library: Library, backend: Arc<dyn TonelabBackend>) -> Self {
+        Self { tx, library, mode: Mode::Backend(backend), steps: Mutex::new(HashMap::new()), demo: Demo::new() }
+    }
+
+    #[allow(dead_code)]
+    /// Which backend answers: `"python"`, `"native"`, or `None` (demo or off).
+    pub fn backend_name(&self) -> Option<&'static str> {
+        match &self.mode {
+            Mode::Backend(b) => Some(b.name()),
+            _ => None,
+        }
     }
 
     pub(crate) fn is_demo(&self) -> bool {
@@ -314,29 +404,12 @@ impl Tonelab {
         self.to_client(from, ServerMsg::Error { message, node: None });
     }
 
-    /// What the tool can do here, or why it cannot. Runs `tonelab caps --json` the first time.
+    /// What the backend can do here, or why it cannot.
     pub fn caps(&self) -> Result<ToolCaps, String> {
         match &self.mode {
             Mode::Off(reason) => Err(reason.clone()),
             Mode::Demo => Ok(ToolCaps { youtube: true, device: "cpu".into(), jobs_dir: crate::tonelab_mock::demo_dir() }),
-            Mode::Tool(tool) => {
-                if let Some(c) = self.caps.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-                    return Ok(c);
-                }
-                let out = Command::new(tool).args(["caps", "--json"]).stdin(Stdio::null()).output().map_err(|e| format!("cannot run {}: {e}", tool.display()))?;
-                if !out.status.success() {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    return Err(format!("`tonelab caps` failed: {}", last_message(&err.lines().map(str::to_string).collect::<Vec<_>>())));
-                }
-                let v: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("`tonelab caps --json` printed something else: {e}"))?;
-                let caps = ToolCaps {
-                    youtube: v["youtube"].as_bool().unwrap_or(false),
-                    device: v["device"].as_str().unwrap_or("cuda").to_string(),
-                    jobs_dir: PathBuf::from(v["jobs_dir"].as_str().ok_or("`tonelab caps --json` has no jobs_dir")?),
-                };
-                *self.caps.lock().unwrap_or_else(|e| e.into_inner()) = Some(caps.clone());
-                Ok(caps)
-            }
+            Mode::Backend(b) => b.caps(),
         }
     }
 
@@ -379,60 +452,6 @@ impl Tonelab {
         Ok(())
     }
 
-    /// Runs the tool with `args`, forwarding `PROGRESS` lines to `on_progress`. Returns its stdout.
-    fn run_tool(&self, step: &Step, args: &[String], mut on_progress: impl FnMut(ProgressLine)) -> Result<String, StepError> {
-        let Mode::Tool(tool) = &self.mode else { return Err(StepError::Failed("Tone Lab is not available".into())) };
-        if step.is_cancelled() {
-            return Err(StepError::Cancelled);
-        }
-        let mut child = Command::new(tool)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| StepError::Failed(format!("cannot run {}: {e}", tool.display())))?;
-        let mut stdout = child.stdout.take().expect("piped");
-        let stderr = child.stderr.take().expect("piped");
-        let child = Arc::new(Mutex::new(child));
-        *step.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.clone());
-        if step.is_cancelled() {
-            step.cancel();
-        }
-        let out_thread = std::thread::spawn(move || {
-            let mut s = String::new();
-            let _ = stdout.read_to_string(&mut s);
-            s
-        });
-        let mut tail: Vec<String> = Vec::new();
-        let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::new();
-        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
-            let line = String::from_utf8_lossy(&buf).trim_end().to_string();
-            buf.clear();
-            match parse_progress(&line) {
-                Some(p) => on_progress(p),
-                None => {
-                    tail.push(line);
-                    if tail.len() > 20 {
-                        tail.remove(0);
-                    }
-                }
-            }
-        }
-        let status = child.lock().unwrap_or_else(|e| e.into_inner()).wait();
-        *step.child.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        let stdout = out_thread.join().unwrap_or_default();
-        if step.is_cancelled() {
-            return Err(StepError::Cancelled);
-        }
-        match status {
-            Ok(s) if s.success() => Ok(stdout),
-            Ok(s) => Err(StepError::Failed(format!("{} ({s})", last_message(&tail)))),
-            Err(e) => Err(StepError::Failed(format!("cannot wait for the tool: {e}"))),
-        }
-    }
-
     /// Ends a step: frees the job, then reports a cancellation (to everyone) or a failure (to the asker).
     pub(crate) fn finish(&self, from: u64, job: &str, key: &str, what: &str, result: Result<(), StepError>) {
         self.end(key);
@@ -472,10 +491,7 @@ impl Tonelab {
             }),
             ClientMsg::TonelabStart { source } => self.spawn(move |t| t.start(from, source)),
             ClientMsg::TonelabPick { job, start, end, channel, label } => self.spawn(move |t| t.pick(from, job, start, end, channel, label)),
-            ClientMsg::TonelabRecordDi { .. } => self.fail(
-                from,
-                "recording the DI from the live input is not available yet: record it with `openpedal --record` and put the dry channel into parts/<part>/di-user.wav".into(),
-            ),
+            ClientMsg::TonelabRecordDi { job, part, seconds } => self.spawn(move |t| t.record_di(from, job, part, seconds)),
             ClientMsg::TonelabFit { job, part } => self.spawn(move |t| t.fit(from, job, part)),
             ClientMsg::TonelabCancel { job } => match self.step_of(&job) {
                 Some(s) => s.cancel(),
@@ -485,7 +501,28 @@ impl Tonelab {
         }
     }
 
-    /// `fetch` (a URL or an uploaded file), `separate`, `analyse`.
+    /// Runs `f` as a step with a progress sink that sends to client `from`.
+    fn with_ctx<T>(&self, from: u64, step: &Step, f: impl FnOnce(&Ctx) -> T) -> T {
+        let sink = |job: &str, stage: TonelabStage, message: String, fraction: Option<f32>| self.progress_to(from, job, stage, message, fraction);
+        f(&Ctx { step, progress: &sink })
+    }
+
+    fn backend(&self) -> Result<Arc<dyn TonelabBackend>, StepError> {
+        match &self.mode {
+            Mode::Backend(b) => Ok(b.clone()),
+            _ => Err(StepError::Failed("Tone Lab is not available".into())),
+        }
+    }
+
+    fn send_job(&self, from: u64, id: &str) {
+        match self.jobs_dir().and_then(|d| read_job(&d, id)) {
+            Ok(info) => self.to_all(ServerMsg::TonelabJob { job: info }),
+            Err(e) => self.fail(from, format!("{e:#}")),
+        }
+    }
+
+    /// `fetch` (a URL, an uploaded file or a native job's mix.wav), then `separate` and `analyse`
+    /// unless the backend separates lazily.
     fn start(&self, from: u64, source: String) {
         let step = match self.begin(NEW_JOB) {
             Ok(s) => s,
@@ -494,34 +531,22 @@ impl Tonelab {
         // The job id once known (the step is registered under it from then on).
         let mut id = NEW_JOB.to_string();
         let result = (|| -> Result<(), StepError> {
-            let jobs_dir = self.jobs_dir()?;
-            if !(source.starts_with("http://") || source.starts_with("https://")) {
-                let uploads = jobs_dir.join("uploads");
-                let uploads = uploads.canonicalize().unwrap_or(uploads);
-                let file = Path::new(&source).canonicalize().map_err(|_| StepError::Failed(format!("'{source}' is neither a URL nor an uploaded file")))?;
-                if !file.starts_with(&uploads) || !file.is_file() {
-                    return Err(StepError::Failed("the source must be a URL or a file sent with POST /tonelab/upload".into()));
+            let backend = self.backend()?;
+            self.with_ctx(from, &step, |ctx| -> Result<(), StepError> {
+                let new_id = backend.fetch(ctx, &source)?;
+                self.rekey(NEW_JOB, &new_id)?;
+                id = new_id;
+                if !backend.lazy_separation() {
+                    backend.separate(ctx, &id, None)?;
+                    backend.analyse(ctx, &id)?;
                 }
-            }
-            let out = self.run_tool(&step, &["fetch".into(), source.clone()], |p| self.progress_to(from, NEW_JOB, p.stage, p.message, p.fraction))?;
-            let new_id = out.lines().last().unwrap_or("").trim().to_string();
-            if !plain_name(&new_id) {
-                return Err(StepError::Failed(format!("the tool returned an odd job id: '{new_id}'")));
-            }
-            self.rekey(NEW_JOB, &new_id)?;
-            id = new_id;
-            for cmd in ["separate", "analyse"] {
-                self.run_tool(&step, &[cmd.into(), id.clone()], |p| self.progress_to(from, &id, p.stage, p.message, p.fraction))?;
-            }
-            Ok(())
+                Ok(())
+            })
         })();
         let ok = result.is_ok();
         self.finish(from, &id, &id, "importing the song", result);
         if ok {
-            match self.jobs_dir().and_then(|d| read_job(&d, &id)) {
-                Ok(info) => self.to_all(ServerMsg::TonelabJob { job: info }),
-                Err(e) => self.fail(from, format!("{e:#}")),
-            }
+            self.send_job(from, &id);
         }
     }
 
@@ -541,36 +566,16 @@ impl Tonelab {
         let result = (|| -> Result<(), StepError> {
             let jobs_dir = self.jobs_dir()?;
             read_job(&jobs_dir, &job)?;
-            let parts_file = jobs_dir.join(&job).join("parts.json");
-            let before = read_json(&parts_file).ok().and_then(|v| v.as_array().map(|a| a.len())).unwrap_or(0);
-            let ch = match channel {
-                TonelabChannel::Mid => "mid",
-                TonelabChannel::Left => "left",
-                TonelabChannel::Right => "right",
-            };
-            let mut args: Vec<String> = vec!["parts".into(), job.clone(), "--start".into(), start.to_string(), "--end".into(), end.to_string(), "--channel".into(), ch.into()];
-            if !label.trim().is_empty() {
-                args.extend(["--label".into(), label.trim().to_string()]);
-            }
-            let fwd = |p: ProgressLine| self.progress_to(from, &job, p.stage, p.message, p.fraction);
-            self.run_tool(&step, &args, fwd)?;
-            let parts = read_json(&parts_file)?;
-            let part = parts
-                .as_array()
-                .filter(|a| a.len() > before)
-                .and_then(|a| a.last())
-                .and_then(|p| p["id"].as_str())
-                .ok_or_else(|| StepError::Failed("the tool did not add a part".into()))?
-                .to_string();
-            let mut args: Vec<String> = vec!["synth-di".into(), job.clone(), "--part".into(), part];
-            if let Some(di) = newest_user_di(&jobs_dir) {
-                args.extend(["--match-di".into(), di.to_string_lossy().into_owned()]);
-            }
-            match self.run_tool(&step, &args, fwd) {
-                Err(StepError::Failed(m)) => warning = Some(format!("the part was added, but the synthetic DI failed: {m}")),
-                other => other.map(|_| ())?,
-            }
-            Ok(())
+            let backend = self.backend()?;
+            self.with_ctx(from, &step, |ctx| {
+                let part = backend.pick_part(ctx, &job, start, end, channel, &label)?;
+                let di = newest_user_di(&jobs_dir);
+                match backend.synth_di(ctx, &job, &part, di.as_deref()) {
+                    Err(StepError::Failed(m)) => warning = Some(format!("the part was added, but the synthetic DI failed: {m}")),
+                    other => other?,
+                }
+                Ok(())
+            })
         })();
         let ok = result.is_ok();
         self.finish(from, &job, &job, "picking the part", result);
@@ -578,10 +583,30 @@ impl Tonelab {
             if let Some(w) = warning {
                 self.fail(from, w);
             }
-            match self.jobs_dir().and_then(|d| read_job(&d, &job)) {
-                Ok(info) => self.to_all(ServerMsg::TonelabJob { job: info }),
-                Err(e) => self.fail(from, format!("{e:#}")),
+            self.send_job(from, &job);
+        }
+    }
+
+    /// `tonelab_record_di`: the backend's hook, then the refreshed job.
+    fn record_di(&self, from: u64, job: String, part: String, seconds: f32) {
+        if !plain_name(&job) || !plain_name(&part) {
+            return self.fail(from, "invalid job or part id".into());
+        }
+        let step = match self.begin(&job) {
+            Ok(s) => s,
+            Err(e) => return self.fail(from, format!("{e:#}")),
+        };
+        let result = self.backend().and_then(|b| self.with_ctx(from, &step, |ctx| b.record_di(ctx, &job, &part, seconds)));
+        let ok = result.is_ok();
+        match result {
+            Err(StepError::Failed(m)) => {
+                self.end(&job);
+                self.fail(from, m);
             }
+            other => self.finish(from, &job, &job, "recording", other),
+        }
+        if ok {
+            self.send_job(from, &job);
         }
     }
 
@@ -601,34 +626,10 @@ impl Tonelab {
                 return self.fail(from, format!("{e:#}"));
             }
         };
-        let opts = openpedal_tonematch::FitOptions { templates_dir: TEMPLATES_DIR.into(), pedals_dir: self.library.pedals_dir(), ..Default::default() };
-        let n_templates = openpedal_tonematch::Template::list(&opts.templates_dir).len().max(1);
-        self.progress_to(from, &job, TonelabStage::Fit, "starting the fit", Some(0.0));
-        openpedal_tonematch::lower_priority();
-        // (templates screened, finalists fitted): the progress lines say which.
-        let counts = Mutex::new((0usize, 0usize));
-        let progress = |line: &str| {
-            if step.is_cancelled() {
-                // Unwinds out of the fit (the panic hook is not called); caught below.
-                std::panic::resume_unwind(Box::new("fit cancelled"));
-            }
-            let fraction = {
-                let mut c = counts.lock().unwrap_or_else(|e| e.into_inner());
-                if line.starts_with("  screen") {
-                    c.0 += 1;
-                } else if line.starts_with("  fit") {
-                    c.1 += 1;
-                }
-                (0.5 * (c.0 as f32 / n_templates as f32).min(1.0) + 0.45 * (c.1 as f32 / 2.0).min(1.0)).min(0.95)
-            };
-            self.progress_to(from, &job, TonelabStage::Fit, line.trim(), Some(fraction));
-        };
-        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| openpedal_tonematch::fit_job(&jobs_dir.join(&job), &part, &opts, &progress)));
+        let run = self.backend().and_then(|b| self.with_ctx(from, &step, |ctx| b.fit(ctx, &job, &part)));
         match run {
-            Err(_) if step.is_cancelled() => self.finish(from, &job, &job, "the fit", Err(StepError::Cancelled)),
-            Err(_) => self.finish(from, &job, &job, "the fit", Err(StepError::Failed("the fit crashed".into()))),
-            Ok(Err(e)) => self.finish(from, &job, &job, "the fit", Err(StepError::Failed(format!("{e:#}")))),
-            Ok(Ok(summary)) => {
+            Err(e) => self.finish(from, &job, &job, "the fit", Err(e)),
+            Ok(summary) => {
                 self.end(&job);
                 self.progress_to(from, &job, TonelabStage::Fit, "fit done", Some(1.0));
                 let r = &summary.report;
@@ -798,6 +799,44 @@ pub fn upload_limit() -> DefaultBodyLimit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lib() -> Library {
+        Library::new(std::env::temp_dir().join(format!("openpedal-select-{}", std::process::id())))
+    }
+
+    fn pick(env: Option<&str>, repo: &Path, audio: bool, native: Option<NativeConfig>) -> String {
+        match choose_backend(env, repo, audio, native, &lib()) {
+            Choice::Backend(b) => b.name().into(),
+            Choice::Demo => "demo".into(),
+            Choice::Off(_) => "off".into(),
+        }
+    }
+
+    #[test]
+    fn backend_selection() {
+        let none = Path::new("/nonexistent/tonelab");
+        let tool = std::env::current_exe().unwrap();
+        assert_eq!(pick(Some("mock"), none, true, None), "demo");
+        assert_eq!(pick(None, none, false, None), "demo");
+        assert_eq!(pick(None, none, true, None), "off");
+        assert_eq!(pick(Some("none"), &tool, true, None), "off");
+        assert_eq!(pick(Some("/nonexistent/x"), &tool, true, None), "off");
+        assert_eq!(pick(Some(tool.to_str().unwrap()), none, true, None), "python");
+        assert_eq!(pick(None, &tool, true, None), "python");
+        // Native: this build (feature off) reports it off; with the feature and no weights, also off.
+        assert_eq!(pick(Some("native"), &tool, true, None), "off");
+        let cfg = NativeConfig { jobs_dir: "/tmp/x".into(), weights: None };
+        assert_eq!(pick(None, &tool, true, Some(cfg)), "off");
+    }
+
+    #[cfg(feature = "native-tonelab")]
+    #[test]
+    fn native_is_chosen_when_the_weights_exist() {
+        let w = std::env::current_exe().unwrap();
+        let cfg = NativeConfig { jobs_dir: std::env::temp_dir().join("openpedal-native-sel"), weights: Some(w) };
+        // The host's choice beats the env and the repository tool.
+        assert_eq!(pick(Some("none"), &std::env::current_exe().unwrap(), true, Some(cfg)), "native");
+    }
 
     #[test]
     fn progress_lines_parse() {
