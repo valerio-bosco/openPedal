@@ -1,0 +1,102 @@
+# Muse - "Cryogen": chorus / arena rhythm guitar.
+# Reference (likely, not confirmed): fuzz with less gate and more sustain for
+# wide power chords, plus a phaser (MXR Phase 95 per the producer's posts) that
+# openPedal does not have: a slow, shallow chorus stands in for it.
+# See docs/tones/cryogen.md.
+name = "cryogen-chorus"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+pos = [0, 120]
+
+[[node]]
+id = "gate"
+type = "gate"
+pos = [160, 120]
+params = { threshold_db = -58, release_ms = 100 }   # hiss only
+
+[[node]]
+id = "tight"
+type = "filter"
+pos = [320, 120]
+params = { kind = "highpass", freq = 110 }
+
+[[node]]
+id = "fuzz"
+type = "fuzz"
+pos = [480, 120]
+params = { drive = 0.8, gate = 0.05, comp = 0.7, bias = 0.3, tone_hz = 6000, level_db = -14 }   # gate depends on input level: low on purpose so chords sustain.
+
+[[node]]
+id = "stack"
+type = "tonestack"
+pos = [640, 120]
+params = { model = "marshall", bass = 0.45, mid = 0.6, treble = 0.65 }
+
+[[node]]
+id = "amp"
+type = "drive"
+pos = [800, 120]
+params = { shape = "asym", gain_db = 8, level_db = -5, bias = 0.2, quality = "alta" }
+
+[[node]]
+id = "cab"
+type = "cab"
+pos = [960, 120]
+params = { low_hz = 110, low_q = 1.4, high_hz = 5400, mid_db = -2, presence_hz = 2800, presence_db = 4, ripple_db = 3, seed = 7 }
+
+[[node]]
+id = "phase"
+type = "chorus"
+pos = [1120, 120]
+params = { rate_hz = 0.35, base_ms = 6, depth_ms = 2, mix = 0.3 }   # stand-in for the Phase 95
+
+[[node]]
+id = "room"
+type = "reverb"
+pos = [1280, 120]
+params = { room = 0.45, damp = 0.5, mix = 0.15, predelay_ms = 15 }
+
+[[node]]
+id = "out"
+type = "output"
+pos = [1440, 120]
+params = { volume_db = -18 }
+
+[[edge]]
+from = "in"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "tight"
+
+[[edge]]
+from = "tight"
+to = "fuzz"
+
+[[edge]]
+from = "fuzz"
+to = "stack"
+
+[[edge]]
+from = "stack"
+to = "amp"
+
+[[edge]]
+from = "amp"
+to = "cab"
+
+[[edge]]
+from = "cab"
+to = "phase"
+
+[[edge]]
+from = "phase"
+to = "room"
+
+[[edge]]
+from = "room"
+to = "out"
