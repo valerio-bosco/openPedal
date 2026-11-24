@@ -25,7 +25,7 @@ fn signal() -> (Vec<f32>, Vec<f32>) {
     let l: Vec<f32> = (0..(9.0 * sr) as usize)
         .map(|i| {
             let t = i as f32 / sr;
-            0.3 * (220.0 * 6.2832 * t).sin() * (-(t % 1.0) * 3.0).exp() + if i % 12000 < 200 { 0.4 } else { 0.0 }
+            0.3 * (220.0 * std::f32::consts::TAU * t).sin() * (-(t % 1.0) * 3.0).exp() + if i % 12000 < 200 { 0.4 } else { 0.0 }
         })
         .collect();
     let r = l.iter().map(|x| x * 0.8).collect();
