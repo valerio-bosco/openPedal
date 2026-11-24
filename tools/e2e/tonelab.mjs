@@ -1,7 +1,7 @@
 // UI test of the Tone Lab panel over the Chrome DevTools Protocol: open a job from the list, select a range
 // on the song map, pick it, fit it, flip the A/B player and save the preset.
-// It needs the server (or the UI's own demo fallback) to answer the Tone Lab messages; when `tonelab_caps`
-// never arrives the test is skipped with a message.
+// It runs against the server's demo mode (no `tonelab` tool and no audio: the server answers the Tone Lab
+// messages from fixtures, or with OPENPEDAL_TONELAB=mock). It never skips: a missing answer is a failure.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const page = (await (await fetch("http://127.0.0.1:9333/json")).json()).find((t) => t.type === "page");
 const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -24,15 +24,12 @@ const typeInto = async (sel, text) => {
 await sleep(1800);
 check(await click("#tonelab-open"), "the top bar has a Tone Lab button");
 check(await waitFor("!!document.querySelector('.tonelab')"), "the Tone Lab panel opens");
-const settled = await waitFor("document.querySelector('.tonelab')?.dataset.state !== 'waiting'", 4000);
-if (!settled) {
-  console.log("SKIP tonelab: tonelab_caps never arrived (the server does not answer Tone Lab messages yet)");
-  process.exit(fail ? 1 : 0);
-}
+const settled = await waitFor("document.querySelector('.tonelab')?.dataset.state !== 'waiting'", 8000);
+check(settled, "tonelab_caps arrives");
 const state = await ev("document.querySelector('.tonelab').dataset.state");
-if (state === "unavailable") {
-  check(!!(await ev("document.querySelector('[data-testid=unavailable]')?.textContent.includes('tools/tonelab/README.md')")), "unavailable: shows how to set it up");
-  process.exit(fail ? 1 : 0);
+if (!settled || state === "unavailable") {
+  console.log("FAIL the server must answer Tone Lab messages in demo mode, state:", state);
+  process.exit(1);
 }
 check(state === "ready", "Tone Lab is available");
 check(await ev("!!document.querySelector('#tl-file')"), "there is a file picker");
@@ -65,9 +62,10 @@ check(/synthetic|recording/.test(await ev("[...document.querySelectorAll('[data-
 // 4. fit it
 check(await waitFor("!document.querySelector('[data-testid=progress]')", 15000), "the pick step finished");
 await ev("[...document.querySelectorAll('[data-act=fit]')].pop().click()");
-check(await waitFor("!!document.querySelector('[data-testid=fit-result]')", 30000), "a fit result card appears");
-check((await ev("document.querySelectorAll('[data-testid=templates] tbody tr').length")) > 0, "the per-template table has rows");
-check(/dB/.test(await ev("document.querySelector('[data-testid=err]').textContent")), "the error is explained in plain words");
+const last = "[...document.querySelectorAll('.tl-fit')].pop()";
+check(await waitFor(`!!${last}.querySelector('[data-testid=fit-result]')`, 30000), "a fit result card appears");
+check(await waitFor(`${last}.querySelectorAll('[data-testid=templates] tbody tr').length > 0`, 3000), "the per-template table has rows");
+check(/dB/.test(await ev(`${last}.querySelector('[data-testid=err]').textContent`)), "the error is explained in plain words");
 
 // 5. A/B
 check(await ev("document.querySelector('[data-testid=ab]').dataset.side") === "result", "A/B starts on the result");
@@ -75,6 +73,11 @@ await click("#tl-ab-target");
 check(await ev("document.querySelector('[data-testid=ab]').dataset.side") === "target", "the toggle switches to the target");
 await click("#tl-ab-result");
 check(await ev("document.querySelector('[data-testid=ab]').dataset.side") === "result", "and back to the result");
+
+// 5b. "Upload my take" shows the exact command line (recording from the panel is not available on the real server)
+await ev("[...document.querySelectorAll('[data-act=upload]')].pop().click()");
+check(/openpedal --record take\.wav --seconds \d+/.test(await ev("[...document.querySelectorAll('[data-testid=record-cli]')].pop()?.textContent ?? ''")), "Upload my take shows the record command");
+check(/di-user\.wav/.test(await ev("[...document.querySelectorAll('[data-testid=record-cli]')].pop()?.textContent ?? ''")), "and where to put the file");
 
 // 6. save
 await typeInto("#tl-name", "E2E Tone Lab");
