@@ -30,6 +30,7 @@
           git-cliff # changelogs, used by tools/release.sh
           eigen # header-only C++ (spike docs/spikes/ios-cxx.md), found through EIGEN_INCLUDE_DIR
           llvmPackages.clang-unwrapped # clang that targets arm64-apple-ios (opt-in C++ in the iOS core)
+          llvmPackages.llvm # llvm-ar (Darwin archives) and llvm-nm for the opt-in C++ iOS build
         ];
         # libjack2 is only needed to build (headers and jack.pc); at runtime
         # PipeWire's libjack wins thanks to LD_LIBRARY_PATH, like `pw-jack` does.

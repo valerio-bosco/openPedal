@@ -30,6 +30,10 @@ OpenPedal *openpedal_start(float sample_rate, uint32_t max_frames, const char *d
  * names are remembered in `data_dir`/.seeded.toml). `factory_dir` may be NULL (no seeding). */
 OpenPedal *openpedal_start2(float sample_rate, uint32_t max_frames, const char *data_dir, const char *factory_dir, uint16_t port);
 
+/* Only in cores built with OPENPEDAL_CXX_PROBE=1 (spike docs/spikes/ios-cxx.md): Eigen matrix
+ * product on a C++ thread; returns 2*n*n for n in 1..64. */
+float openpedal_cxx_probe(int n);
+
 /* The core's version (e.g. "0.1.0"): static, never NULL, never freed. */
 const char *openpedal_version(void);
 

@@ -9,7 +9,12 @@ description = "openPedal C ABI for the iPad app (static library libopenpedal.a)"
 name = "openpedal"
 crate-type = ["staticlib"]
 
+[features]
+# Spike (docs/spikes/ios-cxx.md): C++17 + Eigen in the core. Off by default.
+cxx-probe = ["dep:openpedal-cxx-probe"]
+
 [dependencies]
+openpedal-cxx-probe = { path = "../cxx-probe", optional = true }
 openpedal-graph.workspace = true
 openpedal-library.workspace = true
 openpedal-engine.workspace = true

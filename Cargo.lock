@@ -1056,6 +1056,7 @@ name = "openpedal-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "openpedal-cxx-probe",
  "openpedal-engine",
  "openpedal-graph",
  "openpedal-library",
