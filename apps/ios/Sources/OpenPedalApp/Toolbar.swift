@@ -3,6 +3,7 @@ import SwiftUI
 /// Floating glass toolbar: undo/redo, preset switcher, meters, Save.
 struct ToolbarView: View {
     let store: Store
+    @ObservedObject var host: AudioHost
     @Binding var showAbout: Bool
 
     @State private var saveAsName = ""
@@ -50,6 +51,18 @@ struct ToolbarView: View {
                 .buttonStyle(.glassProminent)
                 .controlSize(.large)
                 .disabled(store.currentPreset.isEmpty)
+
+                Menu {
+                    Picker("Output", selection: $host.outputMode) {
+                        ForEach(OutputMode.allCases) { Text($0.label).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: host.outputMode == .speaker ? "speaker.wave.2.fill" : "cable.connector")
+                        .font(.title3).frame(width: 36, height: 36)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Output: \(host.outputMode.label)")
 
                 Button { showAbout = true } label: { Image(systemName: "info.circle").font(.title3).frame(width: 36, height: 36) }
                     .buttonStyle(.glass)
