@@ -732,3 +732,24 @@ Speed plan inside `feat/separate-native`: (1) on iOS link Eigen to Accelerate (`
 (at most 4, our own code: the upstream `demucs_mt` is unreliable), (3) default excerpt 15 s + 2 s
 margins. Fit against stems from the same excerpt pass (the full-song stem differs, correlation ~0.8).
 The first on-device measurement decides whether ONNX/CoreML is needed (> 60 s per 24 s excerpt).
+
+**Wave 1 APIs (shared contract, so the three branches can work in parallel):**
+```rust
+// crates/separate (openpedal-separate)
+pub struct Stems { pub sample_rate: u32, pub stems: Vec<(String, [Vec<f32>; 2])> } // "guitar", "bass", ...
+pub trait Separator: Send + Sync {
+    fn separate(&self, left: &[f32], right: &[f32], sample_rate: u32,
+                progress: &mut dyn FnMut(f32, &str), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<Stems>;
+}
+pub struct DemucsCpp; // impl Separator; DemucsCpp::load(weights: &std::path::Path) -> anyhow::Result<Self>
+
+// crates/tonelab (openpedal-tonelab): job folder per §14.2, same files and JSON as the Python tool
+pub struct Job { pub dir: PathBuf }   // Job::create(root, title, source_kind) / Job::open(dir)
+impl Job { fn write_mix(&self, l: &[f32], r: &[f32], sr: u32); fn write_stems(&self, s: &Stems);
+           fn read_*(...) }
+pub fn analyse(job: &Job) -> anyhow::Result<Analysis>;          // writes analysis.json
+pub fn pick_part(job: &Job, start: f32, end: f32, channel: Channel, label: &str) -> anyhow::Result<Part>; // target.wav + notes
+pub fn transcribe(mono: &[f32], sr: u32) -> Vec<Note>;
+pub fn synth_di(notes: &[Note], sr: u32, match_di: Option<&[f32]>) -> Vec<f32>;
+```
+`openpedal-tonelab` depends on `openpedal-separate` only for the `Stems` type (or re-exports it).
