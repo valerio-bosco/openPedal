@@ -785,3 +785,11 @@ then the user installs on the iPad for the acceptance test of §15.2.
 with full-song stems gave 1.89: the excerpt stem transcribes 99 notes vs 131). iPad build: features
 `separate` + `native-tonelab` on, app 66 MB with the weights. Next: the user installs and runs the §15.2
 acceptance test on the iPad; then tune (excerpt stem quality, transcription on excerpt stems).
+
+**First iPad results (2026-11-24, user's device, after fix 0eba295 bundling the templates).** Fit on the
+iPad takes ~40 s (faster than the desktop's 75 s). Three songs: Nirvana "Smells Like Teen Spirit" 6-19 s →
+highgain 2.38 dB, holdout 2.90 dB (user DI); Pink Floyd "Another Brick in the Wall" 2:16-2:41 → crunch
+5.6 dB / 6.1 dB (clean compressed Strat: no matching template); Hendrix 0-19 s → highgain 5.1 dB (synthetic
+DI; Fuzz Face, wah, Uni-Vibe missing). Next candidates: templates clean-comp, fuzz-face, a modulation one;
+blocks compressor in templates, wah, uni-vibe, phaser; better excerpt separation. Separation time on the
+device: ask the user.
