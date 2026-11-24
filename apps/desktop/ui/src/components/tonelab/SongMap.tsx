@@ -126,7 +126,7 @@ export function SongMap({ job, disabled, onPick }: Props) {
         ))}
       </div>
       <div className="tl-row">
-        <span className="lbl">TonelabChannel</span>
+        <span className="lbl">Channel</span>
         <div className="seg">
           {CHANNELS.map((c) => (
             <button key={c.id} className={c.id === channel ? "on" : ""} aria-pressed={c.id === channel} title={c.hint} onClick={() => setChannel(c.id)}>
