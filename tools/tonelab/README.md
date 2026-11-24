@@ -6,14 +6,21 @@ Every command reads and writes a job folder (see `docs/PLAN.md` section 14.2).
 ## Setup
 
 ```
-bin/tonelab --help        # first run creates the venv in ~/.local/share/openpedal-gpu (uv sync)
+bin/tonelab --help        # first run creates the venv in tools/tonelab/.venv (uv sync)
 ```
 
 `bin/tonelab` is the entry point on NixOS: it resolves libstdc++, zlib and ffmpeg from nixpkgs
 (cached in the venv dir), sets `LD_LIBRARY_PATH`, runs at `nice 10` with one BLAS thread.
 PyTorch is pinned to 2.7.1+cu126 (the GTX 1060 is Pascal; newer CUDA wheels dropped it).
-Override the venv with `TONELAB_VENV`. YouTube support: `TONELAB_UV_ARGS="--extra youtube"` on first run,
-or `uv sync --extra youtube`.
+The default venv is project-local: `tools/tonelab/.venv` (gitignored), created on first run with `uv sync`
+(plus `--extra youtube` when `[sources] youtube = true` in the config). The nix store paths are cached in
+the venv dir too. To reuse another venv set `TONELAB_VENV`, e.g. the developer's existing GPU venv:
+
+```
+export TONELAB_VENV=~/.local/share/openpedal-gpu
+```
+
+`TONELAB_UV_ARGS` overrides the `uv sync` arguments on first run.
 
 ## Config
 
