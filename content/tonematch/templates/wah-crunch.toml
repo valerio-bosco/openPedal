@@ -1,0 +1,90 @@
+# Template: wah-crunch. Chain: gate, highpass, auto wah, tonestack, amp (asymmetric clipping), cab, room.
+# Envelope-driven auto wah in front of a crunch amp. Level is raised because the auto wah is quiet.
+# Starting point for the tone fit; ranges in wah-crunch.fit.toml.
+name = "template-wah-crunch"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+pos = [0, 120]
+
+[[node]]
+id = "gate"
+type = "gate"
+pos = [160, 120]
+params = { threshold_db = -55, release_ms = 80 }
+
+[[node]]
+id = "tight"
+type = "filter"
+pos = [320, 120]
+params = { kind = "highpass", freq = 100 }
+
+[[node]]
+id = "wah"
+type = "wah"
+pos = [480, 120]
+params = { mode = "auto", q = 6, sensitivity = 0.6, level_db = 9 }
+
+[[node]]
+id = "stack"
+type = "tonestack"
+pos = [640, 120]
+params = { model = "marshall", bass = 0.5, mid = 0.6, treble = 0.6 }
+
+[[node]]
+id = "amp"
+type = "drive"
+pos = [800, 120]
+params = { shape = "asym", gain_db = 14, level_db = -5, bias = 0.2, quality = "alta" }
+
+[[node]]
+id = "cab"
+type = "cab"
+pos = [960, 120]
+params = { low_hz = 90, low_q = 1.4, high_hz = 6000, mid_db = -3, presence_hz = 2500, presence_db = 2, ripple_db = 3, seed = 7 }
+
+[[node]]
+id = "room"
+type = "reverb"
+pos = [1120, 120]
+params = { room = 0.3, damp = 0.5, mix = 0.12, predelay_ms = 12 }
+
+[[node]]
+id = "out"
+type = "output"
+pos = [1280, 120]
+params = { volume_db = -18 }
+
+[[edge]]
+from = "in"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "tight"
+
+[[edge]]
+from = "tight"
+to = "wah"
+
+[[edge]]
+from = "wah"
+to = "stack"
+
+[[edge]]
+from = "stack"
+to = "amp"
+
+[[edge]]
+from = "amp"
+to = "cab"
+
+[[edge]]
+from = "cab"
+to = "room"
+
+[[edge]]
+from = "room"
+to = "out"
