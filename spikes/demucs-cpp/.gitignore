@@ -1,0 +1,6 @@
+third_party/
+work/
+*.wav
+*.bin
+*.onnx
+build/
