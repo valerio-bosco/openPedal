@@ -1121,6 +1121,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "openpedal-tonelab"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openpedal-dsp",
+ "rustfft",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "openpedal-tonematch"
 version = "0.1.0"
 dependencies = [
