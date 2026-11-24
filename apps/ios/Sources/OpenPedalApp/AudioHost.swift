@@ -30,6 +30,20 @@ final class AudioHost: ObservableObject {
     private var engine = AVAudioEngine()
     private var inputBuffer: UnsafeMutablePointer<Float>?
     private var started = false
+    /// Slot read by the audio thread: the active `DIRecorder` (unretained) or nil. Allocated once.
+    private let recorderSlot: UnsafeMutablePointer<UnsafeMutableRawPointer?> = {
+        let p = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 1)
+        p.initialize(to: nil)
+        return p
+    }()
+    /// Owns the recorder while it is published in `recorderSlot` (see Recorder.swift).
+    var activeRecorder: DIRecorder? {
+        didSet {
+            recorderSlot.pointee = activeRecorder.map { Unmanaged.passUnretained($0).toOpaque() }
+        }
+    }
+    var isRunning: Bool { if case .running = state { return true } else { return false } }
+    var currentSampleRate: Double { coreSampleRate }
     private var pendingRebuild: Task<Void, Never>?
     /// Our own session calls make iOS post configuration changes too; reacting to those would
     /// restart the engine forever. Ignore them until this time.
@@ -62,6 +76,8 @@ final class AudioHost: ObservableObject {
             coreSampleRate = sampleRate
             let dataDir = try Self.prepareDataDir()
             let factory = Self.factoryDir()
+            // Demucs weights bundled by build-core.sh (separation builds only); selects the native Tone Lab backend.
+            if let weights = Self.bundledWeights() { weights.withCString { openpedal_set_demucs_weights($0) } }
             let started: OpaquePointer? = dataDir.withCString { data in
                 if let factory { return factory.withCString { openpedal_start2(Float(sampleRate), Self.maxFrames, data, $0, 0) } }
                 return openpedal_start2(Float(sampleRate), Self.maxFrames, data, nil, 0)
@@ -167,6 +183,7 @@ final class AudioHost: ObservableObject {
             inputBuffer = input
         }
         let channel = Self.guitarChannel
+        let slot = recorderSlot
         let maxFrames = Self.maxFrames
 
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
@@ -188,6 +205,10 @@ final class AudioHost: ObservableObject {
                 let stride = max(Int(b.mNumberChannels), 1)
                 let c = min(pickChannel, stride - 1)
                 for i in 0..<Int(frames) { input[i] = data[i * stride + c] }
+            }
+            // DI recording: plain copy into the recorder's preallocated buffer, if one is armed.
+            if let raw = slot.pointee {
+                Unmanaged<DIRecorder>.fromOpaque(raw)._withUnsafeGuaranteedRef { $0.push(input, frames: Int(frames)) }
             }
             return noErr
         }
@@ -227,6 +248,12 @@ final class AudioHost: ObservableObject {
     /// The bundle's resource folder, which holds the factory `presets/` and `pedals/`.
     private static func factoryDir() -> String? {
         Bundle.module.url(forResource: "presets", withExtension: nil)?.deletingLastPathComponent().path
+    }
+
+    private static func bundledWeights() -> String? {
+        guard let url = Bundle.module.url(forResource: "ggml-model-htdemucs-6s-f16", withExtension: "bin", subdirectory: "models"),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url.path
     }
 
     /// Older versions seeded in Swift and remembered the copied files in UserDefaults. Hand

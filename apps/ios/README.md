@@ -67,6 +67,17 @@ Troubleshooting:
   invalid. Unlock the iPad with the passcode, then `sudo systemctl restart usbmuxd`, replug, *Trust* again.
 - The app needs iOS 17 (`AVAudioApplication`); `Package.swift` targets `.iOS(.v17)`.
 
+## Tone Lab build (Demucs separation + weights)
+
+`build-core.sh` builds the core **with** the C++ Demucs separation by default: it enables the ffi features `separate` and `native-tonelab` (each only if it exists in `crates/ffi/Cargo.toml`; the script prints which), compiles demucs.cpp + Eigen with clang from the nix shell against the xtool iPhoneOS SDK (Accelerate BLAS), and drops the `lib/.separate` marker so `Package.swift` links `c++` and `Accelerate`.
+
+- Weights: `~/.local/share/openpedal/models/ggml-model-htdemucs-6s-f16.bin` (override with `OPENPEDAL_DEMUCS_WEIGHTS=<file>`). The script copies them to `Sources/OpenPedalApp/Resources/models/` (git-ignored) and `Package.swift` adds that folder to the bundle only when it exists. If the file is missing the script stops and prints how to regenerate it (docs/spikes/demucs-cpp.md section 2). `AudioHost` passes the bundled path to `openpedal_set_demucs_weights` before `openpedal_start2`, only when the file is there.
+- Opt out: `OPENPEDAL_SEPARATE=0` gives the plain core (no C++, no weights), as before.
+- Size: the weights are 52 MiB; measured debug `OpenPedal.app` goes from 11.2 MB to 66.7 MB (core with C++ plus weights).
+- Memory: separation uses about 1.5 GB per thread and runs 2 threads by default (iPad Air 5 has 8 GB; 4 threads are 2.1x faster on the desktop but do not fit). The weights add about 400 MB resident once loaded.
+- SwiftPM caches the evaluated `Package.swift` by content, so `build-core.sh` clears that cache; if you flip modes without it, remove `~/.local/share/openpedal-xtool/.cache/org.swift.swiftpm/manifests`.
+- DI recording: `AudioHost` conforms to `AudioHostRecording` (`Recorder.swift`): `recordDI(to:seconds:countIn:)` copies the dry guitar channel from the input sink callback into a buffer allocated up front (the audio thread only does a memcpy and publishes a write index; no allocation, locks or file IO) and writes a float32 mono 48 kHz WAV afterwards on a background task.
+
 ## Known unknowns (first build)
 
 - `Package.swift` finds `libopenpedal.a` through `-L <absolute path>` computed from `#filePath`; if xtool builds from a copy of the package, the path may need adjusting.

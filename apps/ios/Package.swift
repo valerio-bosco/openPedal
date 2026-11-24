@@ -10,8 +10,12 @@ let coreLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 // (spike docs/spikes/ios-cxx.md): the core then contains C++ (libc++) and the probe symbol.
 let cxxProbe = FileManager.default.fileExists(atPath: coreLib + "/.cxx-probe")
 
-// Same for OPENPEDAL_SEPARATE=1: the core then contains demucs.cpp (libc++, Accelerate BLAS).
+// Same for the separation build (default; OPENPEDAL_SEPARATE=0 opts out): the core then contains demucs.cpp (libc++, Accelerate BLAS).
 let separate = FileManager.default.fileExists(atPath: coreLib + "/.separate")
+
+// build-core.sh copies the Demucs weights into Resources/models only for separation builds.
+let hasModels = FileManager.default.fileExists(atPath: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent("Sources/OpenPedalApp/Resources/models").path)
 
 let package = Package(
     name: "OpenPedal",
@@ -44,6 +48,7 @@ let package = Package(
             dependencies: ["OpenPedalCore"],
             path: "Sources/OpenPedalApp",
             resources: [.copy("Resources/presets"), .copy("Resources/pedals")]
+                + (hasModels ? [.copy("Resources/models")] : [])
         ),
     ],
     swiftLanguageModes: [.v5] // the audio callbacks capture raw pointers
