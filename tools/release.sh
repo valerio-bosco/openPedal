@@ -130,14 +130,19 @@ next_dev_for() {
 # The upcoming stable version: continue a dev series already in progress, else the minor
 # after the latest stable tag (or after the version in the tree when there is no stable tag).
 upcoming_core() {
-  local stable dev major minor
+  local stable dev major minor from_tree=0
   stable="$(git tag --list "$prefix-v*" | grep -E "$stable_tag_re" | sed "s/^$prefix-v//" | max_core || true)"
   if [ -z "$stable" ]; then
+    # No stable tag yet: the version in the tree stands in for it.
     stable="$(current_version | sed 's/-.*//')"
     [[ "$stable" =~ $core_re ]] || die "cannot read the current $product version"
+    from_tree=1
   fi
   dev="$(git tag --list "$prefix-v*-dev.*" | sed -nE "s/^$prefix-v($num\.$num\.$num)-dev\..*/\1/p" | max_core || true)"
-  if [ -n "$dev" ] && [ "$(printf '%s\n%s\n' "$stable" "$dev" | max_core)" = "$dev" ] && [ "$dev" != "$stable" ]; then
+  # A dev series is in progress when its X.Y.Z is above the last stable one (or equal to the
+  # tree's, when no stable tag exists: the iPad tree keeps X.Y.Z of the dev series).
+  if [ -n "$dev" ] && { [ "$from_tree" -eq 1 ] && [ "$(printf '%s\n%s\n' "$stable" "$dev" | max_core)" = "$dev" ] ||
+    [ "$dev" != "$stable" ] && [ "$(printf '%s\n%s\n' "$stable" "$dev" | max_core)" = "$dev" ]; }; then
     echo "$dev"
   else
     IFS=. read -r major minor _ <<<"$stable"

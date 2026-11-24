@@ -23,6 +23,18 @@ Without Nix you need Rust, Node.js, JACK development files and, on Linux with Pi
 - If you changed the protocol or a block's parameters: regenerate the fixtures with `cargo run -- dev-fixtures apps/desktop/ui/src/fixtures` and the client types with `cargo run -p openpedal-protocol --bin gen-protocol` (see Protocol below).
 - New behavior comes with a test. DSP tests should measure something (levels, frequencies, timing), not just "it runs".
 
+## Branches
+
+| Branch | Branch from | Merge into |
+|---|---|---|
+| `master` (stable only, stable tags) | | |
+| `dev` (integration and testing, `-dev.N` tags) | | `master` with `--no-ff`, only to cut a stable release |
+| `feat/*`, `fix/*`, `chore/*`, `docs/*` | `dev` | `dev` with `--no-ff` |
+| hotfix `fix/*` | `master` | `master`, then back into `dev` |
+
+Open pull requests against `dev`. CI runs on `master` and `dev`. Releases and tags are described in
+`docs/RELEASING.md`.
+
 ## Language
 
 Everything in the repository is in **English**: code, comments, documentation, error and CLI messages, test names and UI text.
