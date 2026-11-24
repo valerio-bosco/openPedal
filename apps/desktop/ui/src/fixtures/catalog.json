@@ -320,6 +320,98 @@
     "composite": false
   },
   {
+    "kind": "fuzzface",
+    "label": "Fuzz Face",
+    "category": "drive",
+    "params": [
+      {
+        "id": "fuzz",
+        "label": "Fuzz",
+        "kind": "number",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.7,
+        "unit": "",
+        "log": false,
+        "step": 0.0
+      },
+      {
+        "id": "volume_db",
+        "label": "Volume",
+        "kind": "number",
+        "min": -40.0,
+        "max": 6.0,
+        "default": -10.0,
+        "unit": "dB",
+        "log": false,
+        "step": 0.0
+      },
+      {
+        "id": "transistor",
+        "label": "Transistor",
+        "kind": "choice",
+        "options": [
+          "germanium",
+          "silicon"
+        ],
+        "default": 0
+      },
+      {
+        "id": "bias",
+        "label": "Bias",
+        "kind": "number",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.7,
+        "unit": "",
+        "log": false,
+        "step": 0.0
+      }
+    ],
+    "composite": false
+  },
+  {
+    "kind": "treblebooster",
+    "label": "Treble Booster",
+    "category": "drive",
+    "params": [
+      {
+        "id": "range",
+        "label": "Range",
+        "kind": "choice",
+        "options": [
+          "treble",
+          "mid",
+          "full"
+        ],
+        "default": 0
+      },
+      {
+        "id": "boost",
+        "label": "Boost",
+        "kind": "number",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.6,
+        "unit": "",
+        "log": false,
+        "step": 0.0
+      },
+      {
+        "id": "level_db",
+        "label": "Level",
+        "kind": "number",
+        "min": -30.0,
+        "max": 12.0,
+        "default": -6.0,
+        "unit": "dB",
+        "log": false,
+        "step": 0.0
+      }
+    ],
+    "composite": false
+  },
+  {
     "kind": "tonestack",
     "label": "Tone stack",
     "category": "amp",

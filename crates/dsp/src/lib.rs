@@ -13,12 +13,14 @@ mod drive;
 mod dynamics;
 mod filter;
 mod fuzz;
+mod fuzzface;
 mod modulation;
 mod octave;
 pub mod oversample;
 pub mod params;
 mod reverb;
 mod time;
+mod treblebooster;
 mod tonestack;
 pub mod wav;
 
@@ -57,6 +59,8 @@ static CATALOG: &[Entry] = &[
     Entry { desc: &compressor::COMPRESSOR_DESC, build: compressor::build_compressor },
     Entry { desc: &drive::DRIVE_DESC, build: drive::build_drive },
     Entry { desc: &fuzz::FUZZ_DESC, build: fuzz::build_fuzz },
+    Entry { desc: &fuzzface::FUZZFACE_DESC, build: fuzzface::build_fuzzface },
+    Entry { desc: &treblebooster::TREBLEBOOSTER_DESC, build: treblebooster::build_treblebooster },
     Entry { desc: &tonestack::TONESTACK_DESC, build: tonestack::build_tonestack },
     Entry { desc: &cab::CAB_DESC, build: cab::build_cab },
     Entry { desc: &filter::FILTER_DESC, build: filter::build_filter },
