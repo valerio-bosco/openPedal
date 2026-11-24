@@ -26,7 +26,7 @@ pub struct FitOptions {
     pub di: Option<PathBuf>,
     /// Another real DI to render the fitted preset on, compared with the target.
     pub validate_di: Option<PathBuf>,
-    /// Evaluations of the full fit (default 350); screening uses about a sixth of it.
+    /// Evaluations of the full fit (default 350, 2 restarts); screening has its own budget.
     pub budget: usize,
     pub threads: usize,
     /// Length of the densest window used for fitting.
@@ -55,7 +55,7 @@ pub struct TemplateResult {
     /// Spectral error on the fitting window, dB.
     pub error_db: f32,
     pub holdout_error_db: Option<f32>,
-    /// `screen` (about 60 renders) or `fit` (full budget).
+    /// `screen` (max(60, 6 x params) renders) or `fit` (full budget).
     pub stage: &'static str,
     pub renders: usize,
 }
@@ -77,6 +77,8 @@ pub struct Report {
     pub bands_hz: Vec<f32>,
     pub diff_db: Vec<f32>,
     pub renders: usize,
+    /// Renders spent on each template (screening plus full fit).
+    pub templates: Vec<TemplateResult>,
     pub seconds: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validate_error_db: Option<f32>,
@@ -99,6 +101,11 @@ pub struct SignalFit {
     pub template: Template,
     pub values: Vec<f32>,
     pub summary: FitSummary,
+}
+
+/// Screening budget per template: enough to get past the initial simplex of `n + 1` renders.
+pub fn screen_budget(n_params: usize) -> usize {
+    60.max(6 * n_params)
 }
 
 /// Start of the window of `len` samples with the most energy (steps of half a second).
@@ -142,7 +149,7 @@ impl Problem<'_> {
     }
 
     /// Optimises from `start` (parameter values) within `budget` evaluations.
-    fn optimise(&self, start: &[f32], budget: usize) -> (Minimum, Vec<f32>) {
+    fn optimise(&self, start: &[f32], budget: usize, restarts: usize) -> (Minimum, Vec<f32>) {
         let mut analyzer = Analyzer::new(self.sr);
         let mut f = |x: &[f64]| -> f64 {
             let values = self.template.values_from_unit(x);
@@ -151,7 +158,7 @@ impl Problem<'_> {
                 Err(_) => 1e3,
             }
         };
-        let min = optim::minimize(&mut f, &self.template.unit_from_values(start), budget, 2);
+        let min = optim::minimize(&mut f, &self.template.unit_from_values(start), budget, restarts);
         let values = self.template.values_from_unit(&min.x);
         (min, values)
     }
@@ -208,20 +215,21 @@ pub fn fit_signals(
     let hold_feat = holdout.then(|| Analyzer::new(sr).analyze(&target[split..]));
 
     let full_budget = opts.budget.max(20);
-    let screen_budget = (full_budget * 60 / 350).max(20);
     let mut renders = 0usize;
 
     // Screening.
     let starts: Vec<Vec<f32>> = templates.iter().map(|t| t.initial(pedals)).collect();
     let mut stage: Vec<(Vec<f32>, f32, usize)> = starts.iter().map(|s| (s.clone(), f32::MAX, 0)).collect();
-    let mut stage_name = "fit";
     if templates.len() > 1 {
-        stage_name = "screen";
-        progress(&format!("screening {} templates with ~{screen_budget} renders each", templates.len()));
+        progress(&format!(
+            "screening {} templates with max(60, 6 x params) renders each, no restarts",
+            templates.len()
+        ));
         let jobs: Vec<usize> = (0..templates.len()).collect();
         let results = parallel(&jobs, opts.threads, |&i| {
+            let screen_budget = screen_budget(templates[i].params.len());
             let p = Problem { template: &templates[i], pedals, di: fit_di, target: &target_feat, sr };
-            let (min, values) = p.optimise(&starts[i], screen_budget);
+            let (min, values) = p.optimise(&starts[i], screen_budget, 0);
             progress(&format!("  screen {:<14} cost {:.2} ({} renders)", templates[i].name, min.value, min.evals));
             (values, min.value as f32, min.evals)
         });
@@ -241,7 +249,7 @@ pub fn fit_signals(
     ));
     let fits = parallel(&finalists, opts.threads, |&i| {
         let p = Problem { template: &templates[i], pedals, di: fit_di, target: &target_feat, sr };
-        let (min, values) = p.optimise(&stage[i].0, full_budget);
+        let (min, values) = p.optimise(&stage[i].0, full_budget, 2);
         progress(&format!("  fit    {:<14} cost {:.2} ({} renders)", templates[i].name, min.value, min.evals));
         (values, min.value as f32, min.evals)
     });
@@ -249,6 +257,7 @@ pub fn fit_signals(
     // Re-measure each finalist with the rounded values it would be saved with.
     struct Final {
         index: usize,
+        renders: usize,
         values: Vec<f32>,
         cost: f32,
         error: f32,
@@ -259,6 +268,7 @@ pub fn fit_signals(
     let mut an = Analyzer::new(sr);
     for (&i, (values, _, evals)) in finalists.iter().zip(fits) {
         renders += evals;
+        let template_renders = evals + if templates.len() > 1 { stage[i].2 } else { 0 } + 1 + usize::from(holdout);
         let t = &templates[i];
         let rounded: Vec<f32> = t.params.iter().zip(&values).map(|(p, v)| p.round(*v)).collect();
         let p = Problem { template: t, pedals, di: fit_di, target: &target_feat, sr };
@@ -270,6 +280,7 @@ pub fn fit_signals(
         renders += 1 + usize::from(holdout);
         finals.push(Final {
             index: i,
+            renders: template_renders,
             values: rounded,
             cost: features::cost(&feat, &target_feat),
             error: features::spectral_error(&feat, &target_feat),
@@ -286,7 +297,7 @@ pub fn fit_signals(
             error_db: f.error,
             holdout_error_db: f.holdout,
             stage: "fit",
-            renders: 0,
+            renders: f.renders,
         });
     }
     for &i in &order {
@@ -295,7 +306,6 @@ pub fn fit_signals(
             rows.push(TemplateResult { template: templates[i].name.clone(), error_db: stage[i].1, holdout_error_db: None, stage: "screen", renders: stage[i].2 });
         }
     }
-    let _ = stage_name;
 
     let best = &finals[0];
     let template = templates[best.index].clone();
@@ -309,6 +319,7 @@ pub fn fit_signals(
         bands_hz: band_centres().iter().map(|f| f.round()).collect(),
         diff_db: features::diff_db(&best.feat, &target_feat).iter().map(|d| (d * 100.0).round() / 100.0).collect(),
         renders,
+        templates: rows.clone(),
         seconds: t0.elapsed().as_secs_f32(),
         validate_error_db: None,
     };
@@ -326,6 +337,30 @@ fn json_file(path: &Path) -> Result<serde_json::Value> {
     serde_json::from_str(&text).with_context(|| format!("error in {}", path.display()))
 }
 
+/// The DI to fit through, and whether the hold-out applies (a real recording): `--di`, then the
+/// user's `di-user.wav`, then the synthetic `di-synth.wav`.
+pub fn choose_di(explicit: Option<&Path>, part_dir: &Path) -> Option<(PathBuf, bool)> {
+    if let Some(p) = explicit {
+        return Some((p.to_path_buf(), true));
+    }
+    let user = part_dir.join("di-user.wav");
+    if user.exists() {
+        return Some((user, true));
+    }
+    let synth = part_dir.join("di-synth.wav");
+    synth.exists().then_some((synth, false))
+}
+
+fn di_kind(explicit: bool, path: &Path) -> &'static str {
+    if explicit {
+        "--di"
+    } else if path.file_name().is_some_and(|n| n == "di-user.wav") {
+        "your recording"
+    } else {
+        "synthetic"
+    }
+}
+
 /// Fits a part of a job folder and writes `parts/<part>/fit/`.
 pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress) -> Result<FitSummary> {
     let t0 = Instant::now();
@@ -341,12 +376,11 @@ pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress
     let (target, sr) = read_mono(&part_dir.join("target.wav"))?;
     let synth = part_dir.join("di-synth.wav");
     let user = part_dir.join("di-user.wav");
-    let (di_path, holdout) = match (&opts.di, synth.exists(), user.exists()) {
-        (Some(p), _, _) => (p.clone(), true),
-        (None, true, _) => (synth, false),
-        (None, false, true) => (user, true),
-        _ => bail!("no DI: expected {} or {}, or pass --di", synth.display(), user.display()),
+    let (di_path, holdout) = match choose_di(opts.di.as_deref(), &part_dir) {
+        Some(c) => c,
+        None => bail!("no DI: expected {} or {}, or pass --di", user.display(), synth.display()),
     };
+    progress(&format!("DI used: {} ({})", di_path.display(), di_kind(opts.di.is_some(), &di_path)));
     let (di, di_sr) = read_mono(&di_path)?;
     ensure!(di_sr == sr, "DI sample rate {di_sr} differs from the target's {sr}");
     progress(&format!("DI {} ({:.1} s), target {:.1} s", di_path.display(), di.len() as f32 / sr, target.len() as f32 / sr));
@@ -410,4 +444,23 @@ pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress
     std::fs::write(out_dir.join("report.json"), serde_json::to_string_pretty(r)?)?;
     fit.summary.out_dir = Some(out_dir);
     Ok(fit.summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn di_priority_is_explicit_then_user_then_synth() {
+        let dir = std::env::temp_dir().join(format!("tonematch-di-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(choose_di(None, &dir).is_none());
+        std::fs::write(dir.join("di-synth.wav"), b"").unwrap();
+        assert_eq!(choose_di(None, &dir), Some((dir.join("di-synth.wav"), false)));
+        std::fs::write(dir.join("di-user.wav"), b"").unwrap();
+        assert_eq!(choose_di(None, &dir), Some((dir.join("di-user.wav"), true)));
+        let own = Path::new("/x/own.wav");
+        assert_eq!(choose_di(Some(own), &dir), Some((own.to_path_buf(), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

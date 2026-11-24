@@ -167,3 +167,30 @@ def test_synth_di_call(tmp_path, monkeypatch):
     out = parts.synth_part(job, "p1", str(di))
     assert out.name == "di-synth.wav" and seen["sr"] == 48000 and seen["n"] == 1
     assert seen["di"].ndim == 1
+
+
+def test_analyse_wide_when_parts_differ(tmp_path):
+    # different notes left and right: the frame-wise chroma similarity is low -> "wide"
+    left = tone([110.0, 146.83], 8, 1)
+    right = tone([174.61, 233.08], 8, 2)
+    a = an.analyse(make_job(tmp_path, left, right))
+    assert [s["kind"] for s in a["sections"]] == ["wide"]
+
+
+def test_low_notes_need_a_silent_bass_and_a_stable_pitch(tmp_path):
+    t = np.arange(6 * SR) / SR
+    low = (0.3 * np.sin(2 * np.pi * 62.0 * t)).astype(np.float32)
+    job = make_job(tmp_path, low, low)
+    # bass stem as loud as the guitar: the low note is the bass's, not an octave-down guitar
+    sf.write(str(job.stem("bass")), np.stack([low, low], axis=1), SR, subtype="FLOAT")
+    assert an.analyse(job)["low_notes"] == []
+    # silent bass stem: reported
+    sf.write(str(job.stem("bass")), np.zeros((len(low), 2), np.float32), SR, subtype="FLOAT")
+    notes = an.analyse(job)["low_notes"]
+    assert notes and all(abs(n["hz"] - 62) < 3 for n in notes)
+    # a glide (> 1 semitone) is not a stable note
+    glide = (0.3 * np.sin(2 * np.pi * np.cumsum(np.linspace(30, 79, len(t))) / SR)).astype(np.float32)
+    (tmp_path / "g").mkdir()
+    job2 = make_job(tmp_path / "g", glide, glide)
+    sf.write(str(job2.stem("bass")), np.zeros((len(glide), 2), np.float32), SR, subtype="FLOAT")
+    assert an.analyse(job2)["low_notes"] == []

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Tone Lab wrapper: sets up the NixOS environment (libstdc++, zlib, GL driver dir, ffmpeg)
-# and runs `python -m tonelab.cli`. Venv: $TONELAB_VENV or ~/.local/share/openpedal-gpu.
+# and runs `python -m tonelab.cli`. Venv: $TONELAB_VENV or tools/tonelab/.venv (project-local, gitignored).
 # (Lives in bin/ because tools/tonelab/tonelab/ is the Python package.)
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-VENV="${TONELAB_VENV:-$HOME/.local/share/openpedal-gpu}"
+VENV="${TONELAB_VENV:-$HERE/.venv}"
 mkdir -p "$VENV"
 CACHE="$VENV/nix-paths.env"
 
@@ -22,7 +22,18 @@ fi
 
 if [ ! -x "$VENV/bin/python" ]; then
   echo "tonelab: creating the venv in $VENV (uv sync)" >&2
-  (cd "$HERE" && UV_PROJECT_ENVIRONMENT="$VENV" uv sync ${TONELAB_UV_ARGS:-})
+  UV_ARGS="${TONELAB_UV_ARGS:-}"
+  # `[sources] youtube = true` (tonelab.local.toml overrides tonelab.toml) -> the youtube extra.
+  if [ -z "$UV_ARGS" ]; then
+    YT=
+    for f in "$HERE/tonelab.toml" "$HERE/tonelab.local.toml"; do
+      [ -f "$f" ] || continue
+      v="$(awk '/^\[/{s=($0 ~ /^\[sources\]/)} s && /^[[:space:]]*youtube[[:space:]]*=/{sub(/#.*/,""); gsub(/[[:space:]]/,""); split($0,a,"="); print a[2]}' "$f" | tail -1)"
+      [ -n "$v" ] && YT="$v"
+    done
+    [ "$YT" = true ] && UV_ARGS="--extra youtube"
+  fi
+  (cd "$HERE" && UV_PROJECT_ENVIRONMENT="$VENV" uv sync $UV_ARGS)
 fi
 
 export LD_LIBRARY_PATH="$TL_GCC/lib:$TL_ZLIB/lib:/run/opengl-driver/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
