@@ -2,6 +2,11 @@
 # Reference (likely, not confirmed): fuzz with less gate and more sustain for
 # wide power chords, plus a phaser (MXR Phase 95 per the producer's posts) that
 # openPedal does not have: a slow, shallow chorus stands in for it.
+# In the song this part is double-tracked (two takes, hard left and right).
+# The separated guitar goes down to B1 (62 Hz) even where the bass is silent,
+# below a standard-tuned guitar: hence the octave-down "sub" (Whammy or
+# Octavider style). Tone fitted on the separated guitar (64-76 s); checked on a
+# real DI: 6.7 dB rms error vs 10.8 before.
 # See docs/tones/cryogen.md.
 name = "cryogen-chorus"
 version = 2
@@ -21,31 +26,37 @@ params = { threshold_db = -58, release_ms = 100 }   # hiss only
 id = "tight"
 type = "filter"
 pos = [320, 120]
-params = { kind = "highpass", freq = 110 }
+params = { kind = "highpass", freq = 108 }
+
+[[node]]
+id = "sub"
+type = "octave"
+pos = [400, 240]
+params = { dry = 1.0, down = 0.30, up = 0.0, tone_hz = 1500, track_hz = 700 }
 
 [[node]]
 id = "fuzz"
 type = "fuzz"
 pos = [480, 120]
-params = { drive = 0.8, gate = 0.05, comp = 0.7, bias = 0.3, tone_hz = 6000, level_db = -14 }   # gate depends on input level: low on purpose so chords sustain.
+params = { drive = 0.80, gate = 0.05, comp = 0.71, bias = 0.3, tone_hz = 7923, level_db = -14 }   # gate depends on input level: low on purpose so chords sustain.
 
 [[node]]
 id = "stack"
 type = "tonestack"
 pos = [640, 120]
-params = { model = "marshall", bass = 0.45, mid = 0.6, treble = 0.65 }
+params = { model = "marshall", bass = 0.38, mid = 0.57, treble = 0.69 }
 
 [[node]]
 id = "amp"
 type = "drive"
 pos = [800, 120]
-params = { shape = "asym", gain_db = 8, level_db = -5, bias = 0.2, quality = "alta" }
+params = { shape = "asym", gain_db = 6.1, level_db = -5, bias = 0.2, quality = "alta" }
 
 [[node]]
 id = "cab"
 type = "cab"
 pos = [960, 120]
-params = { low_hz = 110, low_q = 1.4, high_hz = 5400, mid_db = -2, presence_hz = 2800, presence_db = 4, ripple_db = 3, seed = 7 }
+params = { low_hz = 101, low_q = 1.4, high_hz = 7366, mid_db = -3.4, presence_hz = 2800, presence_db = 5.7, ripple_db = 3, seed = 7 }
 
 [[node]]
 id = "phase"
@@ -75,6 +86,10 @@ to = "tight"
 
 [[edge]]
 from = "tight"
+to = "sub"
+
+[[edge]]
+from = "sub"
 to = "fuzz"
 
 [[edge]]

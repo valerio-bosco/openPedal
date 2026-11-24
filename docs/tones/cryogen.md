@@ -48,13 +48,43 @@ Not covered: strings in the middle 8 and any keys/synth (Lancaster), bass.
 | Phase 95 | none: `chorus` as a weak stand-in | missing phaser block |
 | Whammy / Floyd bends, Kaoss pad | none | no pitch-shifter block, no live control of params by a pad |
 | Havalina, Plasma Coil, Animato | none specific; `drive` could be stacked | not added to keep chain simple |
-| Octave | `octave` exists but not used | no evidence |
+| Octave down (Whammy or Octavider) | `octave` (`sub`) in `cryogen-chorus` | from the audio: the guitar reaches B1 (62 Hz) with the bass silent |
 
 Missing blocks that would help: phaser, pitch shifter/whammy, an oscillating fuzz (self-oscillation of the Fuzz Factory when the gate/stab knobs are extreme).
 
+## Analysis of the recording (2026-11-24)
+
+`recordings/Cryogen.mp3` (the user's copy, 5:04) was separated with Demucs `htdemucs_6s` on the GPU
+(guitar, bass, drums, vocals, piano, other). Findings from the guitar stem:
+
+- **Key and tempo:** B minor with the A# leading tone (pitch classes F#, B, D, A#, C#), about 132 BPM.
+- **One main guitar, centred:** in the intro riff (8-28 s), 80-92 s, 188-196 s and 220-228 s the stem is
+  almost mono (L/R correlation 0.9).
+- **Double-tracked choruses:** 48-76 s, 116-140 s, 200-212 s and 248-288 s are wide (correlation 0.4-0.5)
+  but left and right play the same notes (chroma similarity 0.97): two takes of the same part panned hard,
+  not two different parts.
+- **232-246 s:** fully decorrelated guitar with bass and drums silent: a breakdown with a stereo effect.
+- **Octave down:** the guitar stem goes down to B1 (62 Hz) also where the bass stem is silent (232-244 s).
+  A standard-tuned guitar stops at E2 (82 Hz), so an octave-down effect (or a lower tuning) is used.
+- **Riff notes (pYIN, approximate):** B3 D4 F#4 B4 A#4 B4 C5 C#5 ... a spiralling B-minor arpeggio.
+
+**Tuning method.** There is no clean DI of the song. A synthetic DI was made from the transcription
+(onsets + pYIN, Karplus-Strong strings), its spectrum matched to the user's real DI
+(`recordings/plug-in-baby.wav`) and its RMS matched (-29.8 dBFS). Each preset was rendered on it and its tone
+parameters were fitted (Nelder-Mead, ~350 renders) to the separated guitar's 1/3-octave spectrum plus crest
+factor. Check on the real DI (not used in the fit), rms spectral error against the stem:
+
+| Preset | Before | After |
+|---|---|---|
+| `cryogen-riff` (vs 8-28 s) | 15.1 dB | 5.9 dB |
+| `cryogen-chorus` (vs 64-76 s) | 10.8 dB | 6.7 dB |
+
+The originals were too narrow (a 2-4 kHz peak), 10-15 dB short on 150-1000 Hz, dark above 8 kHz and too
+compressed. What remains: 1-4 kHz still 5-9 dB short on the real DI. Scripts were throwaway, kept out of the repo.
+
 ## When a reference clip arrives
 
-Put it in `recordings/` and measure per part: spectral centroid and band energy (low cut around 100-150 Hz, 2-4 kHz presence, rolloff above 5-6 kHz), RMS against peak (compression of the fuzz), decay behaviour of notes (gate sputter: does the tail cut abruptly?), presence of a phaser notch sweep (rate, depth) in the chorus, pitch glides (whammy) in the riff and outro, and whether the intro oscillation sits at a fixed pitch. Listen for: octave content (none expected), stereo doubling, how much room reverb is audible. Then tune `fuzz.gate`, `fuzz.bias` and `tone_hz` first.
+Put it in `recordings/` and measure per part: spectral centroid and band energy (low cut around 100-150 Hz, 2-4 kHz presence, rolloff above 5-6 kHz), RMS against peak (compression of the fuzz), decay behaviour of notes (gate sputter: does the tail cut abruptly?), presence of a phaser notch sweep (rate, depth) in the chorus, pitch glides (whammy) in the riff and outro, and whether the intro oscillation sits at a fixed pitch. Listen for: octave content, stereo doubling, how much room reverb is audible. Then tune `fuzz.gate`, `fuzz.bias` and `tone_hz` first.
 
 ## Presets
 

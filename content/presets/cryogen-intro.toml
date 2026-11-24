@@ -4,6 +4,7 @@
 # docs/tones/cryogen.md for sources and confidence levels. The real sound is
 # partly hand-played (Gate/Stab knobs, Kaoss pad, whammy): the engine has no
 # live control, so this preset gives the static fuzz character only.
+# Amp, tone stack and cab share the values fitted for cryogen-riff.
 name = "cryogen-intro"
 version = 2
 
@@ -29,19 +30,19 @@ params = { drive = 0.95, gate = 0.3, comp = 0.8, bias = 0.5, tone_hz = 9000, lev
 id = "stack"
 type = "tonestack"
 pos = [480, 120]
-params = { model = "marshall", bass = 0.3, mid = 0.7, treble = 0.7 }
+params = { model = "marshall", bass = 0.48, mid = 0.95, treble = 0.82 }
 
 [[node]]
 id = "amp"
 type = "drive"
 pos = [640, 120]
-params = { shape = "asym", gain_db = 6, level_db = -4, bias = 0.2, quality = "alta" }
+params = { shape = "asym", gain_db = 5.4, level_db = -4, bias = 0.2, quality = "alta" }
 
 [[node]]
 id = "cab"
 type = "cab"
 pos = [800, 120]
-params = { low_hz = 110, low_q = 1.4, high_hz = 5400, mid_db = -2, presence_hz = 2800, presence_db = 4, ripple_db = 3, seed = 7 }
+params = { low_hz = 77, low_q = 1.4, high_hz = 11760, mid_db = -8.0, presence_hz = 2800, presence_db = -0.4, ripple_db = 3, seed = 7 }
 
 [[node]]
 id = "room"
