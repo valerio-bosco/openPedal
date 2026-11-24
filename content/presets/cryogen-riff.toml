@@ -1,0 +1,98 @@
+# Muse - "Cryogen": main spiralling riff.
+# Reference: Manson with built-in Fuzz Factory into a Marshall-style amp, the
+# same family as "Plug In Baby" (musewiki compares the two). Extra pedals named
+# by the producer (Way Huge Havalina, Human Gear Animato) are likely used for
+# colour: approximated by the fuzz bias and a mid push. Standard tuning,
+# whammy bar bends on the guitar (not reproducible: no pitch block).
+# Tone shaping (tight, fuzz, stack, amp, cab) fitted on the song: the guitar was
+# separated with Demucs and its 1/3-octave spectrum matched (8-28 s, mono
+# centre guitar). Checked on a real DI: 5.9 dB rms error vs 15.1 before.
+# See docs/tones/cryogen.md.
+name = "cryogen-riff"
+version = 2
+
+[[node]]
+id = "in"
+type = "input"
+pos = [0, 120]
+
+[[node]]
+id = "gate"
+type = "gate"
+pos = [160, 120]
+params = { threshold_db = -55, release_ms = 60 }   # the fuzz has its own gate: this one only removes hiss
+
+[[node]]
+id = "tight"
+type = "filter"
+pos = [320, 120]
+params = { kind = "highpass", freq = 105 }
+
+[[node]]
+id = "fuzz"
+type = "fuzz"
+pos = [480, 120]
+params = { drive = 0.78, gate = 0.12, comp = 0.74, bias = 0.35, tone_hz = 11800, level_db = -14 }   # gate depends on input level: tuned on a riff peaking at -12 dBFS.
+# Higher values also cut the notes you play, lower ones let the tails ring.
+
+[[node]]
+id = "stack"
+type = "tonestack"
+pos = [640, 120]
+params = { model = "marshall", bass = 0.48, mid = 0.95, treble = 0.82 }
+
+[[node]]
+id = "amp"
+type = "drive"
+pos = [800, 120]
+params = { shape = "asym", gain_db = 5.4, level_db = -4, bias = 0.2, quality = "alta" }
+
+[[node]]
+id = "cab"
+type = "cab"
+pos = [960, 120]
+params = { low_hz = 77, low_q = 1.4, high_hz = 11760, mid_db = -8.0, presence_hz = 2800, presence_db = -0.4, ripple_db = 3, seed = 7 }
+
+[[node]]
+id = "room"
+type = "reverb"
+pos = [1120, 120]
+params = { room = 0.3, damp = 0.6, mix = 0.1, predelay_ms = 12 }
+
+[[node]]
+id = "out"
+type = "output"
+pos = [1280, 120]
+params = { volume_db = -18 }
+
+[[edge]]
+from = "in"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "tight"
+
+[[edge]]
+from = "tight"
+to = "fuzz"
+
+[[edge]]
+from = "fuzz"
+to = "stack"
+
+[[edge]]
+from = "stack"
+to = "amp"
+
+[[edge]]
+from = "amp"
+to = "cab"
+
+[[edge]]
+from = "cab"
+to = "room"
+
+[[edge]]
+from = "room"
+to = "out"
