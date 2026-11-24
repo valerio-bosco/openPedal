@@ -10,7 +10,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast;
@@ -20,6 +20,7 @@ use openpedal_graph::{analysis, chain};
 use openpedal_graph::model::GraphFile;
 use openpedal_library::Library;
 
+use crate::tonelab::{self, Tonelab};
 use crate::{assets, EngineHandle};
 
 pub struct ServerOptions {
@@ -68,9 +69,11 @@ impl Session {
 
 /// A message for every connected client except `except`.
 #[derive(Clone)]
-struct Broadcast {
-    except: Option<u64>,
-    msg: ServerMsg,
+pub(crate) struct Broadcast {
+    pub(crate) except: Option<u64>,
+    /// Only this client (progress of the step it asked for).
+    pub(crate) only: Option<u64>,
+    pub(crate) msg: ServerMsg,
 }
 
 pub struct AppState {
@@ -78,14 +81,22 @@ pub struct AppState {
     pub library: Library,
     session: Mutex<Session>,
     tx: broadcast::Sender<Broadcast>,
+    pub(crate) tonelab: Arc<Tonelab>,
     next_client: AtomicU64,
 }
 
 impl AppState {
     pub fn new(engine: Arc<dyn EngineHandle>, library: Library) -> Self {
+        Self::with_tonelab_tool(engine, library, std::env::var("OPENPEDAL_TONELAB").ok())
+    }
+
+    /// `tool`: what `$OPENPEDAL_TONELAB` says (a path, `mock`, `none`), or `None` to look for the tool in the repository.
+    pub fn with_tonelab_tool(engine: Arc<dyn EngineHandle>, library: Library, tool: Option<String>) -> Self {
         let graph = engine.graph();
         let session = Session { undo: vec![], redo: vec![], saved: graph, pending_edit: None, last_dirty: false };
-        Self { engine, library, session: Mutex::new(session), tx: broadcast::channel(BROADCAST_BACKLOG).0, next_client: AtomicU64::new(1) }
+        let tx = broadcast::channel(BROADCAST_BACKLOG).0;
+        let tonelab = Arc::new(Tonelab::new(tx.clone(), library.clone(), engine.audio().running, tool, "tools/tonelab/bin/tonelab".into()));
+        Self { engine, library, session: Mutex::new(session), tx, tonelab, next_client: AtomicU64::new(1) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Session> {
@@ -99,7 +110,11 @@ fn same_content(a: &GraphFile, b: &GraphFile) -> bool {
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
-    Router::new().route("/ws", get(ws_handler)).fallback(assets::serve).with_state(state)
+    Router::new()
+        .route("/ws", get(ws_handler))
+        .route("/tonelab/file/{job}/{*path}", get(tonelab::serve_file))
+        .route("/tonelab/upload", post(tonelab::upload).layer(tonelab::upload_limit()))
+        .fallback(assets::serve).with_state(state)
 }
 
 /// Starts the server; does not return until Ctrl+C or SIGTERM arrives.
@@ -152,7 +167,7 @@ fn lan_address() -> Option<IpAddr> {
 }
 
 /// Rejects WebSockets opened from pages on other sites (the server can write files).
-fn same_origin(headers: &HeaderMap) -> bool {
+pub(crate) fn same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else { return true };
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or_default();
     let origin = origin.to_str().unwrap_or_default();
@@ -186,7 +201,7 @@ async fn client_loop(socket: WebSocket, state: Arc<AppState>) {
             }
             update = updates.recv() => {
                 let msg = match update {
-                    Ok(b) if b.except == Some(id) => continue,
+                    Ok(b) if b.except == Some(id) || b.only.is_some_and(|o| o != id) => continue,
                     Ok(b) => b.msg,
                     // Fell too far behind: whatever was missed is replaced by the current state.
                     Err(broadcast::error::RecvError::Lagged(_)) => state_msg(&state),
@@ -254,7 +269,7 @@ pub fn handle_message(state: &AppState, msg: ClientMsg) -> Vec<ServerMsg> {
 /// Sends `msg` to every client but `from`.
 fn broadcast_others(state: &AppState, from: u64, msg: ServerMsg) {
     // Err = nobody is listening, which is fine.
-    let _ = state.tx.send(Broadcast { except: Some(from), msg });
+    let _ = state.tx.send(Broadcast { except: Some(from), only: None, msg });
 }
 
 /// The current state: goes in the sender's replies and to every other client.
@@ -314,6 +329,23 @@ pub fn handle_message_from(state: &AppState, from: u64, msg: ClientMsg) -> Vec<S
     // (a few milliseconds), so it never delays edits or the audio thread.
     if matches!(msg, ClientMsg::AnalyzePedal { .. } | ClientMsg::AnalyzeNode { .. }) {
         return vec![analyze(state, msg).unwrap_or_else(error_from)];
+    }
+    // Tone Lab steps run on their own threads and answer through the broadcast channel.
+    if !matches!(msg, ClientMsg::TonelabSavePreset { .. })
+        && matches!(
+            msg,
+            ClientMsg::TonelabCaps
+                | ClientMsg::TonelabJobs
+                | ClientMsg::TonelabStart { .. }
+                | ClientMsg::TonelabOpen { .. }
+                | ClientMsg::TonelabPick { .. }
+                | ClientMsg::TonelabRecordDi { .. }
+                | ClientMsg::TonelabFit { .. }
+                | ClientMsg::TonelabCancel { .. }
+        )
+    {
+        state.tonelab.handle(from, msg);
+        return vec![];
     }
     // One edit at a time: history, engine and broadcast order stay consistent.
     let mut session = state.lock();
@@ -425,6 +457,11 @@ pub fn handle_message_from(state: &AppState, from: u64, msg: ClientMsg) -> Vec<S
             state.engine.reload_pedals()?;
             Ok(publish(state, session, from))
         }
+        ClientMsg::TonelabSavePreset { job, part, name } => {
+            state.tonelab.save_preset(&job, &part, &name)?;
+            Ok(publish(state, session, from))
+        }
+        _ => unreachable!("handled before the lock"),
     })();
     result.unwrap_or_else(|e| vec![error_from(e)])
 }
@@ -992,6 +1029,244 @@ mod tests {
             if t.contains("\"error\"") {
                 break;
             }
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // ---- Tone Lab ----
+
+    /// A stand-in for `tonelab`: creates `JOBS/fake-song`, can be slow (`JOBS/slow` exists).
+    fn fake_tool(root: &std::path::Path, jobs: &std::path::Path) -> PathBuf {
+        let script = format!(
+            r#"#!/bin/sh
+J="{jobs}"
+case "$1" in
+  caps) echo '{{"youtube":false,"device":"cpu","jobs_dir":"{jobs}"}}' ;;
+  fetch)
+    echo "PROGRESS fetch - reading" >&2
+    mkdir -p "$J/fake-song"
+    echo '{{"id":"fake-song","source":{{"kind":"file","ref":"x","title":"Fake"}},"created":"2026-11-24T10:00:00+01:00","duration_s":5}}' > "$J/fake-song/job.json"
+    echo fake-song ;;
+  separate)
+    echo "PROGRESS separate 0.5 half way" >&2
+    [ -e "$J/slow" ] && exec sleep 30
+    echo "not a progress line" >&2 ;;
+  analyse)
+    echo '{{"tempo_bpm":100,"key":"C major","sections":[{{"start":0,"end":4,"guitar_db":-20,"corr":0.9,"kind":"centre"}}]}}' > "$J/fake-song/analysis.json" ;;
+  *) echo "tonelab: unknown command $1" >&2; exit 2 ;;
+esac
+"#,
+            jobs = jobs.display()
+        );
+        let path = root.join("fake-tonelab");
+        std::fs::write(&path, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+    async fn serve(state: Arc<AppState>) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        port
+    }
+
+    async fn connect(port: u16) -> Ws {
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await.unwrap().0
+    }
+
+    async fn send(ws: &mut Ws, json: &str) {
+        ws.send(tokio_tungstenite::tungstenite::Message::text(json)).await.unwrap();
+    }
+
+    /// Messages of the given types, until one of `until` arrives (meters are skipped). Returns everything seen.
+    async fn collect_until(ws: &mut Ws, until: &str) -> Vec<serde_json::Value> {
+        let mut seen = vec![];
+        for _ in 0..400 {
+            let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) = tokio::time::timeout(Duration::from_secs(10), ws.next()).await else { break };
+            let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+            if v["type"] == "meters" {
+                continue;
+            }
+            let hit = v["type"] == until || (until == "cancelled" && v["stage"] == "cancelled");
+            seen.push(v);
+            if hit {
+                return seen;
+            }
+        }
+        panic!("never saw {until}: {seen:?}");
+    }
+
+    async fn http(port: u16, request: &str) -> (String, Vec<u8>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        s.write_all(request.as_bytes()).await.unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        let split = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        (String::from_utf8_lossy(&buf[..split]).to_string(), buf[split + 4..].to_vec())
+    }
+
+    #[tokio::test]
+    async fn tonelab_demo_answers_every_message() {
+        let root = temp_dir("tl-demo");
+        let library = Library::new(&root);
+        std::fs::create_dir_all(library.pedals_dir()).unwrap();
+        let engine = Arc::new(MockEngine::new(library.pedals_dir(), default_graph()));
+        let state = Arc::new(AppState::with_tonelab_tool(engine, library.clone(), Some("mock".into())));
+        let port = serve(state).await;
+        let (mut a, mut b) = (connect(port).await, connect(port).await);
+
+        send(&mut a, r#"{"type":"tonelab_caps"}"#).await;
+        let m = collect_until(&mut a, "tonelab_caps").await.pop().unwrap();
+        assert_eq!((m["available"].as_bool(), m["reason"].is_null()), (Some(true), true));
+        send(&mut a, r#"{"type":"tonelab_jobs"}"#).await;
+        assert_eq!(collect_until(&mut a, "tonelab_jobs").await.pop().unwrap()["jobs"][0]["id"], crate::tonelab_mock::DEMO_JOB);
+        send(&mut a, &format!(r#"{{"type":"tonelab_open","job":"{}"}}"#, crate::tonelab_mock::DEMO_JOB)).await;
+        let job = collect_until(&mut a, "tonelab_job").await.pop().unwrap();
+        assert_eq!(job["job"]["parts"].as_array().unwrap().len(), 1);
+        assert!(job["job"]["parts"][0]["fit"]["template"].is_string());
+
+        // Pick: progress only to the asker, the job to everyone.
+        send(&mut a, &format!(r#"{{"type":"tonelab_pick","job":"{}","start":30.0,"end":40.0,"channel":"left","label":"lead"}}"#, crate::tonelab_mock::DEMO_JOB)).await;
+        let seen = collect_until(&mut a, "tonelab_job").await;
+        assert!(seen.iter().any(|m| m["type"] == "tonelab_progress" && m["stage"] == "parts"));
+        assert!(seen.iter().any(|m| m["type"] == "tonelab_progress" && m["stage"] == "synth"));
+        let job = seen.last().unwrap();
+        assert_eq!((job["job"]["parts"][1]["id"].as_str(), job["job"]["parts"][1]["channel"].as_str()), (Some("p2"), Some("left")));
+        let other = collect_until(&mut b, "tonelab_job").await;
+        assert!(other.iter().all(|m| m["type"] != "tonelab_progress"), "progress leaked to another client: {other:?}");
+
+        send(&mut a, &format!(r#"{{"type":"tonelab_record_di","job":"{}","part":"p2","seconds":1.0}}"#, crate::tonelab_mock::DEMO_JOB)).await;
+        let job = collect_until(&mut a, "tonelab_job").await.pop().unwrap();
+        assert_eq!(job["job"]["parts"][1]["has_user_di"], true);
+        send(&mut a, &format!(r#"{{"type":"tonelab_fit","job":"{}","part":"p2"}}"#, crate::tonelab_mock::DEMO_JOB)).await;
+        let seen = collect_until(&mut a, "tonelab_fit_result").await;
+        assert!(seen.iter().any(|m| m["type"] == "tonelab_progress" && m["stage"] == "fit"));
+        let result = seen.last().unwrap();
+        assert_eq!((result["part"].as_str(), result["fit"]["holdout_error_db"].is_number(), result["templates"].as_array().unwrap().len()), (Some("p2"), true, 6));
+
+        send(&mut a, &format!(r#"{{"type":"tonelab_save_preset","job":"{}","part":"p1","name":"demo-fit"}}"#, crate::tonelab_mock::DEMO_JOB)).await;
+        let st = collect_until(&mut a, "state").await.pop().unwrap();
+        assert!(st["presets"].as_array().unwrap().iter().any(|p| p == "demo-fit"));
+        assert!(library.list_presets().contains(&"demo-fit".to_string()));
+
+        // Start, cancel while it runs.
+        send(&mut a, r#"{"type":"tonelab_start","source":"https://example.com/x"}"#).await;
+        send(&mut a, r#"{"type":"tonelab_cancel","job":"new"}"#).await;
+        collect_until(&mut a, "cancelled").await;
+
+        // The player gets a WAV, with ranges; escapes are refused.
+        let (head, body) = http(port, &format!("GET /tonelab/file/{}/stems/guitar.wav HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", crate::tonelab_mock::DEMO_JOB)).await;
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        assert_eq!(&body[..4], b"RIFF");
+        let (head, body) = http(port, &format!("GET /tonelab/file/{}/mix.wav HTTP/1.1\r\nHost: x\r\nRange: bytes=0-43\r\nConnection: close\r\n\r\n", crate::tonelab_mock::DEMO_JOB)).await;
+        assert!(head.starts_with("HTTP/1.1 206") && body.len() == 44, "{head}");
+        let (head, _) = http(port, "GET /tonelab/file/other-job/mix.wav HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").await;
+        assert!(head.starts_with("HTTP/1.1 404"), "{head}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn tonelab_runs_the_tool_serves_files_and_cancels() {
+        let root = temp_dir("tl-real");
+        let jobs = root.join("jobs");
+        std::fs::create_dir_all(&jobs).unwrap();
+        let tool = fake_tool(&root, &jobs);
+        let library = Library::new(root.join("lib"));
+        std::fs::create_dir_all(library.pedals_dir()).unwrap();
+        let engine = Arc::new(MockEngine::new(library.pedals_dir(), default_graph()));
+        let state = Arc::new(AppState::with_tonelab_tool(engine, library, Some(tool.to_string_lossy().into_owned())));
+        let port = serve(state).await;
+        let mut ws = connect(port).await;
+        let mut other = connect(port).await;
+
+        send(&mut ws, r#"{"type":"tonelab_caps"}"#).await;
+        let caps = collect_until(&mut ws, "tonelab_caps").await.pop().unwrap();
+        assert_eq!((caps["available"].as_bool(), caps["youtube"].as_bool(), caps["device"].as_str()), (Some(true), Some(false), Some("cpu")));
+
+        // Upload, then start from the uploaded path.
+        let body = b"RIFFfake";
+        let req = format!("POST /tonelab/upload HTTP/1.1\r\nHost: x\r\nX-Filename: ../../my song.wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+        let mut raw = req.into_bytes();
+        raw.extend_from_slice(body);
+        let (head, resp) = {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(&raw).await.unwrap();
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).await.unwrap();
+            let split = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+            (String::from_utf8_lossy(&buf[..split]).to_string(), buf[split + 4..].to_vec())
+        };
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        let path = serde_json::from_slice::<serde_json::Value>(&resp).unwrap()["path"].as_str().unwrap().to_string();
+        assert!(path.starts_with(jobs.join("uploads").to_str().unwrap()) && path.ends_with("-my song.wav"), "{path}");
+
+        // A path that was not uploaded is refused.
+        send(&mut ws, r#"{"type":"tonelab_start","source":"/etc/passwd"}"#).await;
+        let err = collect_until(&mut ws, "error").await.pop().unwrap();
+        assert!(err["message"].as_str().unwrap().contains("importing the song failed"), "{err}");
+
+        send(&mut ws, &format!(r#"{{"type":"tonelab_start","source":{}}}"#, serde_json::to_string(&path).unwrap())).await;
+        let seen = collect_until(&mut ws, "tonelab_job").await;
+        let stages: Vec<&str> = seen.iter().filter(|m| m["type"] == "tonelab_progress").map(|m| m["stage"].as_str().unwrap()).collect();
+        assert_eq!(stages, ["fetch", "separate"], "{seen:?}");
+        assert_eq!(seen.iter().find(|m| m["stage"] == "fetch").unwrap()["job"], "new");
+        assert_eq!(seen.iter().find(|m| m["stage"] == "separate").unwrap()["job"], "fake-song");
+        assert_eq!(seen.iter().find(|m| m["stage"] == "separate").unwrap()["fraction"], 0.5);
+        let job = seen.last().unwrap();
+        assert_eq!((job["job"]["id"].as_str(), job["job"]["tempo_bpm"].as_f64(), job["job"]["sections"].as_array().unwrap().len()), (Some("fake-song"), Some(100.0), 1));
+        // Everyone gets the job, nobody else gets the progress.
+        let seen_other = collect_until(&mut other, "tonelab_job").await;
+        assert!(seen_other.iter().all(|m| m["type"] != "tonelab_progress"), "{seen_other:?}");
+
+        send(&mut ws, r#"{"type":"tonelab_jobs"}"#).await;
+        assert_eq!(collect_until(&mut ws, "tonelab_jobs").await.pop().unwrap()["jobs"].as_array().unwrap().len(), 1);
+
+        // Files: served inside the job only.
+        std::fs::create_dir_all(jobs.join("fake-song/stems")).unwrap();
+        std::fs::write(jobs.join("fake-song/stems/guitar.wav"), (0u8..100).collect::<Vec<_>>()).unwrap();
+        std::fs::write(jobs.join("secret.wav"), b"secret").unwrap();
+        let get = |p: &str, extra: &str| format!("GET /tonelab/file/{p} HTTP/1.1\r\nHost: x\r\n{extra}Connection: close\r\n\r\n");
+        let (head, body) = http(port, &get("fake-song/stems/guitar.wav", "")).await;
+        assert!(head.starts_with("HTTP/1.1 200") && body.len() == 100, "{head}");
+        let (head, body) = http(port, &get("fake-song/stems/guitar.wav", "Range: bytes=10-19\r\n")).await;
+        assert!(head.starts_with("HTTP/1.1 206") && head.to_lowercase().contains("content-range: bytes 10-19/100") && body == (10u8..20).collect::<Vec<_>>(), "{head}");
+        for bad in ["fake-song/../secret.wav", "fake-song/%2e%2e/secret.wav", "..%2fsecret.wav/x.wav", "fake-song/job.json", "fake-song/stems/missing.wav", "fake-song//etc/passwd.wav"] {
+            let (head, _) = http(port, &get(bad, "")).await;
+            assert!(!head.starts_with("HTTP/1.1 200") && !head.starts_with("HTTP/1.1 206"), "{bad}: {head}");
+        }
+
+        // A slow step can be cancelled; the job is free again afterwards.
+        std::fs::write(jobs.join("slow"), b"").unwrap();
+        send(&mut ws, &format!(r#"{{"type":"tonelab_start","source":{}}}"#, serde_json::to_string(&path).unwrap())).await;
+        collect_until(&mut ws, "tonelab_progress").await; // fetch
+        collect_until(&mut ws, "tonelab_progress").await; // separate: now sleeping
+        send(&mut ws, r#"{"type":"tonelab_cancel","job":"fake-song"}"#).await;
+        let t0 = std::time::Instant::now();
+        let seen = collect_until(&mut ws, "cancelled").await;
+        assert!(t0.elapsed() < Duration::from_secs(5), "cancel took too long");
+        assert_eq!(seen.last().unwrap()["job"], "fake-song");
+        send(&mut ws, r#"{"type":"tonelab_cancel","job":"fake-song"}"#).await;
+        assert!(collect_until(&mut ws, "error").await.pop().unwrap()["message"].as_str().unwrap().contains("nothing is running"));
+
+        // The live input cannot be recorded yet: a clear error.
+        send(&mut ws, r#"{"type":"tonelab_record_di","job":"fake-song","part":"p1","seconds":5.0}"#).await;
+        assert!(collect_until(&mut ws, "error").await.pop().unwrap()["message"].as_str().unwrap().contains("not available yet"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tonelab_without_the_tool_says_why() {
+        let (state, _, root) = app("tl-off");
+        for tool in [Some("none".to_string()), Some("/does/not/exist".to_string())] {
+            let st = AppState::with_tonelab_tool(state.engine.clone(), Library::new(&root), tool);
+            let reason = st.tonelab.caps().unwrap_err();
+            assert!(!reason.is_empty());
         }
         let _ = std::fs::remove_dir_all(root);
     }
