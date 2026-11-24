@@ -47,7 +47,7 @@ let package = Package(
             name: "OpenPedalApp",
             dependencies: ["OpenPedalCore"],
             path: "Sources/OpenPedalApp",
-            resources: [.copy("Resources/presets"), .copy("Resources/pedals")]
+            resources: [.copy("Resources/presets"), .copy("Resources/pedals"), .copy("Resources/tonematch")]
                 + (hasModels ? [.copy("Resources/models")] : [])
         ),
     ],

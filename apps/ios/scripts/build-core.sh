@@ -69,9 +69,9 @@ rm -f "$root/apps/ios/OpenPedalCore/lib/.separate"
 
 # Bundled presets and pedals, copied by the app to its data dir on first launch.
 res="$root/apps/ios/Sources/OpenPedalApp/Resources"
-rm -rf "$res/presets" "$res/pedals" "$res/models"
+rm -rf "$res/presets" "$res/pedals" "$res/models" "$res/tonematch"
 mkdir -p "$res"
-cp -r "$root/content/presets" "$root/content/pedals" "$res/"
+cp -r "$root/content/presets" "$root/content/pedals" "$root/content/tonematch" "$res/"
 # Demucs weights (52 MiB, not in git): the app passes the bundled path to openpedal_set_demucs_weights.
 if [ "$OPENPEDAL_SEPARATE" = 1 ]; then
     mkdir -p "$res/models"

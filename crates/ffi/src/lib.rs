@@ -100,7 +100,9 @@ fn start(sample_rate: f32, data_dir: &Path, factory_dir: Option<&Path>, port: u1
 
     // Native Tone Lab (docs/PLAN.md §15) once the host gave the separation weights.
     if let Some(weights) = TONELAB_WEIGHTS.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-        server::set_native_tonelab(Some(server::NativeConfig { jobs_dir: data_dir.join("tonelab/jobs"), weights: Some(weights) }));
+        // The fit's chain templates ship with the factory content (`tonematch/templates`).
+        let templates_dir = factory_dir.map(|f| f.join("tonematch/templates")).filter(|d| d.is_dir());
+        server::set_native_tonelab(Some(server::NativeConfig { jobs_dir: data_dir.join("tonelab/jobs"), weights: Some(weights), templates_dir }));
     }
     let port = if port == 0 { free_port()? } else { port };
     let engine: Arc<dyn server::EngineHandle> = live.clone();

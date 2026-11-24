@@ -62,7 +62,11 @@ pub trait TonelabBackend: Send + Sync {
 
 /// The fit, in process on the calling thread (shared by both backends). Cancelling unwinds out of it.
 pub fn run_fit(ctx: &Ctx, library: &Library, jobs_dir: &Path, job: &str, part: &str) -> Result<openpedal_tonematch::FitSummary, StepError> {
-    let opts = openpedal_tonematch::FitOptions { templates_dir: TEMPLATES_DIR.into(), pedals_dir: library.pedals_dir(), ..Default::default() };
+    let templates_dir = crate::tonelab::native_config().and_then(|c| c.templates_dir).unwrap_or_else(|| TEMPLATES_DIR.into());
+    let opts = openpedal_tonematch::FitOptions { templates_dir, pedals_dir: library.pedals_dir(), ..Default::default() };
+    if openpedal_tonematch::Template::list(&opts.templates_dir).is_empty() {
+        return Err(StepError::Failed(format!("no chain templates in {}", opts.templates_dir.display())));
+    }
     let n_templates = openpedal_tonematch::Template::list(&opts.templates_dir).len().max(1);
     ctx.report(job, TonelabStage::Fit, "starting the fit", Some(0.0));
     openpedal_tonematch::lower_priority();

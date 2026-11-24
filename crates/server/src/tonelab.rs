@@ -109,6 +109,9 @@ pub struct NativeConfig {
     pub jobs_dir: PathBuf,
     /// The Demucs weights file.
     pub weights: Option<PathBuf>,
+    /// Chain templates for the fit; `None` = `content/tonematch/templates` (the repository's, desktop).
+    /// The iPad passes the copy bundled in the app's resources.
+    pub templates_dir: Option<PathBuf>,
 }
 
 static NATIVE_CONFIG: Mutex<Option<NativeConfig>> = Mutex::new(None);
@@ -132,7 +135,7 @@ pub(crate) enum Choice {
 /// `$OPENPEDAL_DEMUCS_WEIGHTS`, jobs in `$OPENPEDAL_TONELAB_JOBS` or the library's `tonelab/jobs`.
 fn desktop_native_config(library: &Library) -> NativeConfig {
     let jobs_dir = std::env::var_os("OPENPEDAL_TONELAB_JOBS").map(PathBuf::from).unwrap_or_else(|| library.root().join("tonelab/jobs"));
-    NativeConfig { jobs_dir, weights: std::env::var_os("OPENPEDAL_DEMUCS_WEIGHTS").map(PathBuf::from) }
+    NativeConfig { jobs_dir, weights: std::env::var_os("OPENPEDAL_DEMUCS_WEIGHTS").map(PathBuf::from), templates_dir: None }
 }
 
 #[cfg(feature = "native-tonelab")]
@@ -825,7 +828,7 @@ mod tests {
         assert_eq!(pick(None, &tool, true, None), "python");
         // Native: this build (feature off) reports it off; with the feature and no weights, also off.
         assert_eq!(pick(Some("native"), &tool, true, None), "off");
-        let cfg = NativeConfig { jobs_dir: "/tmp/x".into(), weights: None };
+        let cfg = NativeConfig { jobs_dir: "/tmp/x".into(), weights: None, templates_dir: None };
         assert_eq!(pick(None, &tool, true, Some(cfg)), "off");
     }
 
@@ -833,7 +836,7 @@ mod tests {
     #[test]
     fn native_is_chosen_when_the_weights_exist() {
         let w = std::env::current_exe().unwrap();
-        let cfg = NativeConfig { jobs_dir: std::env::temp_dir().join("openpedal-native-sel"), weights: Some(w) };
+        let cfg = NativeConfig { jobs_dir: std::env::temp_dir().join("openpedal-native-sel"), weights: Some(w), templates_dir: None };
         // The host's choice beats the env and the repository tool.
         assert_eq!(pick(Some("none"), &std::env::current_exe().unwrap(), true, Some(cfg)), "native");
     }
