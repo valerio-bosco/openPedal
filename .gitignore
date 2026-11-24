@@ -2,3 +2,8 @@
 /result
 /recordings
 /.claude
+/tools/tonelab/tonelab.local.toml
+/tools/tonelab/.venv
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Tone Lab wrapper: sets up the NixOS environment (libstdc++, zlib, GL driver dir, ffmpeg)
+# and runs `python -m tonelab.cli`. Venv: $TONELAB_VENV or ~/.local/share/openpedal-gpu.
+# (Lives in bin/ because tools/tonelab/tonelab/ is the Python package.)
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+VENV="${TONELAB_VENV:-$HOME/.local/share/openpedal-gpu}"
+mkdir -p "$VENV"
+CACHE="$VENV/nix-paths.env"
+
+TL_GCC= TL_ZLIB= TL_FFMPEG=
+[ -s "$CACHE" ] && . "$CACHE"
+if [ ! -d "${TL_GCC:-/x}/lib" ] || [ ! -d "${TL_ZLIB:-/x}/lib" ] || [ ! -x "${TL_FFMPEG:-/x}/bin/ffmpeg" ]; then
+  OUT="$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib nixpkgs#zlib nixpkgs#ffmpeg-headless)"
+  {
+    echo "TL_GCC=$(grep -- '-gcc-.*-lib$' <<<"$OUT" | head -1)"
+    echo "TL_ZLIB=$(grep -- '-zlib-[0-9.]*$' <<<"$OUT" | head -1)"
+    echo "TL_FFMPEG=$(grep -- '-ffmpeg-headless-.*-bin$' <<<"$OUT" | head -1)"
+  } > "$CACHE"
+  . "$CACHE"
+fi
+
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "tonelab: creating the venv in $VENV (uv sync)" >&2
+  (cd "$HERE" && UV_PROJECT_ENVIRONMENT="$VENV" uv sync ${TONELAB_UV_ARGS:-})
+fi
+
+export LD_LIBRARY_PATH="$TL_GCC/lib:$TL_ZLIB/lib:/run/opengl-driver/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$TL_FFMPEG/bin:$PATH"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec nice -n 10 "$VENV/bin/python" -m tonelab.cli "$@"
