@@ -701,7 +701,7 @@ to its embedded core over the local WebSocket, as it already does for everything
 
 | Wave | Branch | Model | Work | Owns | Status |
 |---|---|---|---|---|---|
-| 0 | `spike/demucs-cpp` | Sonnet | build demucs.cpp on Linux, convert htdemucs_6s weights, separate a 20 s Cryogen excerpt, compare with the Python stem (correlation, band spectra), time it with 1/4/8 threads, measure weight size fp32/fp16; write `docs/spikes/demucs-cpp.md` | `spikes/demucs-cpp/**`, `docs/spikes/demucs-cpp.md` | todo |
+| 0 | `spike/demucs-cpp` | Sonnet | build demucs.cpp on Linux, convert htdemucs_6s weights, separate a 20 s Cryogen excerpt, compare with the Python stem (correlation, band spectra), time it with 1/4/8 threads, measure weight size fp32/fp16; write `docs/spikes/demucs-cpp.md` | `spikes/demucs-cpp/**`, `docs/spikes/demucs-cpp.md` | done 567c703: quality = Python, speed 87 s per 24 s on 1 core (docs/spikes/demucs-cpp.md) |
 | 0 | `spike/ios-cxx` | Sonnet | prove C++17 (+ Eigen) compiles into `libopenpedal.a` for iOS from Linux: a tiny crate with `cc` building a C++ file that uses Eigen, called from `crates/ffi` behind a feature, through `apps/ios/scripts/build-core.sh` and `xtool.sh dev build`; write `docs/spikes/ios-cxx.md` | `spikes/ios-cxx/**`, `docs/spikes/ios-cxx.md`, minimal edits in build-core.sh behind a flag | done 3f68c19: go (docs/spikes/ios-cxx.md) |
 | 1 | `feat/separate-native` | Sonnet | crate `openpedal-separate`: demucs.cpp via `cc`, safe API `separate(stereo: &[f32;2xN], sr) -> Stems`, excerpt mode, progress callback, weights from a path; desktop CLI `openpedal separate` for testing | `crates/separate/**`, vendored sources under `third_party/` | todo |
 | 1 | `feat/tonelab-rust` | Sonnet | crate `openpedal-tonelab`: job folder IO (§14.2), analysis (sections, stereo kind, tempo, key), pYIN transcription, Karplus-Strong synth DI + spectral match (port of tools/tonelab transcribe.py/synth.py/analyse.py); parity tests vs the Python outputs | `crates/tonelab/**` | todo |
@@ -721,3 +721,14 @@ Each agent commits early and often on its branch (WIP commits are fine on featur
 stopped session loses little. To resume: read this table, run `git worktree list` and
 `git log --oneline dev..<branch>` for each open branch, then continue the first `todo`/`in progress`
 row. Update the Status column on every merge (`done <commit>`).
+
+**Decision after wave 0 (2026-11-24).** Both spikes: C++/Eigen builds into the iOS core (go);
+demucs.cpp (sevagh, commit 4edae49) matches Python quality (guitar stem correlation 0.978, 1.0 dB
+band difference: within Python's own run-to-run noise) but is slow: 87 s for a 24 s excerpt on one
+Ryzen core, no internal parallelism, 2.4 GB peak, weights 52 MiB (fp16). Go with demucs.cpp as the first
+backend, behind a `Separator` trait so ONNX Runtime + CoreML can be added if the device is too slow.
+Speed plan inside `feat/separate-native`: (1) on iOS link Eigen to Accelerate (`EIGEN_USE_BLAS`,
+`-framework Accelerate`), (2) process Demucs' overlapping segments in parallel with `std::thread`
+(at most 4, our own code: the upstream `demucs_mt` is unreliable), (3) default excerpt 15 s + 2 s
+margins. Fit against stems from the same excerpt pass (the full-song stem differs, correlation ~0.8).
+The first on-device measurement decides whether ONNX/CoreML is needed (> 60 s per 24 s excerpt).
