@@ -1,0 +1,11 @@
+[package]
+name = "openpedal-separate"
+version.workspace = true
+edition.workspace = true
+description = "Source separation (Demucs htdemucs_6s via the vendored demucs.cpp) for Tone Lab"
+
+[dependencies]
+anyhow.workspace = true
+
+[build-dependencies]
+cc = "1"

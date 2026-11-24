@@ -30,6 +30,8 @@ usage:
   openpedal ports                                 list the audio ports of the sound cards
   openpedal check PRESET...                       check presets without opening the audio
   openpedal render PRESET IN.wav OUT.wav          apply a preset to a recording (channel 1 = dry)
+  openpedal separate IN.wav OUT-DIR --weights FILE [--start S --end S] [--threads N]
+                                                  split a recording into stems (Demucs htdemucs_6s), float32 WAVs
   openpedal tone-match JOB-DIR --part ID [--di FILE] [--validate-di FILE] [--templates DIR] [--template NAME] [--budget N]
                                                   fit a chain template to a part of a Tone Lab job
 
@@ -133,6 +135,7 @@ fn run() -> Result<()> {
                 seconds = args.next().context("--seconds needs a number")?.parse().context("--seconds needs a number")?
             }
             "tone-match" => return tone_match(args.collect()),
+            "separate" => return separate(args.collect()),
             "render" => {
                 let mut next = || args.next().map(PathBuf::from).context("usage: render PRESET IN.wav OUT.wav");
                 return render(&next()?, &next()?, &next()?);
@@ -521,4 +524,58 @@ fn meter_bar(peak: f32) -> String {
         bar.push('!');
     }
     bar
+}
+
+/// `openpedal separate IN.wav OUT-DIR --weights FILE [--start S --end S] [--threads N]`
+fn separate(args: Vec<String>) -> Result<()> {
+    use openpedal_separate::{DemucsCpp, Separator};
+    let usage = "usage: separate IN.wav OUT-DIR --weights FILE [--start S --end S] [--threads N]";
+    let (mut positional, mut weights, mut start, mut end, mut threads) = (Vec::new(), None, None, None, None);
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        let mut value = |name: &str| it.next().with_context(|| format!("{name} needs a value"));
+        match arg.as_str() {
+            "--weights" => weights = Some(PathBuf::from(value("--weights")?)),
+            "--start" => start = Some(value("--start")?.parse::<f32>().context("--start needs seconds")?),
+            "--end" => end = Some(value("--end")?.parse::<f32>().context("--end needs seconds")?),
+            "--threads" => threads = Some(value("--threads")?.parse::<usize>().context("--threads needs a number")?),
+            _ => positional.push(PathBuf::from(arg)),
+        }
+    }
+    let [input, out_dir] = positional.as_slice() else { anyhow::bail!("{usage}") };
+    let weights = weights.context(usage)?;
+    let data = wav::read(input)?;
+    let sr = data.sample_rate;
+    let left = data.channels.first().context("empty WAV")?;
+    let right = data.channels.get(1).unwrap_or(left);
+    let a = ((start.unwrap_or(0.0).max(0.0) * sr as f32) as usize).min(left.len());
+    let b = end.map_or(left.len(), |e| ((e * sr as f32) as usize).min(left.len()));
+    anyhow::ensure!(b > a, "empty range");
+
+    let mut model = DemucsCpp::load(&weights)?;
+    if let Some(t) = threads {
+        model = model.with_threads(t);
+    }
+    let t0 = std::time::Instant::now();
+    let mut last = -1.0f32;
+    let mut progress = |f: f32, msg: &str| {
+        if f - last >= 0.01 || f >= 1.0 {
+            last = f;
+            eprint!("\r{:5.1}%  {msg:<40}", f * 100.0);
+        }
+    };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let stems = model.separate(&left[a..b], &right[a..b], sr, &mut progress, &cancel)?;
+    eprintln!("\n{} threads, {:.1} s", model.threads(), t0.elapsed().as_secs_f32());
+    for (name, [l, r]) in &stems.stems {
+        let path = out_dir.join(format!("{name}.wav"));
+        let mut w = wav::WavWriter::create(&path, 2, stems.sample_rate)?;
+        for (x, y) in l.iter().zip(r) {
+            w.write(*x)?;
+            w.write(*y)?;
+        }
+        w.finish()?;
+        println!("{}", path.display());
+    }
+    Ok(())
 }

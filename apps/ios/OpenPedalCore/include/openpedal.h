@@ -37,6 +37,10 @@ float openpedal_cxx_probe(int n);
 /* Demucs weights file for the native Tone Lab; call before openpedal_start*. */
 void openpedal_set_demucs_weights(const char *path);
 
+/* Only in cores built with OPENPEDAL_SEPARATE=1: returns 1 when the Demucs separation code is
+ * linked and answers (the backend uses the Rust API, not this). */
+int32_t openpedal_separate_linked(void);
+
 /* The core's version (e.g. "0.1.0"): static, never NULL, never freed. */
 const char *openpedal_version(void);
 

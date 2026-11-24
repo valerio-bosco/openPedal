@@ -16,6 +16,7 @@ openpedal-library = { path = "crates/library" }
 openpedal-server = { path = "crates/server" }
 openpedal-tonematch = { path = "crates/tonematch" }
 openpedal-tonelab = { path = "crates/tonelab" }
+openpedal-separate = { path = "crates/separate" }
 
 rtrb = "0.3"
 serde = { version = "1", features = ["derive"] }

@@ -10,6 +10,9 @@ let coreLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 // (spike docs/spikes/ios-cxx.md): the core then contains C++ (libc++) and the probe symbol.
 let cxxProbe = FileManager.default.fileExists(atPath: coreLib + "/.cxx-probe")
 
+// Same for OPENPEDAL_SEPARATE=1: the core then contains demucs.cpp (libc++, Accelerate BLAS).
+let separate = FileManager.default.fileExists(atPath: coreLib + "/.separate")
+
 let package = Package(
     name: "OpenPedal",
     platforms: [.iOS("26.0")],
@@ -24,7 +27,8 @@ let package = Package(
             exclude: ["lib"],
             sources: ["stub.c"],
             publicHeadersPath: "include",
-            cSettings: cxxProbe ? [.define("OPENPEDAL_CXX_PROBE")] : [],
+            cSettings: (cxxProbe ? [.define("OPENPEDAL_CXX_PROBE")] : [])
+                + (separate ? [.define("OPENPEDAL_SEPARATE")] : []),
             linkerSettings: [
                 .unsafeFlags(["-L", coreLib]),
                 .linkedLibrary("openpedal"),
@@ -32,7 +36,8 @@ let package = Package(
                 .linkedLibrary("objc"),
                 .linkedLibrary("iconv"),
                 .linkedFramework("Foundation"),
-            ] + (cxxProbe ? [.linkedLibrary("c++")] : [])
+            ] + (cxxProbe || separate ? [.linkedLibrary("c++")] : [])
+                + (separate ? [.linkedFramework("Accelerate")] : [])
         ),
         .target(
             name: "OpenPedalApp",

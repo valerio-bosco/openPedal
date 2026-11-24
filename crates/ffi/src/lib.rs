@@ -195,6 +195,13 @@ pub extern "C" fn openpedal_cxx_probe(n: i32) -> f32 {
     openpedal_cxx_probe::probe(n)
 }
 
+/// Feature `separate`: 1 when the Demucs code is linked and answers.
+#[cfg(feature = "separate")]
+#[no_mangle]
+pub extern "C" fn openpedal_separate_linked() -> i32 {
+    openpedal_separate::linked() as i32
+}
+
 /// The port the UI server listens on (127.0.0.1), or 0 if `handle` is NULL.
 ///
 /// # Safety

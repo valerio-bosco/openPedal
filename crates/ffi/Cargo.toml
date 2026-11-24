@@ -12,9 +12,12 @@ crate-type = ["staticlib"]
 [features]
 # Spike (docs/spikes/ios-cxx.md): C++17 + Eigen in the core. Off by default.
 cxx-probe = ["dep:openpedal-cxx-probe"]
+# Demucs separation (demucs.cpp + Eigen) in the core. Off until the Tone Lab backend uses it.
+separate = ["dep:openpedal-separate"]
 
 [dependencies]
 openpedal-cxx-probe = { path = "../cxx-probe", optional = true }
+openpedal-separate = { workspace = true, optional = true }
 openpedal-graph.workspace = true
 openpedal-library.workspace = true
 openpedal-engine.workspace = true
