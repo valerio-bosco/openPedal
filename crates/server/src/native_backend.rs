@@ -24,6 +24,7 @@ use crate::tonelab_backend::{run_fit, Ctx, TonelabBackend};
 pub const MARGIN_S: f32 = 2.0;
 
 /// Mirror of `openpedal_separate::Stems` (§15).
+#[allow(dead_code)] // read by the real adapter after the merge
 pub struct Stems {
     pub sample_rate: u32,
     pub stems: Vec<(String, [Vec<f32>; 2])>,

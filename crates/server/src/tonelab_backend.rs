@@ -18,11 +18,14 @@ use crate::tonelab::{last_message, parse_progress, plain_name, read_json, Step, 
 /// Chain templates, relative to the repository root.
 pub const TEMPLATES_DIR: &str = "content/tonematch/templates";
 
+/// Where a backend sends progress: `(job key, stage, message, fraction)`.
+pub type ProgressSink<'a> = dyn Fn(&str, TonelabStage, String, Option<f32>) + Sync + 'a;
+
 /// A running step as the backend sees it: the cancel flag and where progress goes.
 pub struct Ctx<'a> {
     pub step: &'a Step,
     /// `(job key, stage, message, fraction)`; the key is `NEW_JOB` while a song is being fetched.
-    pub progress: &'a (dyn Fn(&str, TonelabStage, String, Option<f32>) + Sync),
+    pub progress: &'a ProgressSink<'a>,
 }
 
 impl Ctx<'_> {
