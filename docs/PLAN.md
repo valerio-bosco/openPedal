@@ -665,3 +665,59 @@ in-process with `openpedal-tonematch` on a background thread. One job step at a 
 After `tonelab_pick` the server also runs `synth-di` (matched to the most recent user DI in the jobs
 dir if any). The mock server answers the tonelab messages from fixtures so the UI can be tested
 without Python or a GPU.
+
+## 15. Tone Lab standalone on the iPad (planned 2026-11-24)
+
+Decision (user): Tone Lab must run **on the iPad alone**, no computer. Same flow as §14 (song → part
+→ DI → fit → preset), same job folder contract (§14.2), same protocol v4 (§14.5): the iPad app talks
+to its embedded core over the local WebSocket, as it already does for everything else.
+
+### 15.1 Architecture
+
+```
+ iPad app (SwiftUI)                         embedded Rust core (libopenpedal.a)
+ ToneLabView ── protocol v4 (ws://127.0.0.1) ──► server: TonelabBackend
+   document picker / Voice Memos share              ├─ Python tool (desktop, today)
+   AVAudioFile decode → mix.wav in the job          └─ Native (iOS, and later desktop):
+   AudioHost records the DI (di-user.wav)               ├─ openpedal-separate  (Demucs htdemucs_6s, C++ port)
+   A/B player on job files (AVAudioPlayer)              ├─ openpedal-tonelab   (analysis, pYIN, synth DI: Rust)
+                                                        └─ openpedal-tonematch (fit: exists, pure Rust)
+```
+
+- **Separation** is the hard part: PyTorch does not exist on iOS. Candidate: `demucs.cpp` (C++17 +
+  Eigen port of Demucs, MIT, supports htdemucs_6s) compiled into the core with the `cc` crate.
+  Fallback: ONNX Runtime (CoreML provider) from Swift. Decided by spike S1/S2.
+- **Excerpt-first on mobile:** separate only the region the user marks on the mix waveform (plus 2 s
+  margins), not the whole song. A full-song map is optional (slower). This keeps a 20 s part in the
+  order of tens of seconds on the M1.
+- **Analysis, transcription, synthetic DI** move from Python to Rust (crate `openpedal-tonelab`), with
+  parity tests against the Python outputs on Cryogen. The desktop can switch to it later.
+- **YouTube** is not offered on iOS (`caps.youtube = false`). Sources: Files app, Voice Memos / share sheet.
+- **DI recording** is natural on the iPad: AudioHost owns the input; it records the guitar channel
+  after a count-in and writes `parts/<id>/di-user.wav`. (Also fills the desktop gap of §14 later.)
+- Jobs live in `Application Support/OpenPedal/tonelab/jobs/` with the §14.2 layout.
+
+### 15.2 Waves and branches (from `dev`; Opus reviews and merges, Sonnet/Haiku build)
+
+| Wave | Branch | Model | Work | Owns | Status |
+|---|---|---|---|---|---|
+| 0 | `spike/demucs-cpp` | Sonnet | build demucs.cpp on Linux, convert htdemucs_6s weights, separate a 20 s Cryogen excerpt, compare with the Python stem (correlation, band spectra), time it with 1/4/8 threads, measure weight size fp32/fp16; write `docs/spikes/demucs-cpp.md` | `spikes/demucs-cpp/**`, `docs/spikes/demucs-cpp.md` | todo |
+| 0 | `spike/ios-cxx` | Sonnet | prove C++17 (+ Eigen) compiles into `libopenpedal.a` for iOS from Linux: a tiny crate with `cc` building a C++ file that uses Eigen, called from `crates/ffi` behind a feature, through `apps/ios/scripts/build-core.sh` and `xtool.sh dev build`; write `docs/spikes/ios-cxx.md` | `spikes/ios-cxx/**`, `docs/spikes/ios-cxx.md`, minimal edits in build-core.sh behind a flag | todo |
+| 1 | `feat/separate-native` | Sonnet | crate `openpedal-separate`: demucs.cpp via `cc`, safe API `separate(stereo: &[f32;2xN], sr) -> Stems`, excerpt mode, progress callback, weights from a path; desktop CLI `openpedal separate` for testing | `crates/separate/**`, vendored sources under `third_party/` | todo |
+| 1 | `feat/tonelab-rust` | Sonnet | crate `openpedal-tonelab`: job folder IO (§14.2), analysis (sections, stereo kind, tempo, key), pYIN transcription, Karplus-Strong synth DI + spectral match (port of tools/tonelab transcribe.py/synth.py/analyse.py); parity tests vs the Python outputs | `crates/tonelab/**` | todo |
+| 1 | `feat/tonelab-backend` | Sonnet | server `TonelabBackend` trait: `Python` (current code) and `Native` (separate + tonelab + tonematch in-process); selected at runtime (iOS: always native); caps on iOS: youtube false | `crates/server/**`, `crates/ffi/**` | todo (after the two above define their APIs: start with stubs) |
+| 2 | `feat/ios-tonelab-ui` | Sonnet | SwiftUI Tone Lab (Liquid Glass): import (document picker, AVAudioFile → mix.wav), waveform + region selection, separate excerpt, song map, channel, progress/cancel, A/B player, save preset | `apps/ios/Sources/OpenPedalApp/ToneLab/**`, one entry in Toolbar | todo |
+| 2 | `feat/ios-record-di` | Sonnet | AudioHost records the guitar channel with a count-in to `di-user.wav` (preallocated buffer, no allocation on the audio thread) | `apps/ios/Sources/OpenPedalApp/AudioHost.swift`, `Recorder.swift` | todo |
+| 2 | `chore/ios-weights` | Haiku | bundle the separation weights in the app (build-core.sh sync + resources), size check, README | `apps/ios/scripts/**`, `apps/ios/README.md` | todo |
+| 3 | backlog | | share extension, CoreML/ANE speed-up, desktop switches analysis to Rust, full-song map on iPad | | |
+
+Acceptance (Opus, on the device by the user): on the iPad alone, import Cryogen from Files, mark the
+riff, separate the excerpt, fit, and get a fuzz template with spectral error ≤ 2.5 dB against the
+excerpt; time from "Separate" to preset under 3 minutes.
+
+### 15.3 Resuming after a break
+
+Each agent commits early and often on its branch (WIP commits are fine on feature branches) so a
+stopped session loses little. To resume: read this table, run `git worktree list` and
+`git log --oneline dev..<branch>` for each open branch, then continue the first `todo`/`in progress`
+row. Update the Status column on every merge (`done <commit>`).
