@@ -18,10 +18,13 @@ mod modulation;
 mod octave;
 pub mod oversample;
 pub mod params;
+mod phaser;
 mod reverb;
 mod time;
 mod treblebooster;
 mod tonestack;
+mod univibe;
+mod wah;
 pub mod wav;
 
 use anyhow::{bail, Context, Result};
@@ -66,6 +69,9 @@ static CATALOG: &[Entry] = &[
     Entry { desc: &filter::FILTER_DESC, build: filter::build_filter },
     Entry { desc: &modulation::TREMOLO_DESC, build: modulation::build_tremolo },
     Entry { desc: &octave::OCTAVE_DESC, build: octave::build_octave },
+    Entry { desc: &phaser::PHASER_DESC, build: phaser::build_phaser },
+    Entry { desc: &univibe::UNIVIBE_DESC, build: univibe::build_univibe },
+    Entry { desc: &wah::WAH_DESC, build: wah::build_wah },
     Entry { desc: &time::CHORUS_DESC, build: time::build_chorus },
     Entry { desc: &time::DELAY_DESC, build: time::build_delay },
     Entry { desc: &reverb::REVERB_DESC, build: reverb::build_reverb },
