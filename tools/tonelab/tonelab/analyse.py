@@ -8,7 +8,7 @@ from .job import Job
 
 WIN_S = 4.0
 CORR_CENTRE = 0.8
-CHROMA_DOUBLE = 0.9
+CHROMA_DOUBLE = 0.8       # median frame-wise L/R chroma cosine: double-tracked parts stay above, different parts below
 QUIET_ABS_DB = -55.0      # below this the guitar is absent
 QUIET_REL_DB = 30.0       # or this far under the loudest window
 LOW_HZ = 80.0
@@ -35,12 +35,16 @@ def _corr(l: np.ndarray, r: np.ndarray) -> float:
 
 
 def _chroma_sim(l: np.ndarray, r: np.ndarray, sr: int) -> float:
+    """Median over frames of the cosine between the L and R chroma vectors of the same frame."""
     import librosa
 
-    cl = librosa.feature.chroma_stft(y=l, sr=sr).mean(axis=1)
-    cr = librosa.feature.chroma_stft(y=r, sr=sr).mean(axis=1)
-    d = np.linalg.norm(cl) * np.linalg.norm(cr)
-    return float(np.dot(cl, cr) / d) if d > EPS else 0.0
+    cl = librosa.feature.chroma_stft(y=l, sr=sr)
+    cr = librosa.feature.chroma_stft(y=r, sr=sr)
+    d = np.linalg.norm(cl, axis=0) * np.linalg.norm(cr, axis=0)
+    ok = d > EPS
+    if not ok.any():
+        return 0.0
+    return float(np.median(np.sum(cl * cr, axis=0)[ok] / d[ok]))
 
 
 def _centroid(x: np.ndarray, sr: int) -> float:
@@ -106,38 +110,58 @@ def estimate_key(y: np.ndarray, sr: int) -> str:
     return name
 
 
-def find_low_notes(guitar_mono: np.ndarray, sr: int, windows: list[dict],
-                   bass_thresh_db: float) -> list[dict]:
-    """pYIN below LOW_HZ in the guitar stem, only where the bass stem is quiet."""
+# Low-note (octave-down) detector: every gate must pass.
+LOW_BASS_GAP_DB = 25.0    # bass stem at least this far below the guitar stem in the window
+LOW_VOICED_PROB = 0.6     # pYIN voiced probability per frame
+LOW_MAX_STD_ST = 1.0      # pitch stability (semitones) over the note
+LOW_MIN_S = 0.15
+LOW_SUB_MID_DB = -30.0    # guitar energy 25-80 Hz minus 80-160 Hz (over the note) at least this
+
+
+def _sub_mid_db(x: np.ndarray, sr: int) -> float:
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / sr)
+    sub = spec[(f >= 25) & (f < LOW_HZ)].sum()
+    mid = spec[(f >= LOW_HZ) & (f < 2 * LOW_HZ)].sum()
+    return float(10 * np.log10(max(sub, EPS) / max(mid, EPS)))
+
+
+def find_low_notes(guitar_mono: np.ndarray, sr: int, windows: list[dict]) -> list[dict]:
+    """Notes below LOW_HZ in the guitar stem (pYIN), only where the bass stem cannot explain them."""
     import librosa
 
     sr_p = 16000
     y = librosa.resample(guitar_mono.astype(np.float32), orig_sr=sr, target_sr=sr_p)
     hop = 512
-    notes: list[dict] = []
+    min_frames = int(np.ceil(LOW_MIN_S * sr_p / hop))
+    out: list[dict] = []
     for w in windows:
-        if w["kind"] == "none" or w["bass_db"] > bass_thresh_db:
+        if w["kind"] == "none" or w["guitar_db"] - w["bass_db"] < LOW_BASS_GAP_DB:
             continue
         seg = y[int(w["start"] * sr_p): int(w["end"] * sr_p)]
         if len(seg) < 4096:
             continue
-        f0, voiced, _ = librosa.pyin(seg, fmin=30, fmax=400, sr=sr_p, frame_length=4096,
-                                     hop_length=hop)
+        f0, voiced, prob = librosa.pyin(seg, fmin=30, fmax=400, sr=sr_p, frame_length=4096,
+                                        hop_length=hop)
         t = w["start"] + librosa.times_like(f0, sr=sr_p, hop_length=hop)
-        ok = voiced & np.isfinite(f0) & (f0 < LOW_HZ)
-        for ti, fi in zip(t[ok], f0[ok]):
-            hz = float(fi)
-            if notes and ti - notes[-1]["end"] <= 0.1 and abs(np.log2(hz / np.median(notes[-1]["_hz"]))) < 0.15:
-                notes[-1]["end"] = float(ti + hop / sr_p)
-                notes[-1]["_hz"].append(hz)
-            else:
-                notes.append({"start": float(ti), "end": float(ti + hop / sr_p), "_hz": [hz]})
-    out = []
-    for n in notes:
-        if n["end"] - n["start"] < 0.15:
-            continue
-        out.append({"start": round(n["start"], 2), "end": round(n["end"], 2),
-                    "hz": round(float(np.median(n["_hz"])), 1)})
+        ok = voiced & np.isfinite(f0) & (f0 < LOW_HZ) & (prob > LOW_VOICED_PROB)
+        k = 0
+        while k < len(ok):
+            if not ok[k]:
+                k += 1
+                continue
+            j = k
+            while j + 1 < len(ok) and ok[j + 1]:
+                j += 1
+            run = f0[k:j + 1]
+            start, end = float(t[k]), float(t[j] + hop / sr_p)
+            if j - k + 1 >= min_frames and end - start >= LOW_MIN_S:
+                semis = 12 * np.log2(run / np.median(run))
+                x = guitar_mono[int(start * sr): int(end * sr)]
+                if semis.std() < LOW_MAX_STD_ST and len(x) > 256 and _sub_mid_db(x, sr) >= LOW_SUB_MID_DB:
+                    out.append({"start": round(start, 2), "end": round(end, 2),
+                                "hz": round(float(np.median(run)), 1)})
+            k = j + 1
     return out
 
 
@@ -170,9 +194,7 @@ def analyse(job: Job) -> dict:
     tempo = float(np.atleast_1d(tempo)[0])
     key = estimate_key(mono, 22050)
 
-    active = [w["bass_db"] for w in wins if w["kind"] != "none"]
-    bass_thresh = (float(np.median(active)) - 6.0) if active else -120.0
-    low = find_low_notes(g.mean(axis=1), sr, wins, bass_thresh) if bass is not None else []
+    low = find_low_notes(g.mean(axis=1), sr, wins) if bass is not None else []
 
     result = {"tempo_bpm": round(tempo, 1), "key": key,
               "sections": merge_sections(wins), "low_notes": low}
