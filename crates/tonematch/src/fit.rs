@@ -326,6 +326,30 @@ fn json_file(path: &Path) -> Result<serde_json::Value> {
     serde_json::from_str(&text).with_context(|| format!("error in {}", path.display()))
 }
 
+/// The DI to fit through, and whether the hold-out applies (a real recording): `--di`, then the
+/// user's `di-user.wav`, then the synthetic `di-synth.wav`.
+pub fn choose_di(explicit: Option<&Path>, part_dir: &Path) -> Option<(PathBuf, bool)> {
+    if let Some(p) = explicit {
+        return Some((p.to_path_buf(), true));
+    }
+    let user = part_dir.join("di-user.wav");
+    if user.exists() {
+        return Some((user, true));
+    }
+    let synth = part_dir.join("di-synth.wav");
+    synth.exists().then_some((synth, false))
+}
+
+fn di_kind(explicit: bool, path: &Path) -> &'static str {
+    if explicit {
+        "--di"
+    } else if path.file_name().is_some_and(|n| n == "di-user.wav") {
+        "your recording"
+    } else {
+        "synthetic"
+    }
+}
+
 /// Fits a part of a job folder and writes `parts/<part>/fit/`.
 pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress) -> Result<FitSummary> {
     let t0 = Instant::now();
@@ -341,12 +365,11 @@ pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress
     let (target, sr) = read_mono(&part_dir.join("target.wav"))?;
     let synth = part_dir.join("di-synth.wav");
     let user = part_dir.join("di-user.wav");
-    let (di_path, holdout) = match (&opts.di, synth.exists(), user.exists()) {
-        (Some(p), _, _) => (p.clone(), true),
-        (None, true, _) => (synth, false),
-        (None, false, true) => (user, true),
-        _ => bail!("no DI: expected {} or {}, or pass --di", synth.display(), user.display()),
+    let (di_path, holdout) = match choose_di(opts.di.as_deref(), &part_dir) {
+        Some(c) => c,
+        None => bail!("no DI: expected {} or {}, or pass --di", user.display(), synth.display()),
     };
+    progress(&format!("DI used: {} ({})", di_path.display(), di_kind(opts.di.is_some(), &di_path)));
     let (di, di_sr) = read_mono(&di_path)?;
     ensure!(di_sr == sr, "DI sample rate {di_sr} differs from the target's {sr}");
     progress(&format!("DI {} ({:.1} s), target {:.1} s", di_path.display(), di.len() as f32 / sr, target.len() as f32 / sr));
@@ -410,4 +433,23 @@ pub fn fit_job(job_dir: &Path, part: &str, opts: &FitOptions, progress: Progress
     std::fs::write(out_dir.join("report.json"), serde_json::to_string_pretty(r)?)?;
     fit.summary.out_dir = Some(out_dir);
     Ok(fit.summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn di_priority_is_explicit_then_user_then_synth() {
+        let dir = std::env::temp_dir().join(format!("tonematch-di-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(choose_di(None, &dir).is_none());
+        std::fs::write(dir.join("di-synth.wav"), b"").unwrap();
+        assert_eq!(choose_di(None, &dir), Some((dir.join("di-synth.wav"), false)));
+        std::fs::write(dir.join("di-user.wav"), b"").unwrap();
+        assert_eq!(choose_di(None, &dir), Some((dir.join("di-user.wav"), true)));
+        let own = Path::new("/x/own.wav");
+        assert_eq!(choose_di(Some(own), &dir), Some((own.to_path_buf(), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
