@@ -68,6 +68,17 @@ mode = "always"
 | `parts <job> --start S --end E --channel mid\|left\|right [--label L]` | Cuts a section of the guitar stem into a part (`p1`, `p2`, ...), writes `target.wav` and the notes. | `bin/tonelab parts <job> --start 8 --end 28 --channel mid --label riff` |
 | `synth-di <job> --part ID [--match-di FILE]` | Makes the synthetic DI from the part's notes. `--match-di` matches its spectrum to a real DI. | `bin/tonelab synth-di <job> --part p1 --match-di di.wav` |
 | `run <path\|url> [--title T]` | `fetch` + `separate` + `analyse`. Prints the job id last. | `bin/tonelab run ~/Music/song.mp3` |
+| `caps [--json]` | What this install supports: `youtube`, `device`, `jobs_dir`. The openPedal server reads the JSON to answer `tonelab_caps`. | `bin/tonelab caps --json` |
+
+### Progress lines
+
+Long steps (`fetch`, `separate`, `analyse`, `parts`, `synth-di`) print lines on stderr that the openPedal server turns into progress bars:
+
+```
+PROGRESS <stage> <fraction|-> <message>
+```
+
+`<stage>` is `fetch`, `separate`, `analyse`, `parts` or `synth`; `<fraction>` is 0 to 1, or `-` when unknown; `<message>` is the rest of the line.
 
 ### Job folder
 
