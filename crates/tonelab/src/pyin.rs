@@ -107,7 +107,7 @@ pub fn pyin(y: &[f32], fmin: f64, fmax: f64, sr: f64, frame_length: usize, hop: 
             }
         }
         let gm = heights.iter().enumerate().fold(0, |b, (i, &h)| if h < heights[b] { i } else { b });
-        let n_below = (0..N_THRESH).filter(|&j| !(heights[gm] < thresholds[j + 1])).count();
+        let n_below = (0..N_THRESH).filter(|&j| heights[gm] >= thresholds[j + 1]).count();
         probs[gm] += NO_TROUGH_PROB * beta_probs[..n_below].iter().sum::<f64>();
 
         for (a, &p) in probs.iter().enumerate() {

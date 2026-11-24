@@ -60,3 +60,54 @@ fn synth_di_spectrum_matches_python() {
     println!("bands {} rms diff {rms:.2} dB; diffs {:?}", d.len(), d.iter().map(|v| (v * 10.0).round() / 10.0).collect::<Vec<_>>());
     assert!(rms < 1.0);
 }
+
+#[test]
+#[ignore]
+fn analyse_matches_python() {
+    let job = job();
+    let py = job.read_analysis().unwrap();
+    let guitar = job.read_stem("guitar").unwrap().unwrap();
+    let bass = job.read_stem("bass").unwrap();
+    let mix = job.read_mix().unwrap();
+    let t0 = std::time::Instant::now();
+    let a = analyse_audio(&guitar, bass.as_ref(), &mix); // does not overwrite analysis.json
+    let dt = t0.elapsed().as_secs_f64();
+    let kind_at = |s: &[Section], t: f64| s.iter().find(|x| t >= x.start && t < x.end).map(|x| x.kind.clone());
+    let dur = py.sections.last().unwrap().end;
+    let step = 0.05;
+    let n = (dur / step) as usize;
+    let same = (0..n).filter(|i| kind_at(&a.sections, *i as f64 * step) == kind_at(&py.sections, *i as f64 * step)).count();
+    let frac = same as f64 / n as f64;
+    println!("tempo rust {} python {}; key rust {} python {}; kinds agree on {:.1}% of {:.0}s; low notes rust {} python {}; {:.1}s", a.tempo_bpm, py.tempo_bpm, a.key, py.key, frac * 100.0, dur, a.low_notes.len(), py.low_notes.len(), dt);
+    for (r, p) in a.sections.iter().zip(&py.sections).filter(|(r, p)| r.kind != p.kind || (r.start - p.start).abs() > 0.01) {
+        println!("  diff rust {:?} {}-{}  python {:?} {}-{}", r.kind, r.start, r.end, p.kind, p.start, p.end);
+    }
+    assert!(frac >= 0.90);
+    assert!((a.tempo_bpm - py.tempo_bpm).abs() <= 2.0);
+    assert_eq!(a.key, py.key);
+}
+
+#[test]
+#[ignore]
+fn pick_part_matches_python_p2() {
+    // copy only job.json + the guitar stem into a scratch job so the real job is untouched
+    let src = job();
+    let tmp = std::env::temp_dir().join(format!("tonelab-par-{}", std::process::id()));
+    std::fs::create_dir_all(tmp.join("stems")).unwrap();
+    std::fs::copy(src.dir.join("job.json"), tmp.join("job.json")).unwrap();
+    std::fs::copy(src.stem_path("guitar"), tmp.join("stems/guitar.wav")).unwrap();
+    let j = Job::open(&tmp).unwrap();
+    let t0 = std::time::Instant::now();
+    let p = pick_part(&j, 8.0, 28.0, Channel::Mid, "riff").unwrap();
+    let dt = t0.elapsed().as_secs_f64();
+    let py = src.read_parts().unwrap().into_iter().find(|p| p.id == "p2").unwrap();
+    let matched = py.notes.iter().filter(|q| p.notes.iter().any(|n| n.midi == q.midi && (n.t - q.t).abs() <= 0.040)).count();
+    let a = j.read_part_wav("p1", "target.wav").unwrap();
+    let b = src.read_part_wav("p2", "target.wav").unwrap();
+    let n = a.channels[0].len().min(b.channels[0].len());
+    let err = (a.channels[0][..n].iter().zip(&b.channels[0][..n]).map(|(x, y)| ((x - y) as f64).powi(2)).sum::<f64>() / n as f64).sqrt();
+    let rms = (b.channels[0][..n].iter().map(|y| (*y as f64).powi(2)).sum::<f64>() / n as f64).sqrt();
+    println!("pick_part {dt:.2}s; notes {} vs {}, matched {}; target lens {} vs {}; rel err {:.4}", p.notes.len(), py.notes.len(), matched, a.channels[0].len(), b.channels[0].len(), err / rms);
+    let _ = std::fs::remove_dir_all(tmp);
+    assert!(matched as f64 / py.notes.len() as f64 >= 0.85);
+}

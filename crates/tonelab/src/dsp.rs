@@ -41,7 +41,7 @@ impl Fft {
             };
         }
         b[0].im = 0.0;
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             b[n / 2].im = 0.0;
         }
         f.process(&mut b);
@@ -280,7 +280,7 @@ pub fn welch(fft: &mut Fft, x: &[f64], fs: f64, nperseg: usize) -> (Vec<f64>, Ve
     let scale = 1.0 / (fs * s2) / cnt.max(1) as f64;
     let mut p: Vec<f64> = acc.iter().map(|a| a * scale).collect();
     for (k, v) in p.iter_mut().enumerate() {
-        if k != 0 && !(nper % 2 == 0 && k == nb - 1) {
+        if k != 0 && !(nper.is_multiple_of(2) && k == nb - 1) {
             *v *= 2.0;
         }
     }

@@ -239,12 +239,12 @@ fn tempo_bpm(fft: &mut Fft, mono22: &[f32]) -> f64 {
         }
     }
     let mut best = (f64::NEG_INFINITY, 0.0);
-    for lag in 1..win_len {
+    for (lag, a) in acc.iter().enumerate().skip(1) {
         let bpm = 60.0 * sr / (hop as f64 * lag as f64);
         if bpm >= 320.0 {
             continue;
         }
-        let s = (1e6 * acc[lag] / n as f64).ln_1p() - 0.5 * (bpm.log2() - 120f64.log2()).powi(2);
+        let s = (1e6 * a / n as f64).ln_1p() - 0.5 * (bpm.log2() - 120f64.log2()).powi(2);
         if s > best.0 {
             best = (s, bpm);
         }
@@ -405,8 +405,8 @@ pub fn analyse_audio(guitar: &Audio, bass: Option<&Audio>, mix: &Audio) -> Analy
         i += n;
     }
     let loudest = wins.iter().map(|w| w.guitar_db).fold(f64::NEG_INFINITY, f64::max);
-    for k in 0..wins.len() {
-        wins[k].kind = classify(&wins[k], loudest);
+    for w in wins.iter_mut() {
+        w.kind = classify(w, loudest);
     }
     let mono22 = resample_poly(&mono_of(mix), mix.sample_rate, 22050);
     let tempo = tempo_bpm(&mut fft, &mono22);
