@@ -1,0 +1,12 @@
+[sources]
+youtube = true    # personal use of whoever clones the repo; false hides the link field and never imports yt-dlp
+
+[gpu]
+device = "cuda"   # "cpu" must be chosen explicitly: no silent fallback
+
+[paths]
+jobs = "~/.local/share/openpedal/tonelab/jobs"
+
+[separate]
+mode = "auto"     # auto: skip Demucs when the source is guitar only; always; never
+segment = 7       # seconds per Demucs chunk, small enough for 3 GB of VRAM

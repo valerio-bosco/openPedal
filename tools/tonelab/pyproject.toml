@@ -1,0 +1,43 @@
+[project]
+name = "tonelab"
+version = "0.1.0"
+description = "Tone Lab: from a song to a guitar part (separate, analyse, transcribe, synth DI)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.7.1",
+    "torchaudio==2.7.1",
+    "demucs",
+    "librosa",
+    "soundfile",
+    "scipy",
+    "numpy",
+]
+
+[project.optional-dependencies]
+youtube = ["yt-dlp"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+# GTX 1060 (Pascal): cu128 wheels dropped it, so stay on CUDA 12.6.
+environments = ["sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.setuptools]
+packages = ["tonelab", "tonelab.sources"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
