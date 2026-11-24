@@ -9,6 +9,7 @@ openpedal-dsp.workspace = true
 
 [dependencies]
 openpedal-dsp.workspace = true
+openpedal-separate.workspace = true
 anyhow.workspace = true
 rustfft.workspace = true
 serde.workspace = true

@@ -15,6 +15,9 @@ cxx-probe = ["dep:openpedal-cxx-probe"]
 # Demucs separation (demucs.cpp + Eigen) in the core. Off until the Tone Lab backend uses it.
 separate = ["dep:openpedal-separate"]
 
+# Tone Lab in process: forwards openpedal-server/native-tonelab (use together with `separate`).
+native-tonelab = ["separate", "openpedal-server/native-tonelab"]
+
 [dependencies]
 openpedal-cxx-probe = { path = "../cxx-probe", optional = true }
 openpedal-separate = { workspace = true, optional = true }

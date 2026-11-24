@@ -8,6 +8,10 @@ description.workspace = true
 name = "openpedal"
 path = "src/main.rs"
 
+[features]
+# Tone Lab in process (OPENPEDAL_TONELAB=native): Demucs C++ + Rust analysis.
+native-tonelab = ["openpedal-server/native-tonelab"]
+
 [dependencies]
 openpedal-dsp.workspace = true
 openpedal-graph.workspace = true

@@ -1120,6 +1120,8 @@ dependencies = [
  "openpedal-graph",
  "openpedal-library",
  "openpedal-protocol",
+ "openpedal-separate",
+ "openpedal-tonelab",
  "openpedal-tonematch",
  "rust-embed",
  "serde",
@@ -1136,6 +1138,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "openpedal-dsp",
+ "openpedal-separate",
  "rustfft",
  "serde",
  "serde_json",

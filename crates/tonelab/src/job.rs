@@ -7,11 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub const STEMS: [&str; 6] = ["guitar", "bass", "drums", "vocals", "piano", "other"];
 
-/// Local copy of `openpedal_separate::Stems` (identical shape); replaced by a re-export at merge.
-pub struct Stems {
-    pub sample_rate: u32,
-    pub stems: Vec<(String, [Vec<f32>; 2])>,
-}
+pub use openpedal_separate::Stems;
 
 /// Multi-channel audio read from a job file.
 pub struct Audio {
