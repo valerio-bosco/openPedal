@@ -772,3 +772,10 @@ Next, wave 2 (`feat/ios-tonelab`, one Sonnet agent, then Haiku for weights): (1)
 `DemucsCpp::load` and the `openpedal-tonelab` calls, swap the local `Stems`/`Separator` types, forward the
 `native-tonelab` + `separate` features from `crates/ffi` and turn them on in build-core.sh for iOS;
 (2) desktop check with `OPENPEDAL_TONELAB=native` on Cryogen; (3) the SwiftUI Tone Lab and DI recording rows of §15.2.
+
+**Wave 2 running (2026-11-24):** `feat/native-wiring` (crates/**: real adapter, ffi feature `native-tonelab`,
+desktop e2e with `OPENPEDAL_TONELAB=native`), `feat/ios-tonelab-ui` (ToneLab/** SwiftUI screen, codes against
+`protocol AudioHostRecording { func recordDI(to: URL, seconds: Double, countIn: Double) async throws }`),
+`feat/ios-audio-tonelab` (AudioHost recording + Recorder.swift, weights bundling, build-core.sh defaults:
+separation on, features `separate` + `native-tonelab`). Merge order: native-wiring, ios-audio-tonelab, ios-tonelab-ui;
+then the user installs on the iPad for the acceptance test of §15.2.
