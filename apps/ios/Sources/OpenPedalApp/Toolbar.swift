@@ -8,6 +8,7 @@ struct ToolbarView: View {
     @State private var saveAsName = ""
     @State private var showSaveAs = false
     @State private var showDelete = false
+    @State private var showToneLab = false
 
     var body: some View {
         GlassEffectContainer(spacing: 14) {
@@ -51,12 +52,18 @@ struct ToolbarView: View {
                 .controlSize(.large)
                 .disabled(store.currentPreset.isEmpty)
 
+                Button { showToneLab = true } label: { Image(systemName: "waveform.and.magnifyingglass").font(.title3).frame(width: 36, height: 36) }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Tone Lab")
+
                 Button { showAbout = true } label: { Image(systemName: "info.circle").font(.title3).frame(width: 36, height: 36) }
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("About")
             }
         }
+        .fullScreenCover(isPresented: $showToneLab) { ToneLabView(store: store) }
         .alert("Save preset as", isPresented: $showSaveAs) {
             TextField("Name", text: $saveAsName)
             Button("Save") { store.saveAs(saveAsName) }

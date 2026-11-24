@@ -63,6 +63,7 @@ final class Store {
     var banner: String?
 
     let meters = MeterModel()
+    let toneLab = ToneLabModel()
     let analysis = ResponseModel()
 
     /// The server speaks a newer contract than this app knows.
@@ -87,6 +88,7 @@ final class Store {
             self.connected = up
         }
         client.onMessage = { [weak self] msg in self?.handle(msg) }
+        toneLab.send = { [weak self] msg in self?.client.send(msg) }
         client.start()
     }
 
@@ -132,6 +134,7 @@ final class Store {
             meters.inDb = m.inDb; meters.outDb = m.outDb; meters.dsp = m.dsp; meters.xruns = m.xruns
         case .error(let message, let node):
             showBanner(node.map { "\($0): \(message)" } ?? message)
+            toneLab.failed(message)
             pendingSelect = nil
             if let p = pendingSave { pendingSave = nil; p.done(false) }
         case .added(let id):
@@ -143,7 +146,7 @@ final class Store {
             analysis.freq = freq
             analysis.db = db
         case .tonelabCaps, .tonelabJobs, .tonelabProgress, .tonelabJob, .tonelabFitResult:
-            break // Tone Lab (protocol v4) has no iPad client yet
+            toneLab.handle(msg)
         case .state(let s):
             if catalog != s.catalog {
                 catalog = s.catalog
