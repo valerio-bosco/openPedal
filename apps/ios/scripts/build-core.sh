@@ -34,6 +34,8 @@ cargo build --manifest-path "$root/Cargo.toml" -p openpedal-ffi --release --targ
 
 mkdir -p "$root/apps/ios/OpenPedalCore/lib"
 cp "$root/target/$target/release/libopenpedal.a" "$root/apps/ios/OpenPedalCore/lib/"
+rm -f "$root/apps/ios/OpenPedalCore/lib/.cxx-probe"
+[ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ] && touch "$root/apps/ios/OpenPedalCore/lib/.cxx-probe"
 
 # Bundled presets and pedals, copied by the app to its data dir on first launch.
 res="$root/apps/ios/Sources/OpenPedalApp/Resources"

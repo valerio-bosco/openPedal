@@ -6,6 +6,10 @@ import PackageDescription
 let coreLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     .appendingPathComponent("OpenPedalCore/lib").path
 
+// build-core.sh drops this marker next to the library when built with OPENPEDAL_CXX_PROBE=1
+// (spike docs/spikes/ios-cxx.md): the core then contains C++ (libc++) and the probe symbol.
+let cxxProbe = FileManager.default.fileExists(atPath: coreLib + "/.cxx-probe")
+
 let package = Package(
     name: "OpenPedal",
     platforms: [.iOS("26.0")],
@@ -20,6 +24,7 @@ let package = Package(
             exclude: ["lib"],
             sources: ["stub.c"],
             publicHeadersPath: "include",
+            cSettings: cxxProbe ? [.define("OPENPEDAL_CXX_PROBE")] : [],
             linkerSettings: [
                 .unsafeFlags(["-L", coreLib]),
                 .linkedLibrary("openpedal"),
@@ -27,7 +32,7 @@ let package = Package(
                 .linkedLibrary("objc"),
                 .linkedLibrary("iconv"),
                 .linkedFramework("Foundation"),
-            ]
+            ] + (cxxProbe ? [.linkedLibrary("c++")] : [])
         ),
         .target(
             name: "OpenPedalApp",
