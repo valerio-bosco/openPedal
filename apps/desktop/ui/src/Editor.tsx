@@ -5,6 +5,7 @@ import { Canvas } from "./components/Canvas";
 import { EditorContext } from "./components/PedalNode";
 import { Palette } from "./components/Palette";
 import { PedalDesigner } from "./components/PedalDesigner";
+import { TonelabPanel } from "./components/tonelab/TonelabPanel";
 import { Toasts } from "./components/Toasts";
 import { MainToolbar, PedalToolbar } from "./components/Toolbar";
 import { TopBar } from "./components/TopBar";
@@ -23,6 +24,7 @@ export function Editor() {
   const { toasts, toast } = useToasts();
   const server = useServer(toast);
   const [graphName, setGraphName] = useState("");
+  const [tonelabOpen, setTonelabOpen] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const editingRef = useRef(editing);
   editingRef.current = editing;
@@ -91,6 +93,7 @@ export function Editor() {
           onLoadPreset={presets.loadPreset}
           onSave={presets.savePreset}
           onDelete={presets.deletePreset}
+          onTonelab={() => setTonelabOpen(true)}
           extra={
             editing ? (
               <PedalToolbar
@@ -134,6 +137,7 @@ export function Editor() {
             onCancel={pedals.closeDesigner}
           />
         )}
+        {tonelabOpen && <TonelabPanel transport={server.tonelab} demo={server.status === "mock"} toast={toast} onClose={() => setTonelabOpen(false)} />}
         {contextMenu.menu && (
           <ContextMenu x={contextMenu.menu.x} y={contextMenu.menu.y} items={contextMenu.items(contextMenu.menu)} onClose={contextMenu.close} />
         )}

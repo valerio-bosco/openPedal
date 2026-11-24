@@ -35,10 +35,11 @@ interface Props {
   onLoadPreset: (name: string) => void;
   onSave: () => void;
   onDelete: () => void;
+  onTonelab: () => void;
   extra?: ReactNode;
 }
 
-export function TopBar({ status, presets, graphName, dirty, audio, meters, disabledPresets, onLoadPreset, onSave, onDelete, extra }: Props) {
+export function TopBar({ status, presets, graphName, dirty, audio, meters, disabledPresets, onLoadPreset, onSave, onDelete, onTonelab, extra }: Props) {
   return (
     <header className="topbar">
       <div className="logo">
@@ -75,6 +76,9 @@ export function TopBar({ status, presets, graphName, dirty, audio, meters, disab
         🗑
       </button>
       {extra}
+      <button id="tonelab-open" onClick={onTonelab} disabled={disabledPresets} title="Make a preset from a song">
+        Tone Lab
+      </button>
       <div className="spacer" />
       <div className="meters">
         <Meter label="IN" db={meters?.in_db ?? -90} />
