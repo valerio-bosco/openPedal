@@ -1,0 +1,266 @@
+/* --- Tone Lab panel (reuses the .designer shell, bar and .seg) --- */
+.tonelab {
+  grid-template-rows: 52px 0 1fr;
+}
+.tl-body {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  min-height: 0;
+  align-items: flex-start;
+}
+.tl-side {
+  width: 300px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tl-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tl-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tl-card h3,
+.tl-main h2,
+.tl-part h4,
+.tl-result h4 {
+  margin: 0;
+}
+.tl-main h2 {
+  font-size: 17px;
+}
+.tl-part h4,
+.tl-result h4 {
+  font-size: 14px;
+}
+.tl-tpl {
+  color: var(--accent);
+}
+.tl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tl-meta {
+  color: var(--dim);
+  font-size: 12px;
+}
+.tl-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tl-row input.tl-label,
+.tl-row #tl-name,
+.tl-row #tl-link {
+  flex: 1;
+  min-width: 160px;
+}
+.tl-empty {
+  padding: 40px 0;
+  text-align: center;
+}
+.tl-unavailable {
+  max-width: 560px;
+}
+.tl-unavailable p {
+  margin: 0;
+}
+.tl-drop {
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  color: var(--dim);
+}
+.tl-drop.over {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.tl-drop.off {
+  opacity: 0.5;
+}
+.tl-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tl-jobs button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.tl-jobs button.on {
+  border-color: var(--accent);
+}
+.tl-bar {
+  height: 8px;
+  background: #14161b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tl-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s;
+}
+.tl-bar > div.indet {
+  width: 30%;
+  animation: tl-slide 1.2s infinite ease-in-out;
+}
+@keyframes tl-slide {
+  0% { margin-left: -30%; }
+  100% { margin-left: 100%; }
+}
+.tl-ruler {
+  position: relative;
+  height: 16px;
+  color: var(--dim);
+  font-size: 10px;
+}
+.tl-ruler span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.tl-ruler span:first-child {
+  transform: none;
+}
+.tl-track {
+  position: relative;
+  height: 56px;
+  background: #14161b;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.tl-section {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  opacity: 0.85;
+  border-radius: 3px;
+}
+.tl-sel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.18);
+  border-left: 2px solid #fff;
+  border-right: 2px solid #fff;
+  pointer-events: none;
+}
+.tl-play {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--danger);
+  pointer-events: none;
+}
+.tl-legend {
+  display: flex;
+  gap: 14px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.tl-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.tl-sel-info {
+  color: var(--dim);
+}
+.tl-part {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tl-part:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.tl-di {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tl-result {
+  background: var(--panel2);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tl-numbers {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.tl-numbers b {
+  color: var(--text);
+}
+.tl-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 560px;
+}
+.tl-table th,
+.tl-table td {
+  text-align: left;
+  padding: 3px 10px 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tl-table th {
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.tl-table tr.best td {
+  color: var(--accent);
+}
+.tl-ab {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tonelab code {
+  background: #14161b;
+  padding: 1px 5px;
+  border-radius: 4px;
+}

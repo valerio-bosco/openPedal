@@ -2,6 +2,7 @@
 // at startup, it falls back to the fake server (mock) and keeps retrying in the background.
 import { MockServer } from "./mock";
 import type { ClientMsg, ServerMsg } from "./generated/protocol";
+import { isTonelabType, type TonelabClientMsg, type TonelabServerMsg } from "./components/tonelab/types";
 
 export type Status = "connecting" | "online" | "mock" | "offline";
 
@@ -24,6 +25,7 @@ export class Connection {
   private retry = 1000;
   private timers: number[] = [];
   private params = new Map<string, Pending>();
+  private tonelab = new Set<(m: TonelabServerMsg) => void>();
 
   constructor(
     private onMsg: (m: ServerMsg) => void,
@@ -78,7 +80,9 @@ export class Connection {
     };
     ws.onmessage = (ev) => {
       try {
-        this.onMsg(JSON.parse(String(ev.data)) as ServerMsg);
+        const m = JSON.parse(String(ev.data));
+        if (isTonelabType(m?.type)) this.tonelab.forEach((f) => f(m as TonelabServerMsg));
+        else this.onMsg(m as ServerMsg);
       } catch {
         /* invalid message: ignored */
       }
@@ -109,6 +113,18 @@ export class Connection {
   send(msg: ClientMsg) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
     else this.mock?.handle(msg);
+  }
+
+  /** Tone Lab messages (not in the generated protocol yet): sent to the server only; the panel has its own demo fallback. */
+  sendTonelab(msg: TonelabClientMsg): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(msg));
+    return true;
+  }
+
+  onTonelab(f: (m: TonelabServerMsg) => void): () => void {
+    this.tonelab.add(f);
+    return () => this.tonelab.delete(f);
   }
 
   /** `set_param` limited to about 60 messages per second per knob; the last value always gets through. */

@@ -11,6 +11,7 @@ import {
   type ServerMsg,
   type StateMsg,
 } from "../generated/protocol";
+import type { TonelabClientMsg, TonelabServerMsg } from "../components/tonelab/types";
 import { fixturePedals } from "../mock";
 import { IMPLICIT_ITEMS } from "../model";
 import { Connection, type Status } from "../ws";
@@ -136,5 +137,14 @@ export function useServer(toast: (text: string) => void) {
     pending.current = { kind, run };
   }, []);
 
-  return { status, ...history, hold, release, catalogItems, catalog, presets, audio, meters, pedals, handlers, send, sendParam, whenInCatalog };
+  /** Tone Lab transport: `send` returns false when there is no server connection. */
+  const tonelab = useMemo(
+    () => ({
+      send: (m: TonelabClientMsg) => conn.current?.sendTonelab(m) ?? false,
+      subscribe: (f: (m: TonelabServerMsg) => void) => conn.current?.onTonelab(f) ?? (() => {}),
+    }),
+    [],
+  );
+
+  return { status, tonelab, ...history, hold, release, catalogItems, catalog, presets, audio, meters, pedals, handlers, send, sendParam, whenInCatalog };
 }
