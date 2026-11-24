@@ -618,3 +618,9 @@ Opus: plan, review, merge, end-to-end check on Cryogen. Sonnet: design-heavy tas
 Wave 1 acceptance (Opus): end to end on `recordings/Cryogen.mp3`, riff part 8-28 s mid, synthetic DI
 matched to `recordings/plug-in-baby.wav`, validated on it: held-out error at most 6.5 dB (the hand-made
 fit reached 5.9 dB), and the chosen template is a fuzz one.
+
+Wave 1 done (2026-11-24, on `dev`): end to end on Cryogen (riff 8-28 s, synthetic DI matched to a
+real DI) the fit picks `fuzz-octave` (fuzz within 0.03 dB), error 1.89 dB, validation on the real DI
+5.33 dB (hand-made fit 5.9), 76 s. Known gap: the low-note hint (`low_notes`) is now strict and empty
+on Cryogen: pYIN cannot tell the real 62 Hz octave from subharmonic locking in a separated stem. The
+fit does not depend on it (all templates are screened); a better detector is backlog.
