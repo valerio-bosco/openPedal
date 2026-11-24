@@ -706,9 +706,9 @@ to its embedded core over the local WebSocket, as it already does for everything
 | 1 | `feat/separate-native` | Sonnet | crate `openpedal-separate`: demucs.cpp via `cc`, safe API `separate(stereo: &[f32;2xN], sr) -> Stems`, excerpt mode, progress callback, weights from a path; desktop CLI `openpedal separate` for testing | `crates/separate/**`, vendored sources under `third_party/` | done 7ecc03e: 24 s excerpt 120 s (1 thr) / 58 s (4 thr, 5.8 GB) on Ryzen; iOS links |
 | 1 | `feat/tonelab-rust` | Sonnet | crate `openpedal-tonelab`: job folder IO (§14.2), analysis (sections, stereo kind, tempo, key), pYIN transcription, Karplus-Strong synth DI + spectral match (port of tools/tonelab transcribe.py/synth.py/analyse.py); parity tests vs the Python outputs | `crates/tonelab/**` | done 7e4b6bc: parity 100% kinds, tempo, key, notes; DI 0.57 dB |
 | 1 | `feat/tonelab-backend` | Sonnet | server `TonelabBackend` trait: `Python` (current code) and `Native` (separate + tonelab + tonematch in-process); selected at runtime (iOS: always native); caps on iOS: youtube false | `crates/server/**`, `crates/ffi/**` | done b3df54a (native adapter stubbed; wire at merge of the two crates) |
-| 2 | `feat/ios-tonelab-ui` | Sonnet | SwiftUI Tone Lab (Liquid Glass): import (document picker, AVAudioFile → mix.wav), waveform + region selection, separate excerpt, song map, channel, progress/cancel, A/B player, save preset | `apps/ios/Sources/OpenPedalApp/ToneLab/**`, one entry in Toolbar | todo |
-| 2 | `feat/ios-record-di` | Sonnet | AudioHost records the guitar channel with a count-in to `di-user.wav` (preallocated buffer, no allocation on the audio thread) | `apps/ios/Sources/OpenPedalApp/AudioHost.swift`, `Recorder.swift` | todo |
-| 2 | `chore/ios-weights` | Haiku | bundle the separation weights in the app (build-core.sh sync + resources), size check, README | `apps/ios/scripts/**`, `apps/ios/README.md` | todo |
+| 2 | `feat/ios-tonelab-ui` | Sonnet | SwiftUI Tone Lab (Liquid Glass): import (document picker, AVAudioFile → mix.wav), waveform + region selection, separate excerpt, song map, channel, progress/cancel, A/B player, save preset | `apps/ios/Sources/OpenPedalApp/ToneLab/**`, one entry in Toolbar | done 3f5c7a9 |
+| 2 | `feat/ios-record-di` | Sonnet | AudioHost records the guitar channel with a count-in to `di-user.wav` (preallocated buffer, no allocation on the audio thread) | `apps/ios/Sources/OpenPedalApp/AudioHost.swift`, `Recorder.swift` | done 3f5c7a9 (as feat/ios-audio-tonelab) |
+| 2 | `chore/ios-weights` | Haiku | bundle the separation weights in the app (build-core.sh sync + resources), size check, README | `apps/ios/scripts/**`, `apps/ios/README.md` | done 3f5c7a9 (as feat/ios-audio-tonelab) |
 | 3 | backlog | | share extension, CoreML/ANE speed-up, desktop switches analysis to Rust, full-song map on iPad | | |
 
 Acceptance (Opus, on the device by the user): on the iPad alone, import Cryogen from Files, mark the
@@ -779,3 +779,9 @@ desktop e2e with `OPENPEDAL_TONELAB=native`), `feat/ios-tonelab-ui` (ToneLab/** 
 `feat/ios-audio-tonelab` (AudioHost recording + Recorder.swift, weights bundling, build-core.sh defaults:
 separation on, features `separate` + `native-tonelab`). Merge order: native-wiring, ios-audio-tonelab, ios-tonelab-ui;
 then the user installs on the iPad for the acceptance test of §15.2.
+
+**Wave 2 merged (2026-11-24).** Desktop run of the native path on Cryogen (2 threads): pick 8-28 s mid =
+75.5 s (separation 74 s), fit 75 s, total ~151 s; fuzz chosen at 2.79 dB (target 2.5; the Python path
+with full-song stems gave 1.89: the excerpt stem transcribes 99 notes vs 131). iPad build: features
+`separate` + `native-tonelab` on, app 66 MB with the weights. Next: the user installs and runs the §15.2
+acceptance test on the iPad; then tune (excerpt stem quality, transcription on excerpt stems).
