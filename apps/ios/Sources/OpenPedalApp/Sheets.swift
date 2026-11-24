@@ -109,6 +109,7 @@ struct AddPedalSheet: View {
 
 struct AboutSheet: View {
     let store: Store
+    @ObservedObject var host: AudioHost
     @Environment(\.dismiss) private var dismiss
 
     private func info(_ key: String) -> String {
@@ -121,6 +122,22 @@ struct AboutSheet: View {
                 Section("App") {
                     row("Version", info("CFBundleShortVersionString"))
                     row("Build", info("CFBundleVersion"))
+                }
+                Section {
+                    Picker("Output", selection: $host.outputMode) {
+                        ForEach(OutputMode.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    row("Input", host.route.input)
+                    row("Output", host.route.output)
+                    row("Sample rate", String(format: "%.0f Hz", host.route.sampleRate))
+                    row("IO buffer", "\(host.route.bufferFrames) frames")
+                    row("Strategy", host.route.strategy)
+                    if let notice = host.notice { Text(notice).font(.footnote).foregroundStyle(.orange) }
+                } header: {
+                    Text("Audio output")
+                } footer: {
+                    Text("Interface: sound goes to the audio interface. iPad speaker: sound plays on the built-in speakers while the guitar still comes from the interface.")
                 }
                 Section("Core") {
                     row("Protocol", store.serverProtocol.map { "v\($0)" } ?? "not reported (pre-v1 core)")
@@ -137,7 +154,7 @@ struct AboutSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     private func row(_ k: String, _ v: String) -> some View {

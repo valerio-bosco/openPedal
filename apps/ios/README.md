@@ -22,6 +22,22 @@ Status: **builds and installs on a real iPad** (2026-11-08). The UI is the deskt
 - Guitar input channel: index 1 (Scarlett Solo Inst jack), see `guitarChannel` in `AudioHost.swift`.
 - Data dir: `Application Support/OpenPedal/{presets,pedals}`. The Rust core (`openpedal-library`) seeds it from `factory_dir`, the bundle's resources (`content/` in the repo, synced into `Sources/OpenPedalApp/Resources` by `scripts/build-core.sh`): each factory file is copied once and remembered in `.seeded.toml`, so a factory preset the user deleted stays deleted and edits are never overwritten. Apps that seeded in Swift before keep their record: `AudioHost` writes the old `seeded.*` UserDefaults keys into `.seeded.toml` once, then drops them. `openpedal_version()` returns the core version.
 
+## Audio output (interface or iPad speaker)
+
+The output is a setting, saved in UserDefaults (`audio.output`): the speaker button in the toolbar, or *Audio output* in the About sheet (which also shows the live route: input and output port, sample rate, IO buffer, strategy).
+
+- **Interface** (default): `.playAndRecord` + `.measurement`, sound goes to the audio interface (Scarlett headphone jack).
+- **iPad speaker**: the guitar still comes from the USB interface, the sound plays on the built-in speakers. `AudioHost.speakerStrategy` picks how: `.override` (default: `.playAndRecord` + `.defaultToSpeaker` + `overrideOutputAudioPort(.speaker)`, then `setPreferredInput(usb)` again; `.default` mode instead of `.measurement`, which can force the receiver or a low volume) or `.multiRoute` (USB input + built-in speaker output with an explicit channel map; best effort, untested). With `fallbackToMultiRoute` the app tries `.multiRoute` by itself if `.override` leaves the input on the built-in mic.
+- If the input ends up on the built-in mic while on the speaker (feedback), the output is muted and a message is shown.
+- Plugging or unplugging the interface, interruptions (calls, Siri) and media-services resets re-apply the choice and rebuild the engine graph; the Rust core keeps running.
+
+Test on the iPad (Scarlett Solo 3rd gen on USB-C, guitar on Inst):
+1. Start with the volume low. Open About: *Audio output* = Interface; input and output should say `USBAudio`. Play: sound in the headphones.
+2. Switch to *iPad speaker*: sound comes from the iPad, input still `USBAudio`, output `Speaker`, strategy `override`.
+3. If the input says `MicrophoneBuiltIn`: the output is muted by design. Set `speakerStrategy = .multiRoute` and rebuild, then repeat.
+4. Unplug and replug the Scarlett while on the speaker: no crash, the route readout updates, no loud feedback.
+5. Switch back to *Interface*; relaunch the app: the choice is remembered.
+
 ## Layout
 
 | Path | What |
