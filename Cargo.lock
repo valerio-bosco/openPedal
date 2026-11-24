@@ -1020,6 +1020,7 @@ dependencies = [
  "openpedal-graph",
  "openpedal-library",
  "openpedal-protocol",
+ "openpedal-separate",
  "openpedal-server",
  "openpedal-tonematch",
  "rtrb",

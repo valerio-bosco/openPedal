@@ -16,6 +16,7 @@ openpedal-engine.workspace = true
 openpedal-library.workspace = true
 openpedal-server.workspace = true
 openpedal-tonematch.workspace = true
+openpedal-separate.workspace = true
 anyhow.workspace = true
 rtrb.workspace = true
 serde.workspace = true
