@@ -504,3 +504,117 @@ and sources to `docs/tones/<song>.md` (guitars, pedals, amp, which part plays wh
 preset(s) and check them with `openpedal render` on the user's recordings. Missing DSP blocks (e.g. a
 whammy/pitch shifter) are reported, not added on this branch. Exact matching needs a reference clip of
 the song in `recordings/`.
+
+## 14. Tone Lab: presets from a song (planned 2026-11-24)
+
+Goal: give openPedal a song (file, voice memo or, for personal use, a YouTube link), let the user pick
+the guitar part, and get a preset that sounds like it. Proven by hand on Muse "Cryogen" (§13,
+`docs/tones/cryogen.md`): Demucs separation, analysis, synthetic DI, parameter fit; the user judged
+the result "perfect". This section turns those throwaway scripts into a tool.
+
+### 14.1 Flow
+
+1. **Source** → a job folder. Kinds: `file` (any audio ffmpeg reads: mp3, m4a voice memo, wav) and
+   `youtube` (optional, see 14.3).
+2. **Separate** (Demucs `htdemucs_6s`, GPU) → stems. Skipped when the source is already guitar only
+   (`separate = "auto"` checks the stems' energy, or the user forces it).
+3. **Analyse** → sections of the song with guitar, for each: centre / double-tracked / wide, level,
+   brightness, tempo and key, low-note check (octave-down hint).
+4. **Pick a part** (user): a section + channel (mid, left or right). This is how several guitars are told
+   apart: by time and stereo side. No automatic "how many guitars" (not reliable today).
+5. **DI** (the clean input the fit plays through the presets): the user's recording of the part
+   (`openpedal --record`, best: fits the user's own guitar) or a synthetic DI from the transcribed
+   notes, spectrally matched to a real DI of the user.
+6. **Fit** (Rust, in-process renders): try each chain template, fit its knobs to the part's spectrum
+   and dynamics, keep the best, validate on held-out audio, write a normal preset + a report.
+7. **Listen**: A/B the separated part and the preset's render; save to the library.
+
+### 14.2 Components and contracts
+
+```
+tools/tonelab/            Python (uv project): source, separate, analyse, transcribe, synth DI
+  tonelab.toml            config (committed defaults), tonelab.local.toml overrides (gitignored)
+  tonelab/cli.py          `tonelab <command>`; every command reads/writes a job folder
+crates/tonematch/         Rust: features, optimiser, templates, fit, report (no Python)
+content/tonematch/templates/   chain templates: <name>.toml (a preset) + <name>.fit.toml (ranges)
+apps/desktop/src/main.rs  `openpedal tone-match <job> --part <id> [--di file]`
+crates/server, protocol   wave 2: run jobs from the UI, progress events
+apps/desktop/ui/src/components/tonelab/   wave 2: Tone Lab panel
+```
+
+**Job folder** (the contract between Python and Rust; default root
+`~/.local/share/openpedal/tonelab/jobs/<id>/`, `<id>` = date + slug of the title):
+
+| File | Writer | Content |
+|---|---|---|
+| `job.json` | fetch | `{ "id", "source": { "kind": "file"\|"youtube", "ref", "title" }, "created", "sample_rate", "duration_s" }` |
+| `mix.wav` | fetch | the song, float32, original rate, stereo |
+| `stems/{guitar,bass,drums,vocals,piano,other}.wav` | separate | Demucs output (or `guitar.wav` = mix when separation is skipped) |
+| `analysis.json` | analyse | `{ "tempo_bpm", "key", "sections": [ { "start", "end", "guitar_db", "corr", "side_mid_db", "centroid_hz", "kind": "centre"\|"double"\|"wide"\|"none", "bass_db" } ], "low_notes": [ { "start", "end", "hz" } ] }` (4 s windows merged into sections) |
+| `parts.json` | parts | `[ { "id", "label", "start", "end", "channel": "mid"\|"left"\|"right", "notes": [ { "t", "dur", "midi", "amp" } ] } ]` |
+| `parts/<id>/target.wav` | parts | the separated part, mono, 48 kHz |
+| `parts/<id>/di-synth.wav` | synth-di | synthetic DI, mono 48 kHz, RMS -29.8 dBFS (or matched to `--match-di`) |
+| `parts/<id>/di-user.wav` | user / UI | the user's recording of the part |
+| `parts/<id>/fit/` | tone-match | `preset.toml`, `report.json`, `render.wav` |
+
+`report.json`: `{ "template", "params": {...}, "error_db", "holdout_error_db", "crest_db": { "target", "render" }, "bands_hz": [...], "diff_db": [...], "renders", "seconds" }`.
+
+**Template** (`content/tonematch/templates/<name>.toml` is a regular preset; `<name>.fit.toml`):
+```toml
+[[param]]
+node = "fuzz"     # node id in the template preset
+key = "drive"
+min = 0.3
+max = 1.0
+log = false       # true: searched on a log scale (frequencies)
+```
+Templates (wave 1): `clean`, `crunch`, `overdrive`, `fuzz`, `fuzz-octave` (octave down before the
+fuzz), `highgain`. Each ends in tonestack → amp drive → cab → reverb (reverb mix is fitted: the mix's
+ambience is in the target).
+
+**Fit** (as validated on Cryogen): features = 1/3-octave long-term spectrum 40 Hz-10 kHz normalised to
+its max, plus crest factor; cost = rms of the band differences + 0.3 x |crest difference|.
+Optimiser: Nelder-Mead in a normalised [0,1] space with clamping and 2 restarts. Speed: fit on the
+densest 8 s of the part; screen every template with ~60 renders, fully fit the best 2 (~350). Renders
+run in-process (no subprocess, no WAV round trip). CPU: at most 4 threads, low priority (DSP renders
+cannot run on the GPU; the GPU does separation). Validation: with a user DI, fit on the first 70 %
+and report the error on the last 30 %; with a synthetic DI, also report the error on any real DI given
+with `--validate-di`. Lesson from §13: a fit that only ever saw the synthetic DI can look perfect and
+generalise badly; always report a held-out number.
+
+### 14.3 YouTube (personal use)
+
+`tonelab.toml`:
+```toml
+[sources]
+youtube = true    # personal use of whoever clones the repo; false hides the link field and never imports yt-dlp
+[gpu]
+device = "cuda"   # "cpu" must be chosen explicitly: no silent fallback
+[paths]
+jobs = "~/.local/share/openpedal/tonelab/jobs"
+```
+`yt-dlp` is an optional dependency group (`uv sync --extra youtube`); the code lives only in
+`tonelab/sources/youtube.py`, imported lazily when enabled. Removing it = `youtube = false`, or delete
+that file and the extra. The README states that downloading from YouTube may break its Terms of
+Service and is meant for the user's own use. The server reports `youtube` in its capabilities, so the
+UI shows the link field only when enabled.
+
+### 14.4 Waves, branches, owners
+
+Worktrees under `~/Projects/openPedal-wt/<name>`, Conventional Commits, no shared files inside a wave.
+Opus: plan, review, merge, end-to-end check on Cryogen. Sonnet: design-heavy tasks. Haiku: fully specified tasks.
+
+| Wave | Branch | Model | Work | Owns |
+|---|---|---|---|---|
+| 1 | `feat/tonelab-py` | Sonnet | uv project (Python 3.12, torch 2.7.1+cu126 for the GTX 1060, demucs, librosa, soundfile, scipy; ffmpeg from nixpkgs), wrapper `tools/tonelab/tonelab` (sets `LD_LIBRARY_PATH` for NixOS), config loading, sources `file` + `youtube`, `fetch`, `separate`, `analyse`, CLI with `parts`/`synth-di` delegating to `transcribe.py`/`synth.py` | `tools/tonelab/**` except `tonelab/transcribe.py`, `tonelab/synth.py`, `tests/test_transcribe*.py`, `tests/test_synth*.py`; `.gitignore` |
+| 1 | `feat/tonelab-transcribe` | Sonnet | `transcribe.py`: `transcribe(target: np.ndarray, sr: int) -> list[Note]` (onsets + pYIN, notes below E2 moved up an octave and flagged); `synth.py`: `synth_di(notes, sr=48000, match_di: np.ndarray \| None) -> np.ndarray` (Karplus-Strong, pickup filter, FIR spectral match to the real DI, RMS -29.8 dBFS) | `tools/tonelab/tonelab/{transcribe,synth}.py`, their tests |
+| 1 | `feat/tonematch-core` | Sonnet | crate `tonematch`: features, cost, Nelder-Mead, template loading, in-process render via `openpedal-graph`, screening + full fit, hold-out, report; CLI `openpedal tone-match`; test: render a known preset on a synthetic DI, fit from its template, recover it within 2 dB | `crates/tonematch/**`, `Cargo.toml` (workspace member), `apps/desktop/src/main.rs` (subcommand only) |
+| 1 | `feat/tonematch-templates` | Haiku | the 6 templates + `.fit.toml` ranges (from the block param ranges in `crates/dsp/src/*.rs`), each must pass `openpedal check` | `content/tonematch/**` |
+| 2 | `feat/tonelab-server` | Sonnet | protocol v4: `tonelab_caps`, `tonelab_start { source }`, `tonelab_pick { job, part }`, `tonelab_fit { job, part, di }`, progress/result events, job list; server runs `tonelab` as a subprocess and the fit in a thread; regenerate types + fixtures | `crates/protocol/**`, `crates/server/**`, generated, fixtures |
+| 2 | `feat/tonelab-ui` | Sonnet | Tone Lab panel: source (file drop, link if enabled), section timeline coloured by kind, play the separated part, pick mid/left/right, record or synthesise the DI, run the fit with progress, A/B player, save preset; e2e test on the mock | `apps/desktop/ui/src/components/tonelab/**`, one entry point in the top bar |
+| 2 | `docs/tonelab` | Haiku | `tools/tonelab/README.md` (install, GPU, config, YouTube note), user guide in `docs/tonelab.md` | those files |
+| 3 | backlog | | detectors (delay, reverb, modulation), phaser block, true stereo for double-tracked parts, sending a fitted preset to the iPad over `ui --lan`, iPad Tone Lab client | |
+
+Wave 1 acceptance (Opus): end to end on `recordings/Cryogen.mp3`, riff part 8-28 s mid, synthetic DI
+matched to `recordings/plug-in-baby.wav`, validated on it: held-out error at most 6.5 dB (the hand-made
+fit reached 5.9 dB), and the chosen template is a fuzz one.
