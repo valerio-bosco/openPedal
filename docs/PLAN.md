@@ -624,3 +624,44 @@ real DI) the fit picks `fuzz-octave` (fuzz within 0.03 dB), error 1.89 dB, valid
 5.33 dB (hand-made fit 5.9), 76 s. Known gap: the low-note hint (`low_notes`) is now strict and empty
 on Cryogen: pYIN cannot tell the real 62 Hz octave from subharmonic locking in a separated stem. The
 fit does not depend on it (all templates are screened); a better detector is backlog.
+
+### 14.5 Wave 2 contract: protocol v4 and HTTP
+
+All messages are serde `tag = "type"`, snake_case, like the existing ones. `PROTOCOL_VERSION` 3 → 4.
+
+Client → server:
+
+| Message | Fields | Answer |
+|---|---|---|
+| `tonelab_caps` | | `tonelab_caps` |
+| `tonelab_jobs` | | `tonelab_jobs` |
+| `tonelab_start` | `source: String` (a URL, or a path returned by `POST /tonelab/upload`) | `tonelab_progress`..., then `tonelab_job` |
+| `tonelab_open` | `job: String` | `tonelab_job` |
+| `tonelab_pick` | `job, start: f32, end: f32, channel: "mid"\|"left"\|"right", label: String` | `tonelab_progress`..., `tonelab_job` |
+| `tonelab_record_di` | `job, part, seconds: f32` | records the live input into `parts/<part>/di-user.wav`, then `tonelab_job` |
+| `tonelab_fit` | `job, part` | `tonelab_progress`..., `tonelab_fit_result` |
+| `tonelab_save_preset` | `job, part, name` | saves the fitted preset to the library like `save_preset` (state broadcast) |
+| `tonelab_cancel` | `job` | stops the running step; `tonelab_progress` with `stage: "cancelled"` |
+
+Server → client:
+
+| Message | Fields |
+|---|---|
+| `tonelab_caps` | `available: bool, youtube: bool, device: String, reason: Option<String>` (available = the `tonelab` tool was found and runs) |
+| `tonelab_jobs` | `jobs: Vec<{ id, title, created, duration_s }>` |
+| `tonelab_progress` | `job, stage: "fetch"\|"separate"\|"analyse"\|"parts"\|"synth"\|"record"\|"fit"\|"cancelled", message: String, fraction: Option<f32>` |
+| `tonelab_job` | `job: { id, title, source_kind, duration_s, tempo_bpm: Option<f32>, key: Option<String>, sections: Vec<{ start, end, kind, guitar_db, corr }>, parts: Vec<{ id, label, start, end, channel, notes: u32, has_user_di, has_synth_di, fit: Option<{ template, error_db, holdout_error_db: Option<f32>, validate_error_db: Option<f32> }> }> }` |
+| `tonelab_fit_result` | `job, part, fit: { template, error_db, holdout_error_db, validate_error_db }, templates: Vec<{ template, error_db, renders, stage }>` |
+
+Errors use the existing `error` message. HTTP (same axum server): `GET /tonelab/file/{job}/{path}` serves a
+job's WAV files (`mix.wav`, `stems/guitar.wav`, `parts/<id>/target.wav`, `parts/<id>/fit/render.wav`, DIs;
+reject `..` and absolute paths), `POST /tonelab/upload` with the raw file as body and `X-Filename`
+header → `{ "path": "..." }` (saved under the jobs dir in `uploads/`).
+
+The server finds the tool at `tools/tonelab/bin/tonelab` (relative to the repo root it runs from) or
+`$OPENPEDAL_TONELAB`. It runs the Python steps as subprocesses (`tonelab caps --json` gives `youtube`,
+`device`, `jobs_dir`; steps print `PROGRESS <stage> <fraction|-> <message>` lines on stderr) and the fit
+in-process with `openpedal-tonematch` on a background thread. One job step at a time per job.
+After `tonelab_pick` the server also runs `synth-di` (matched to the most recent user DI in the jobs
+dir if any). The mock server answers the tonelab messages from fixtures so the UI can be tested
+without Python or a GPU.
