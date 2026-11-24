@@ -1,0 +1,15 @@
+[package]
+name = "openpedal-tonelab"
+version.workspace = true
+edition.workspace = true
+description = "Tone Lab in Rust: job folder, song analysis, pYIN transcription, synthetic DI"
+
+[dev-dependencies]
+openpedal-dsp.workspace = true
+
+[dependencies]
+openpedal-dsp.workspace = true
+anyhow.workspace = true
+rustfft.workspace = true
+serde.workspace = true
+serde_json.workspace = true
