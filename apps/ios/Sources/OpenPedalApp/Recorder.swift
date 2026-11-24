@@ -1,12 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Records the dry guitar (the channel AudioHost feeds to the core) to a WAV file.
-protocol AudioHostRecording {
-    /// Waits `countIn` seconds, then records `seconds` of the dry guitar into `url`
-    /// (float32 mono WAV, 48 kHz). The guitar keeps playing through the current preset.
-    func recordDI(to url: URL, seconds: Double, countIn: Double) async throws
-}
+// `AudioHostRecording` is declared in ToneLab/ToneLabSupport.swift; AudioHost conforms below.
 
 enum RecorderError: LocalizedError {
     case notRunning, busy, invalidDuration, writeFailed(String)

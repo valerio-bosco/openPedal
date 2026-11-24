@@ -1,8 +1,8 @@
 import AVFoundation
 import SwiftUI
 
-/// Recording of the dry guitar input, implemented by `AudioHost` (another branch).
-/// Writes `url` (WAV, guitar channel on the left) after `countIn` seconds and lasts `seconds`.
+/// Recording of the dry guitar input, implemented by `AudioHost` (Recorder.swift): waits `countIn`
+/// seconds, then records `seconds` of the dry guitar into `url` (float32 mono WAV, 48 kHz).
 @MainActor
 protocol AudioHostRecording: AnyObject {
     func recordDI(to url: URL, seconds: Double, countIn: Double) async throws

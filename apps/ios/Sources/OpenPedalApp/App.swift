@@ -27,7 +27,7 @@ struct OpenPedalApp: App {
             }
             .preferredColorScheme(.dark)
             // Tone Lab's "Record my take": AudioHost conforms once the recorder branch is merged.
-            .environment(\.audioHostRecording, host as AnyObject as? any AudioHostRecording)
+            .environment(\.audioHostRecording, host)
             .task { host.start() }
         }
     }
