@@ -1061,6 +1061,7 @@ dependencies = [
  "openpedal-engine",
  "openpedal-graph",
  "openpedal-library",
+ "openpedal-separate",
  "openpedal-server",
  "toml",
 ]

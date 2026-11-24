@@ -39,6 +39,11 @@ pub trait Separator: Send + Sync {
     ) -> Result<Stems>;
 }
 
+/// True when the C++ side is linked and reports an error (not a crash) for a missing weights file.
+pub fn linked() -> bool {
+    DemucsCpp::load(Path::new("/nonexistent/openpedal-linked-check")).is_err()
+}
+
 /// Demucs via demucs.cpp. Model input is 44.1 kHz stereo.
 pub struct DemucsCpp {
     model: *mut c_void,

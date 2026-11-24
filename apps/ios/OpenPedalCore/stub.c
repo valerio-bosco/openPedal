@@ -7,3 +7,9 @@
 #include "openpedal.h"
 float (*const openpedal_cxx_probe_keep)(int) = openpedal_cxx_probe;
 #endif
+
+// Cores built with OPENPEDAL_SEPARATE=1: keep a reference so the linker pulls in the Demucs code.
+#ifdef OPENPEDAL_SEPARATE
+#include "openpedal.h"
+int32_t (*const openpedal_separate_linked_keep)(void) = openpedal_separate_linked;
+#endif

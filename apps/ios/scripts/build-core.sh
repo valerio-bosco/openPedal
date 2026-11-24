@@ -12,7 +12,9 @@ target="${TARGET:-aarch64-apple-ios}"   # aarch64-apple-ios-sim for the Simulato
 # Opt-in spike (docs/spikes/ios-cxx.md): OPENPEDAL_CXX_PROBE=1 also compiles C++17 + Eigen into the
 # library. Needs the nix shell (clang, Eigen) and the xtool iPhoneOS SDK. Off by default.
 features=()
-if [ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ]; then
+# OPENPEDAL_SEPARATE=1 links the Demucs separation crate (openpedal-separate: demucs.cpp + Eigen with
+# Accelerate BLAS) into the core, through the ffi feature `separate`. Same toolchain needs as the probe.
+if [ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ] || [ "${OPENPEDAL_SEPARATE:-0}" = 1 ]; then
     sdkdir="${XDG_DATA_HOME:-$HOME/.local/share}/openpedal-xtool/.swiftpm/swift-sdks/darwin.artifactbundle/Developer/Platforms"
     case "$target" in
         *-sim) sdk="$sdkdir/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk"; triple="arm64-apple-ios17.0-simulator" ;;
@@ -27,15 +29,18 @@ if [ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ]; then
     export "CXX_${target//-/_}=$wrap"
     export "CXXFLAGS_${target//-/_}=-fno-lto -Wno-#warnings"
     export "AR_${target//-/_}=llvm-ar"   # BSD/Darwin archive format; GNU ar output is rejected by rustc
-    features=(--features openpedal-ffi/cxx-probe)
 fi
+[ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ] && features+=(--features openpedal-ffi/cxx-probe)
+[ "${OPENPEDAL_SEPARATE:-0}" = 1 ] && features+=(--features openpedal-ffi/separate)
 
 cargo build --manifest-path "$root/Cargo.toml" -p openpedal-ffi --release --target "$target" "${features[@]}"
 
 mkdir -p "$root/apps/ios/OpenPedalCore/lib"
 cp "$root/target/$target/release/libopenpedal.a" "$root/apps/ios/OpenPedalCore/lib/"
 rm -f "$root/apps/ios/OpenPedalCore/lib/.cxx-probe"
+rm -f "$root/apps/ios/OpenPedalCore/lib/.separate"
 [ "${OPENPEDAL_CXX_PROBE:-0}" = 1 ] && touch "$root/apps/ios/OpenPedalCore/lib/.cxx-probe"
+[ "${OPENPEDAL_SEPARATE:-0}" = 1 ] && touch "$root/apps/ios/OpenPedalCore/lib/.separate"
 
 # Bundled presets and pedals, copied by the app to its data dir on first launch.
 res="$root/apps/ios/Sources/OpenPedalApp/Resources"
