@@ -170,6 +170,13 @@ pub extern "C" fn openpedal_version() -> *const c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
 }
 
+/// Spike (feature `cxx-probe`): Eigen matrix product on a C++ thread, `2 * n * n` for n in 1..=64.
+#[cfg(feature = "cxx-probe")]
+#[no_mangle]
+pub extern "C" fn openpedal_cxx_probe(n: i32) -> f32 {
+    openpedal_cxx_probe::probe(n)
+}
+
 /// The port the UI server listens on (127.0.0.1), or 0 if `handle` is NULL.
 ///
 /// # Safety

@@ -1,0 +1,8 @@
+[package]
+name = "openpedal-cxx-probe"
+version.workspace = true
+edition.workspace = true
+description = "Spike: C++17 + Eigen compiled into the Rust core (docs/spikes/ios-cxx.md)"
+
+[build-dependencies]
+cc = "1"
