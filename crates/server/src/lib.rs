@@ -7,8 +7,13 @@
 mod app;
 mod assets;
 pub mod mock;
+#[cfg(feature = "native-tonelab")]
+mod native_adapter;
+mod native_backend;
 mod tonelab;
+mod tonelab_backend;
 pub mod tonelab_mock;
 
+pub use tonelab::{set_native_tonelab, NativeConfig};
 pub use app::{run, ServerOptions};
 pub use openpedal_engine::EngineHandle;

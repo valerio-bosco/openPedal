@@ -34,6 +34,9 @@ OpenPedal *openpedal_start2(float sample_rate, uint32_t max_frames, const char *
  * product on a C++ thread; returns 2*n*n for n in 1..64. */
 float openpedal_cxx_probe(int n);
 
+/* Demucs weights file for the native Tone Lab; call before openpedal_start*. */
+void openpedal_set_demucs_weights(const char *path);
+
 /* The core's version (e.g. "0.1.0"): static, never NULL, never freed. */
 const char *openpedal_version(void);
 

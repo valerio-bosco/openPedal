@@ -30,6 +30,8 @@ use openpedal_library::Library;
 use openpedal_engine::live::LiveEngine;
 use openpedal_server::{self as server, ServerOptions};
 
+static TONELAB_WEIGHTS: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
 /// Opaque handle returned by `openpedal_start`.
 pub struct OpenPedal {
     core: AudioCore,
@@ -96,6 +98,10 @@ fn start(sample_rate: f32, data_dir: &Path, factory_dir: Option<&Path>, port: u1
     let (engine, core) = Engine::new(plan, sample_rate, None);
     let live = LiveEngine::new(engine, map, graph, pedals, pedals_dir);
 
+    // Native Tone Lab (docs/PLAN.md §15) once the host gave the separation weights.
+    if let Some(weights) = TONELAB_WEIGHTS.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        server::set_native_tonelab(Some(server::NativeConfig { jobs_dir: data_dir.join("tonelab/jobs"), weights: Some(weights) }));
+    }
     let port = if port == 0 { free_port()? } else { port };
     let engine: Arc<dyn server::EngineHandle> = live.clone();
     let opts = ServerOptions { port, open_browser: false, lan: false, library };
@@ -162,6 +168,18 @@ pub unsafe extern "C" fn openpedal_start(sample_rate: c_float, max_frames: u32, 
 #[no_mangle]
 pub unsafe extern "C" fn openpedal_start2(sample_rate: c_float, max_frames: u32, data_dir: *const c_char, factory_dir: *const c_char, port: u16) -> *mut OpenPedal {
     start_from_c(sample_rate, max_frames, data_dir, factory_dir, port)
+}
+
+/// Weights file of the separation model (Demucs), for the native Tone Lab: call before
+/// `openpedal_start*`. With it set the core runs Tone Lab in process (jobs in
+/// `data_dir/tonelab/jobs`); the app writes `<job>/mix.wav` there and sends `tonelab_start`.
+///
+/// # Safety
+/// `path` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn openpedal_set_demucs_weights(path: *const c_char) {
+    let value = if path.is_null() { None } else { CStr::from_ptr(path).to_str().ok().map(std::path::PathBuf::from) };
+    *TONELAB_WEIGHTS.lock().unwrap_or_else(|e| e.into_inner()) = value;
 }
 
 /// The core's version (e.g. "0.1.0") as a static NUL-terminated string: never NULL, never freed.
